@@ -139,11 +139,13 @@ str_len_fmt = '>Q'
 filename_size = struct.calcsize(filename_fmt)
 fileinfo_size = struct.calcsize(fmt)
 str_len_size = struct.calcsize(str_len_fmt)
-log_dir = 'C:\ProgramData\logs'
-cert_dir = '.\\cert'
+log_dir = 'C:\\ProgramData\\logs'
+cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}\\cert'
+print(cert_dir)
 unit = 1024 * 1024  # 1MB
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
+# 获取当前脚本所在的目录
 
 server_port = 2023
 server_signal_port = 2021
