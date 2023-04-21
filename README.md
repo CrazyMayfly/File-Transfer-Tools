@@ -118,3 +118,17 @@ optional arguments:
 #### 运行截图
 
 <img src="assets/image-20230421180254963.png" alt="image-20230421180254963" style="zoom:70%;" />
+
+## 配置
+
+配置项在Utils.py中
+
+### 说明
+
+`log_dir`：日志存放位置
+`cert_dir`：证书存放位置
+`unit` ：数据发送单位
+
+`server_port`：服务器TCP侦听端口
+`server_signal_port`：服务器UDP侦听端口
+`client_signal_port`： 客户端UDP侦听端口
