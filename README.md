@@ -78,9 +78,11 @@ optional arguments:
 
 #### 运行截图
 
+以下均为运行在同一台主机上的截图。
+
 <img src="assets/image-20230421175852690.png" alt="image-20230421175852690" style="zoom:67%;" />
 
-<img src="assets/image-20230421174220808.png" alt="sysinfo效果（同一台主机展示）" style="zoom:67%;" />
+<img src="assets/image-20230421174220808.png" alt="sysinfo效果（同一台主机展示）" style="zoom:60%;" />
 
 <img src="assets/image-20230421175214141.png" alt="测试1GB数据量" style="zoom: 80%;" />
 
@@ -115,4 +117,4 @@ optional arguments:
 
 #### 运行截图
 
-<img src="assets/image-20230421180254963.png" alt="image-20230421180254963" style="zoom:80%;" />
+<img src="assets/image-20230421180254963.png" alt="image-20230421180254963" style="zoom:70%;" />
