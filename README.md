@@ -34,11 +34,43 @@ File Transfer Tools 包含FTS (File Transfer Server) ，FTC (File Transfer Clien
 
 ## 安装与运行
 
+### 使用Python解释器运行
+
 FTS占用2023，2021端口，FTC占用2022端口。其中2023端口作为FTS的tcp侦听端口，2021、2022作为服务器和客户端之间UDP传输接口。
 
 1. 将源代码克隆到你的项目位置
 2. 使用`pip install tqdm==4.65.0`安装tqdm
 3. 执行脚本
+
+#### 快捷执行方法
+
+以Windows为例，你可以将FTS、FTC的运行命令分别编写为批处理文件，然后将批处理文件的目录添加到你的环境变量中，这样你就可以通过简单的在命令行中键入`FTS`、`FTC`来使用默认的、最简单的命令来运行程序了。
+
+例如，你可以将下面命令写入文件`FTS.bat`中
+
+```powershell
+@echo off
+The dir to your Python interpreter\Scripts\python.exe The dir to your project\FTS.py %1 %2 %3 %4 %5 %6
+```
+
+将下面命令写入文件`FTC.bat`中
+
+```powershell
+@echo off
+The dir to your Python interpreter\Scripts\python.exe The dir to your project\FTC.py %1 %2 %3 %4 %5 %6
+```
+
+然后，将批处理文件夹添加到你的环境变量中，最后在你的终端中键入以下命令就可以快捷运行代码了
+
+```powershell
+FTC [-h] [-t thread] [-host host] [-p]
+或
+FTS [-h] [-d base_dir] [-p] [--avoid]
+```
+
+以上批处理文件中，`%1~%9`表示程序传入的参数（`%0`表示当前路径）
+
+
 
 ## 用法
 
@@ -131,3 +163,4 @@ optional arguments:
 `server_signal_port`：服务器UDP侦听端口</br>
 `client_signal_port`： 客户端UDP侦听端口</br>
 
+ 
