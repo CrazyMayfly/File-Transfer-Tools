@@ -50,14 +50,14 @@ FTS占用2023，2021端口，FTC占用2022端口。其中2023端口作为FTS的t
 
 ```powershell
 @echo off
-The dir to your Python interpreter\Scripts\python.exe The dir to your project\FTS.py %1 %2 %3 %4 %5 %6
+"The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTS.py %1 %2 %3 %4 %5 %6
 ```
 
 将下面命令写入文件`FTC.bat`中
 
 ```powershell
 @echo off
-The dir to your Python interpreter\Scripts\python.exe The dir to your project\FTC.py %1 %2 %3 %4 %5 %6
+"The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTC.py %1 %2 %3 %4 %5 %6
 ```
 
 然后，将批处理文件夹添加到你的环境变量中，最后在你的终端中键入以下命令就可以快捷运行代码了
