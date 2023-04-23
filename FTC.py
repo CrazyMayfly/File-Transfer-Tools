@@ -51,7 +51,7 @@ class FTC:
                     # 连接至服务器
                     s.connect((self.host, server_port))
                     # 将socket包装为securitySocket
-                    ss = context.wrap_socket(s, server_hostname='Server')
+                    ss = context.wrap_socket(s, server_hostname='FTS')
                     self.__conn_pool_ready.append(ss)
             else:
                 for i in range(0, self.threading_number):

@@ -141,7 +141,9 @@ fileinfo_size = struct.calcsize(fmt)
 str_len_size = struct.calcsize(str_len_fmt)
 log_dir = 'C:\\ProgramData\\logs'
 cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}\\cert'
-print(cert_dir)
+if not os.path.exists(cert_dir):
+    cert_dir = '.\\cert'
+
 unit = 1024 * 1024  # 1MB
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
