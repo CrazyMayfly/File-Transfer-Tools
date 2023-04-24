@@ -1,66 +1,87 @@
 # File Transfer Tools
-## 简介
+## Introduction
 
-File Transfer Tools 包含FTS (File Transfer Server) ，FTC (File Transfer Client) 两个组件，是轻量、快速、安全、多功能的跨设备文件传输脚本。
+`File Transfer Tools` contains two components: `FTS (File Transfer Server)` and `FTC (File Transfer Client)`. Is a **lightweight**,  **fast**,  **secure**, **versatile** cross-device file transfer script.
 
-### 功能
+### Function
 
-1. 文件传输
-  - 可传输单文件或者整个文件夹
-  - 安全性保障：加密传输（使用安全套接字层协议）、明文传输
-  - 正确性保障：通过Hash值校验文件的一致性，判断文件夹内所有文件是否都正确传输
-  - 进度条显示：实时显示文件传输进度、当前网络速率、剩余传输时长
-  - 同名文件新命名传输、避免重复传输、覆盖传输三种方式
-2. 命令行，可以便捷地在远端执行命令并实时返回结果，类似ssh
-3. 自动寻找服务主机，也可手动指定连接主机
-4. 文件夹比较，可显示两个文件夹中的文件的相同、差异等信息
-5. 查看客户端与服务端系统状态、信息
-6. 实时输出日志到控制台和文件中
-7. 网速测试
+1. File transfer
+- Single file or entire folder can be transferred
+- Security: encrypted transmission (using Secure Sockets Layer protocol) and plaintext transmission
+- Correctness guarantee: Verify file consistency using the Hash value to check whether all files in the folder are correctly transferred
+- Progress bar display: Displays the file transfer progress, current network rate, and remaining transfer duration in real time
+- Transfer a file with the same name using a new name, avoid duplicate transfer, or overwrite transfer
 
-### 特点
+2. Provide terminal function, which is similar to ssh, allows you to run commands remotely and return results in real time
 
-1. 打开、运行、响应速度快
-2. 可在局域网、公网等任意网络环境下使用，只要两台主机可以连通即可（可以ping通就行）
-3. 多线程传输，传输速度快，实测可以跑满1000Mbps带宽，由于设备限制，没有测试更高带宽
-4. 运行时内存占用小
-5. 即用即开，关闭不会残留进程
+3. Automatically search for a service host or manually specify a host to connect to
 
-### 如何选择
+4. Folder comparison displays information about the same and different files in two folders
 
-1. 如果你想要功能更强大的文件传输服务，请选择FTP服务器、客户端（如FileZilla、WinSCP等）
-2. 如果你想要稳定的文件同步和共享，推荐使用Resilio Sync、Syncthing等
-3. 如果你只是偶尔传输文件/不喜欢上述服务的后台存留、资源占用/不需要那么强大的服务/想要自己定制功能那请选择File Transfer Tools
+5. View the system status and information of the client and server
 
-## 安装与运行
+6. Output logs to the console and files in real time
 
-### 使用Python解释器运行
+7. Internet speed test
 
-FTS占用2023，2021端口，FTC占用2022端口。其中2023端口作为FTS的tcp侦听端口，2021、2022作为服务器和客户端之间UDP传输接口。
+ 
 
-1. 将源代码克隆到你的项目位置
-2. 使用`pip install tqdm==4.65.0`安装tqdm
-3. 执行脚本
+### characteristic
 
-#### 快捷执行方法
+1. Fast in launch, run, response speed.
 
-以Windows为例，你可以将FTS、FTC的运行命令分别编写为批处理文件，然后将批处理文件的目录添加到你的环境变量中，这样你就可以通过简单的在命令行中键入`FTS`、`FTC`来使用默认的、最简单的命令来运行程序了。
+2. Can be used in any network environment such as LAN, the Internet, as long as two hosts can be connected (`ping` is effective).
 
-例如，你可以将下面命令写入文件`FTS.bat`中
+3. Multi-threaded transmission with fast transmission speed, measured can run 1000 Mbps bandwidth, due to equipment limitations, no higher bandwidth be tested.
+
+4. Small memory usage during running.
+
+5. You can launch it immediately  when you want to use, and after close it there are no  residual processes.
+
+ 
+
+### How to Choose
+
+1. If you want a more powerful file transfer service, choose an FTP server (such as `FileZilla`, `WinSCP`, etc.)
+2. If you want stable file synchronization and sharing, recommend using `Resilio Sync`, `Syncthing`, etc
+3. If you only Transfer files **occasionally** and don't like the memory background residue and more resource usage of the above services, or don't need so powerful services, or want to **customize** the function then please select `File Transfer Tools`.
+
+## Installation and Operation
+
+`FTS` occupies ports 2023,2021, and `FTC` occupies ports 2022. Ports 2023 serve as TCP listening ports of `FTS`, and 2021 and 2022 serve as UDP transmission interfaces between the server and client. You can change them in the `Untils.py` mentioned at the end of the introduction.
+
+### Download the executable program
+
+1. Click the `Release` on the right
+2. Download `File Transfer Tools.zip`
+3. Unpacking the folder and double-click `FTC.exe` or `FTS.exe` to run it
+4. Or run the program in the terminal to use the parameters, for example `.\FTC.exe [-h] [-t thread] [-host host] [-p]`
+
+### Run with the Python interpreter
+
+1. Clone the source code to your project location
+2. Run the `pip install tqdm==4.65.0` command to install `tqdm`
+3. Execute the script using your python interpreter such as `"The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTS.py`
+
+#### Quick execution method
+
+Taking Windows as an example, you can write the `FTS` and `FTC` run commands as batch files, and then add the batch file directories to your environment variables. In this way, you can simply type `FTS` and `FTC` in the terminal to run the program using the default, simplest command.
+
+For example, you can write the following command to the file `FTS.bat`
 
 ```powershell
 @echo off
 "The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTS.py %1 %2 %3 %4 %5 %6
 ```
 
-将下面命令写入文件`FTC.bat`中
+Write the following command to the file `FTC.bat`
 
 ```powershell
 @echo off
 "The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTC.py %1 %2 %3 %4 %5 %6
 ```
 
-然后，将批处理文件夹添加到你的环境变量中，最后在你的终端中键入以下命令就可以快捷运行代码了
+Then, add the folder where the batch files are located to your environment variables, and finally type the following command in your terminal to run the script quickly.
 
 ```powershell
 FTC [-h] [-t thread] [-host host] [-p]
@@ -68,15 +89,15 @@ FTC [-h] [-t thread] [-host host] [-p]
 FTS [-h] [-d base_dir] [-p] [--avoid]
 ```
 
-以上批处理文件中，`%1~%9`表示程序传入的参数（`%0`表示当前路径）
+In the above batch file, %1~%9 indicates the parameters passed by the program (where %0 indicates the current path).
 
 
 
-## 用法
+## Usage
 
 ### FTC
 
-FTC是文件发送端，指令发送端，用于发送文件和指令。
+FTC is the file sending end, instruction sending end, used to send files and instructions.
 
 ```
 usage: FTC.py [-h] [-t thread] [-host host] [-p]
@@ -90,27 +111,27 @@ optional arguments:
   -p, --plaintext  Use plaintext transfer (default: use ssl)
 ```
 
-#### 参数说明
+#### Parameters
 
-`-t`: 指定线程数，默认为3个线程。
+`-t`: Specifies the number of threads. Default 3.
 
-`-host`: 显式指定接收端主机（可使用hostname或者ip地址），不使用此选项时，客户端自动寻找**同一子网**下的服务器
+`-host`: Specify the receiver host explicitly (`hostname` or `ip address` can be used). If this option is not used, the client automatically searches for the server on the **same subnet**.
 
-`-p`: 配合`-host` 使用，由于双方会自动交换信息，所以一般不需要指定，只有在双方无法正常连接时才需要显式指定。
+`-p`: This parameter is used with `-host`. Because the two ends automatically exchange information, you do not need to specify this parameter in normal circumstances. You just need to do it explicitly only when the two ends cannot connect to each other in normal and exchange their information.
 
-#### 命令说明
+#### Commands description
 
-正常连接后，输入指令
+Once connected, enter instructions
 
-1. 输入文件（夹）路径，则执行发送文件
-2. 输入`sysinfo`，则会显示双方的系统信息
-3. 输入`speedtest n`，则会测试网速，其中n为本次测试的数据量，单位MB。注意，在**计网**中，1 GB = 1000 MB = 1000000 KB.
-4. 输入`compare local_dir dest_dir`来比较本机文件夹和服务器文件夹差别。
-5. 输入其他内容时作为指令执行，并且实时返回结果。
+1. Enter the `file (folder) path` to send the file (folder).
+2. Enter `sysinfo` to display the system information of the two ends.
+3. Enter `speedtest n` to test the network speed, where `n` is the data amount of the test (unit: MB). Note that in the **computer network**, 1 GB = 1000 MB = 1000000 KB.
+4. Enter` compare local_dir dest_dir` to compare the local folder and server folder.
+5. Input other content as the command execution, and real-time return results.
 
-#### 运行截图
+#### Screenshots of the runtime
 
-以下均为运行在同一台主机上的截图。
+The following are screenshots running on the same host.
 
 <img src="assets/image-20230421175852690.png" alt="image-20230421175852690" style="zoom:67%;" />
 
@@ -124,7 +145,7 @@ optional arguments:
 
 ### FTS
 
-FTS是文件接收端，服务器端，用于接收并存储文件，执行客户端发来的指令。
+`FTS` is a file receiving end and a server end, which is used to receive and store files and execute instructions sent by clients.
 
 ```
 usage: FTS.py [-h] [-d base_dir] [-p] [--avoid]
@@ -139,28 +160,28 @@ optional arguments:
   --avoid               Do not continue the transfer when the file name is repeated.
 ```
 
-#### 参数说明
+#### Parameters
 
-`-d, --dest`: 指定文件 存储位置，若不指定则存放到当前用户的**桌面**。
+`-d, --dest`: Specify where files to be located. Default is the current user's **desktop**.
 
-`-p`: 指定明文传输，默认使用ssl加密传输。若你当前没有签名证书，请指定明文传输。**为了确保安全性，请使用自己的自签名证书。**
+`-p`: Specifies plaintext transmission. SSL encryption is used by default. If you do not currently have a signed certificate, specify plaintext transmission. **To ensure security, use your own self-signed certificate.**
 
-`--avoid`：开启时，如果目录下已经有同名文件，分两种情况，若接收端的文件大小大于等于发送端则**阻止**该文件的传输，否则接收并**覆写**该文件；此功能主要用于一次传输大量文件被中断后的重传，类似断点重传，其他情况请**谨慎使用**。未开启时，如果存在的文件名为`a.txt`，则传输过来的文件会按照 `a (1).txt`、`a (2).txt`依次命名。
+`--avoid`：When this option is open, If the file with the same name already exists in the directory, there are two cases: If the size of the file on the receiving end is greater than or equal to that on the sending end, transmission of the file will be **prevented**; otherwise, the file is received and **overwritten**. This function is mainly used for retransmission of a large number of files that are interrupted at a time. It is similar to breakpoint retransmission. In other situations, please **use this function with caution**. When this function is not enabled, if the file name is `a.txt`, the transferred files are named after `a (1).txt` and `a (2).txt` and so on.
 
-#### 运行截图
+#### Screenshots of the runtime
 
 <img src="assets/image-20230421180254963.png" alt="image-20230421180254963" style="zoom:70%;" />
 
-## 配置
+## Configuration
 
-配置项在Utils.py中
+The configuration items are in `Utils.py`
 
-`log_dir`：日志存放位置</br>
-`cert_dir`：证书存放位置</br>
-`unit` ：数据发送单位</br>
+`log_dir`：Log storage location</br>
+`cert_dir`：Certificate deposit location</br>
+`unit` ：Data sending unit</br>
 
-`server_port`：服务器TCP侦听端口</br>
-`server_signal_port`：服务器UDP侦听端口</br>
-`client_signal_port`： 客户端UDP侦听端口</br>
+`server_port`：TCP listening port of the server</br>
+`server_signal_port`：UDP listening port of the server</br>
+`client_signal_port`：UDP listening port of the client</br>
 
  
