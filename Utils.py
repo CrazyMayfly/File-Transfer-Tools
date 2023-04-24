@@ -143,11 +143,9 @@ log_dir = 'C:\\ProgramData\\logs'
 cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}\\cert'
 if not os.path.exists(cert_dir):
     cert_dir = '.\\cert'
-
 unit = 1024 * 1024  # 1MB
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
-# 获取当前脚本所在的目录
 
 server_port = 2023
 server_signal_port = 2021

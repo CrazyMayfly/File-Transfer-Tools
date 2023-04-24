@@ -43,12 +43,11 @@ class FTS:
 
     def _log(self, msg, color='white', highlight=0):
         msg = get_log_msg(msg)
+        level = 'INFO'
         if color == 'yellow':
             level = 'WARNING'
-        elif color == 'red':
+        if color == 'red':
             level = 'ERROR'
-        else:
-            level = 'INFO'
         with self.__log_lock:
             print_color(msg=msg, color=color, highlight=highlight)
             self.__log_line += 1

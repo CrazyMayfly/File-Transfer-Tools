@@ -125,15 +125,14 @@ class FTC:
 
     def log(self, msg, color='white', highlight=0):
         msg = get_log_msg(msg)
-        self.__log_lock.acquire()
-        print_color(msg=msg, color=color, highlight=highlight)
         level = 'INFO'
         if color == 'yellow':
             level = 'WARNING'
         if color == 'red':
             level = 'ERROR'
-        self.__log_file.write('[{}] {}\n'.format(level, msg))
-        self.__log_lock.release()
+        with self.__log_lock:
+            print_color(msg=msg, color=color, highlight=highlight)
+            self.__log_file.write('[{}] {}\n'.format(level, msg))
 
     def close_connection(self):
         self.log('关闭线程池', 'blue')
