@@ -465,6 +465,10 @@ class FTC:
 
 
 if __name__ == '__main__':
+    # 解决win10的cmd中直接使用转义序列失效问题
+    os.system("")
+
+    # 添加命令行参数
     parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files.')
     parser.add_argument('-t', metavar='thread', type=int,
                         help='threading number (default: 3)', default=3)
@@ -473,6 +477,8 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
     args = parser.parse_args()
+
+    # 启动FTC服务
     ftc = FTC(thread_num=args.t, host=args.host, use_ssl=not args.plaintext)
     ftc.probe_server(1)
     ftc.connect()
