@@ -47,12 +47,17 @@ class FTC:
                 # 加载信任根证书
                 context.load_verify_locations(os.path.join(cert_dir, 'ca.crt'))
                 for i in range(0, self.threading_number):
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    # 连接至服务器
-                    s.connect((self.host, server_port))
-                    # 将socket包装为securitySocket
-                    ss = context.wrap_socket(s, server_hostname='FTS')
-                    self.__conn_pool_ready.append(ss)
+                    try:
+                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        # 连接至服务器
+                        s.connect((self.host, server_port))
+                        # 将socket包装为securitySocket
+                        ss = context.wrap_socket(s, server_hostname='FTS')
+                        # ss = context.wrap_socket(s, server_hostname='Server')
+                        self.__conn_pool_ready.append(ss)
+                    except ssl.SSLError as e:
+                        self.log('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), 'red',highlight=1)
+                        sys.exit(-1)
             else:
                 for i in range(0, self.threading_number):
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -121,7 +126,7 @@ class FTC:
             if hostname in all_ip:
                 self.__use_ssl = ip_list.get(ip)
             else:
-                self.__use_ssl = input('开启 SSL(y/n)? ') == 'y'
+                self.__use_ssl = input('开启 SSL(y/n)? ').lower() == 'y'
 
     def log(self, msg, color='white', highlight=0):
         msg = get_log_msg(msg)

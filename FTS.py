@@ -119,9 +119,13 @@ class FTS:
                                     os.path.join(cert_dir, 'server_rsa_private.pem'))
             with context.wrap_socket(s, server_side=True) as ss:
                 while True:
-                    conn, addr = ss.accept()
-                    t = threading.Thread(target=self._deal_data, args=(conn, addr))
-                    t.start()
+                    try:
+                        conn, addr = ss.accept()
+                        t = threading.Thread(target=self._deal_data, args=(conn, addr))
+                        t.start()
+                    except ssl.SSLError as e:
+                        self._log(f'SSLError: {e.reason}', color='yellow')
+
         else:
             while True:
                 conn, addr = s.accept()
