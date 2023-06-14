@@ -24,6 +24,7 @@ def get_size(bytes, factor=1024, suffix="B"):
             return f"{bytes:.2f}{data_unit}{suffix}"
         bytes /= factor
 
+
 def get_net_io():
     net_io_before = psutil.net_io_counters()
     time.sleep(1)
@@ -34,6 +35,16 @@ def get_net_io():
 
 def get_cpu_percent():
     return f"{psutil.cpu_percent(interval=1)} %"
+
+
+def get_disk_io():
+    disk_io_before = psutil.disk_io_counters()
+    time.sleep(1)
+    disk_io_now = psutil.disk_io_counters()
+    return {"read_count": f'{disk_io_now.read_count - disk_io_before.read_count}次/s',
+            "write_count": f'{disk_io_now.write_count - disk_io_before.write_count}次/s',
+            "read_bytes": f'{get_size(disk_io_now.read_bytes - disk_io_before.read_bytes)}/s',
+            "write_bytes": f'{get_size(disk_io_now.write_bytes - disk_io_before.write_bytes)}/s'}
 
 
 class MyThread(Thread):
@@ -58,16 +69,29 @@ def get_sys_info():
     used = str(round(memory.used / (1024.0 * 1024.0 * 1024.0), 2)) + 'GB'
     total = str(round(memory.total / (1024.0 * 1024.0 * 1024.0), 2)) + 'GB'
     memory_use_percent = str(memory.percent) + ' %'
+    # 系统电池使用情况
     battery = psutil.sensors_battery()
+    # 系统硬盘使用情况
+    disks = []
+    for disk_partition in psutil.disk_partitions():
+        usage = psutil.disk_usage(disk_partition.mountpoint)
+        disk_info = {'device': disk_partition.device.rstrip('\\'), 'fstype': disk_partition.fstype,
+                     'total': get_size(usage.total), 'free': get_size(usage.free), 'percent': f'{usage.percent}%'}
+        disks.append(disk_info)
+    # 异步获取cpu、网络、硬盘的io
     t1 = MyThread(get_net_io, args=())
     t2 = MyThread(get_cpu_percent, args=())
+    t3 = MyThread(get_disk_io, args=())
     t1.start()
     t2.start()
+    t3.start()
     t1.join()
     t2.join()
+    t3.join()
     net_io = t1.get_result()
     cpu_percent = t2.get_result()
-
+    disk_io = t3.get_result()
+    # 整合信息
     info = {
         "user": {"username": username, 'host': host},
         "system": {"platform": platform.system(), "version": platform.version(),
@@ -79,7 +103,8 @@ def get_sys_info():
                 "manufacturer": platform.machine(),
                 "frequency": str(round(psutil.cpu_freq().current / 1000, 2)) + "Ghz"},
         "memory": {"used": used, "total": total, "percentage": memory_use_percent},
-        "network": net_io
+        "network": net_io,
+        "disks": {'info': disks, 'io': disk_io}
     }
     if battery:
         if battery.secsleft == -1:
@@ -103,13 +128,20 @@ def print_sysinfo(info):
     memory = info['memory']
     network = info['network']
     battery = info['battery']
+    disks = info['disks']
+    disks_io = disks['io']
     print(f"用户: {user['username']}, 主机: {user['host']} 的系统信息如下: ")
     print(f"\t系统信息 : {system['platform']} {system['version']} {system['architecture']}")
     print(f"\t运行时间 : {info['boot time']}")
     print(
-        f"\t处理器  : 利用率:{cpu['percentage']} {cpu['manufacturer']} {cpu['count']}核 {cpu['logic_count']}线程 {cpu['frequency']} {cpu['info']}")
+        f"\t处理器  : 利用率:{cpu['percentage']} \n\t\t\t {cpu['manufacturer']} {cpu['count']}核 {cpu['logic_count']}线程 {cpu['frequency']} {cpu['info']}")
     print(f"\t内存    : {memory['used']}/{memory['total']} 利用率:{memory['percentage']}")
     print(f"\t网络    : {network['download']}⬇ {network['upload']}⬆")
+    print(
+        f"\t硬盘    : 读命中 {disks_io['read_count']} 写命中 {disks_io['write_count']} 读取速度 {disks_io['read_bytes']} 写入速度 {disks_io['write_bytes']}")
+    for disk in disks['info']:
+        print(
+            f"\t\t\t {disk['device']} 可用 {disk['free']:9}，共{disk['total']:9} 已使用 {disk['percent']} 类型 {disk['fstype']}")
     if battery:
         print(
             f"\t电池    : 当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}")
