@@ -3,7 +3,6 @@ import random
 import secrets
 import socket
 import ssl
-import sys
 from multiprocessing.pool import ThreadPool
 
 from tqdm import tqdm
@@ -56,7 +55,7 @@ class FTC:
                         # ss = context.wrap_socket(s, server_hostname='Server')
                         self.__conn_pool_ready.append(ss)
                     except ssl.SSLError as e:
-                        self.log('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), 'red',highlight=1)
+                        self.log('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), 'red', highlight=1)
                         sys.exit(-1)
             else:
                 for i in range(0, self.threading_number):
@@ -227,52 +226,56 @@ class FTC:
         while True:
             tips = '请输入命令：'
             command = input(tips)
-            if command == 'q' or command == 'quit' or command == 'exit':
-                self.close_connection()
-                return
-            elif os.path.isdir(command) and os.path.exists(command):
-                self._send_files_in_dir(command)
-            elif os.path.isfile(command) and os.path.exists(command):
-                self._send_single_file(command)
-            elif command == "sysinfo":
-                self._compare_sysinfo()
-            elif command.startswith('speedtest'):
-                times = command[10:]
-                while not (times.isdigit() and int(times)) > 0:
-                    times = input("请重新输入数据量（单位MB）：")
-                self._speedtest(times=int(times))
-            elif command.startswith("compare"):
-                # 该算法仅适用于windows
-                dirname_splits = command[8:].split(" ")
-                i = -1
-                for split in dirname_splits:
-                    i += 1
-                    if i > 0 and len(split) > 1 and split[1] == ":":
-                        break
-                local_dir = " ".join(dirname_splits[0:i])
-                dest_dir = " ".join(dirname_splits[i:])
-                self._compare_dir(local_dir, dest_dir)
-            # elif command.startswith("get"):
-            #     file_store_location = os.path.expanduser("~\Desktop")
-            #     dirname_splits = command[4:].split(" ")
-            #     has_2nd_arg = False
-            #     i = -1
-            #     for split in dirname_splits:
-            #         i += 1
-            #         if i > 0 and len(split) > 1 and split[1] == ":":
-            #             has_2nd_arg = True
-            #             break
-            #     if has_2nd_arg:
-            #         dest_resource = " ".join(dirname_splits[0:i])
-            #         file_store_location = " ".join(dirname_splits[i:])
-            #     else:
-            #         dest_resource = " ".join(dirname_splits[0:])
-            #     print("dest_resource: " + dest_resource)
-            #     print("file_store_location: " + file_store_location)
-            #     self._get_resources(dest_resource, file_store_location)
+            try:
+                if command == 'q' or command == 'quit' or command == 'exit':
+                    self.close_connection()
+                    return
+                elif os.path.isdir(command) and os.path.exists(command):
+                    self._send_files_in_dir(command)
+                elif os.path.isfile(command) and os.path.exists(command):
+                    self._send_single_file(command)
+                elif command == "sysinfo":
+                    self._compare_sysinfo()
+                elif command.startswith('speedtest'):
+                    times = command[10:]
+                    while not (times.isdigit() and int(times)) > 0:
+                        times = input("请重新输入数据量（单位MB）：")
+                    self._speedtest(times=int(times))
+                elif command.startswith("compare"):
+                    # 该算法仅适用于windows
+                    dirname_splits = command[8:].split(" ")
+                    i = -1
+                    for split in dirname_splits:
+                        i += 1
+                        if i > 0 and len(split) > 1 and split[1] == ":":
+                            break
+                    local_dir = " ".join(dirname_splits[0:i])
+                    dest_dir = " ".join(dirname_splits[i:])
+                    self._compare_dir(local_dir, dest_dir)
+                # elif command.startswith("get"):
+                #     file_store_location = os.path.expanduser("~\Desktop")
+                #     dirname_splits = command[4:].split(" ")
+                #     has_2nd_arg = False
+                #     i = -1
+                #     for split in dirname_splits:
+                #         i += 1
+                #         if i > 0 and len(split) > 1 and split[1] == ":":
+                #             has_2nd_arg = True
+                #             break
+                #     if has_2nd_arg:
+                #         dest_resource = " ".join(dirname_splits[0:i])
+                #         file_store_location = " ".join(dirname_splits[i:])
+                #     else:
+                #         dest_resource = " ".join(dirname_splits[0:])
+                #     print("dest_resource: " + dest_resource)
+                #     print("file_store_location: " + file_store_location)
+                #     self._get_resources(dest_resource, file_store_location)
 
-            else:
-                self._execute_command(command)
+                else:
+                    self._execute_command(command)
+            except ConnectionResetError as e:
+                self.log(e.strerror, color='red', highlight=1)
+                sys.exit(-1)
 
     def _send_files_in_dir(self, filepath):
         # 每次发送文件夹时将进度条位置初始化

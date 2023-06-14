@@ -58,28 +58,32 @@ class FTS:
     def _deal_data(self, conn, addr):
         self._log('客户端连接 {0}'.format(addr), 'blue')
         while True:
-            filehead = receive_data(conn, fileinfo_size)
-            if filehead:
-                filename, command, filesize = struct.unpack(fmt, filehead)
-                filename = filename.decode('UTF-8').strip('\00')
-                command = command.decode().strip('\00')
-                if command == SEND_DIR:
-                    # 处理文件夹
-                    cur_dir = os.path.join(self.base_dir, filename)
-                    if not os.path.exists(cur_dir):
-                        os.makedirs(cur_dir)
-                        self._log('创建文件夹 {0}'.format(cur_dir))
-                elif command == SEND_FILE:
-                    if self._recv_file(conn, filename, filesize, addr):
-                        return
-                elif command == COMPARE_DIR:
-                    self._compare_dir(conn, filename)
-                elif command == COMMAND:
-                    self._execute_command(conn, filename)
-                elif command == SYSINFO:
-                    self._compare_sysinfo(conn)
-                elif command == SPEEDTEST:
-                    self._speedtest(conn, filesize)
+            try:
+                filehead = receive_data(conn, fileinfo_size)
+                if filehead:
+                    filename, command, filesize = struct.unpack(fmt, filehead)
+                    filename = filename.decode('UTF-8').strip('\00')
+                    command = command.decode().strip('\00')
+                    if command == SEND_DIR:
+                        # 处理文件夹
+                        cur_dir = os.path.join(self.base_dir, filename)
+                        if not os.path.exists(cur_dir):
+                            os.makedirs(cur_dir)
+                            self._log('创建文件夹 {0}'.format(cur_dir))
+                    elif command == SEND_FILE:
+                        if self._recv_file(conn, filename, filesize, addr):
+                            return
+                    elif command == COMPARE_DIR:
+                        self._compare_dir(conn, filename)
+                    elif command == COMMAND:
+                        self._execute_command(conn, filename)
+                    elif command == SYSINFO:
+                        self._compare_sysinfo(conn)
+                    elif command == SPEEDTEST:
+                        self._speedtest(conn, filesize)
+            except ConnectionResetError as e:
+                self._log(f'{e.strerror} {addr}', color='yellow')
+                break
 
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
