@@ -3,6 +3,7 @@ import random
 import secrets
 import socket
 import ssl
+import sys
 from multiprocessing.pool import ThreadPool
 
 from tqdm import tqdm
@@ -424,8 +425,10 @@ class FTC:
         self._return_connection(conn)
 
     def _execute_command(self, command):
-        # 防止命令为空时将输出端交给服务器
-        if len(command.strip()) == 0:
+        command = command.strip()
+        # 防止命令将输入端交给服务器
+        if len(command) == 0 or command.startswith('cmd') or command == 'powershell':
+            self.log('请不要将输入端交给服务器！', color='yellow')
             return
         command = command.encode("UTF-8")
         if len(command) > filename_size:
