@@ -49,7 +49,7 @@
 ### 使用Python解释器运行
 
 1. 将源代码克隆到你的项目位置
-2. 使用`pip install tqdm==4.65.0`安装tqdm
+2. 使用`pip install -r requirements.txt`安装所有依赖项
 3. 使用你的python解释器执行脚本
 
 #### 快捷执行方法
@@ -172,5 +172,3 @@ optional arguments:
 `server_port`：服务器 TCP 侦听端口</br>
 `server_signal_port`：服务器 UDP 侦听端口</br>
 `client_signal_port`：客户端 UDP 侦听端口</br>
-
- 

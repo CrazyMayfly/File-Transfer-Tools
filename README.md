@@ -60,7 +60,7 @@
 ### Run with the Python interpreter
 
 1. Clone the source code to your project location
-2. Run the `pip install tqdm==4.65.0` command to install `tqdm`
+2. Run the `pip install -r requirements.txt` command to install all dependencies.
 3. Execute the script using your python interpreter such as `"The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTS.py`
 
 #### Quick execution method

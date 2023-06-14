@@ -51,7 +51,7 @@
 ### 使用Python解釋器運行
 
 1. 將源代碼克隆到你的項目位置
-2. 使用`pip install tqdm==4.65.0`安裝tqdm
+2. 使用`pip install -r requirements.txt`安裝所有依賴項
 3. 使用你的python解釋器執行腳本
 
 #### 快捷執行方法
@@ -175,4 +175,3 @@ optional arguments:
 `server_signal_port`：服務器 UDP 偵聽端口</br>
 `client_signal_port`：客戶端 UDP 偵聽端口</br>
 
- 
