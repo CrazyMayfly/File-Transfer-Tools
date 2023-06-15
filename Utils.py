@@ -2,8 +2,12 @@ import hashlib
 import json
 import os
 import struct
+import sys
 import threading
 from datetime import datetime
+
+# 解决win10的cmd中直接使用转义序列失效问题
+os.system("")
 
 
 def crypt(bytes, key, num=1024):
@@ -143,6 +147,17 @@ log_dir = 'C:\\ProgramData\\logs'
 cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}\\cert'
 if not os.path.exists(cert_dir):
     cert_dir = '.\\cert'
+# 打包变量，用于将程序打包为exe后防止直接退出控制台
+packaging = False
+if not os.path.exists(cert_dir):
+    print_color(
+        '未找到证书文件，请将证书文件放置于程序运行目录下的"/cert"文件夹中。\n'
+        'The certificate file was not found, \n'
+        'please place the certificate file in the "/cert" folder in the program run directory.\n',
+        color='red', highlight=1)
+    if packaging:
+        input('请按任意键继续. . .')
+    sys.exit(-2)
 unit = 1024 * 1024  # 1MB
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)

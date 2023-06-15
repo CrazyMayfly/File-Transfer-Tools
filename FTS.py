@@ -246,9 +246,6 @@ class FTS:
 
 
 if __name__ == '__main__':
-    # 解决win10的cmd中直接使用转义序列失效问题
-    os.system("")
-
     # base_dir = input('请输入文件保存位置（输入1默认为桌面）：')
     parser = argparse.ArgumentParser(description='File Transfer Server, used to RECEIVE files.')
     desktop = os.path.expanduser("~\Desktop")
@@ -269,3 +266,5 @@ if __name__ == '__main__':
 
     fts = FTS(base_dir, not args.plaintext, args.avoid)
     fts.main()
+    if packaging:
+        input('请按任意键继续. . .')

@@ -3,7 +3,6 @@ import random
 import secrets
 import socket
 import ssl
-import sys
 from multiprocessing.pool import ThreadPool
 
 from tqdm import tqdm
@@ -273,6 +272,8 @@ class FTC:
                     self._execute_command(command)
             except ConnectionResetError as e:
                 self.log(e.strerror, color='red', highlight=1)
+                if packaging:
+                    input('请按任意键继续. . .')
                 sys.exit(-1)
 
     def _send_files_in_dir(self, filepath):
@@ -478,9 +479,6 @@ class FTC:
 
 
 if __name__ == '__main__':
-    # 解决win10的cmd中直接使用转义序列失效问题
-    os.system("")
-
     # 添加命令行参数
     parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files.')
     parser.add_argument('-t', metavar='thread', type=int,
@@ -502,3 +500,5 @@ if __name__ == '__main__':
     #     print(e)
     #     # ftc.log('中断与服务器的文件传输', 'yellow')
     #     ftc.close_connection()
+    if packaging:
+        input('请按任意键继续. . .')
