@@ -10,9 +10,9 @@ from sys_info import *
 
 class FTS:
     def __init__(self, base_dir, ssl, avoid):
-        log_file = os.path.join(log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log')
-        print('本次日志文件存放位置为: ' + log_file)
-        self.__log_file = open(log_file, 'a', encoding='utf-8')
+        log_file_path = os.path.join(log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log')
+        print('本次日志文件存放位置为: ' + log_file_path)
+        self.__log_file = open(log_file_path, 'a', encoding='utf-8')
         self.__log_lock = threading.Lock()
         self.ip = ''
         self.base_dir = base_dir
@@ -84,6 +84,10 @@ class FTS:
             except ConnectionResetError as e:
                 self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
                 break
+            finally:
+                # 每执行完一个操作写入日志文件
+                with self.__log_lock:
+                    self.__log_file.flush()
 
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
@@ -114,6 +118,8 @@ class FTS:
             self._log('当前数据未进行加密传输', color='yellow')
         self._log('服务器 {0}({1}) 已启动，等待连接...'.format(host, self.ip))
         self._log('当前默认文件存放位置为：' + self.base_dir)
+        with self.__log_lock:
+            self.__log_file.flush()
         threading.Thread(target=self._signal_online).start()
         if self.__use_ssl:
             # 生成SSL上下文
@@ -248,9 +254,9 @@ class FTS:
 if __name__ == '__main__':
     # base_dir = input('请输入文件保存位置（输入1默认为桌面）：')
     parser = argparse.ArgumentParser(description='File Transfer Server, used to RECEIVE files.')
-    desktop = os.path.expanduser("~\Desktop")
+    default_path = os.path.expanduser("~\Desktop")
     parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
-                        help='File storage location (default: {})'.format(desktop), default=desktop)
+                        help='File storage location (default: {})'.format(default_path), default=default_path)
     parser.add_argument('-p', '--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
     parser.add_argument('--avoid', action='store_true',
