@@ -82,7 +82,7 @@ class FTS:
                     elif command == SPEEDTEST:
                         self._speedtest(conn, filesize)
             except ConnectionResetError as e:
-                self._log(f'{e.strerror} {addr}', color='yellow')
+                self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
                 break
 
     def _signal_online(self):
@@ -187,7 +187,7 @@ class FTS:
     def _compare_dir(self, conn, dirname):
         self._log(f"客户端请求对比文件夹：{dirname}")
         if os.path.exists(dirname):
-            conn.send("dir is correct".encode())
+            conn.send(DIRISCORRECT.encode())
             # 将数组拼接成字符串发送到客户端
             relative_filename = json.dumps(get_relative_filename_from_basedir(dirname), ensure_ascii=True).encode()
             # 先发送字符串的大小
@@ -213,13 +213,14 @@ class FTS:
             else:
                 self._log("不继续比对Hash")
         else:
-            conn.send("dir not exits!".encode())
+            conn.send(b'\00' * len(DIRISCORRECT))
 
     def _execute_command(self, conn, command):
         self._log("执行命令：" + command)
         result = os.popen("powershell " + command)
         s = result.read(1)
         while s:
+            # UTF-32 为定宽字符编码
             conn.send(s.encode("UTF-32"))
             print(s, end='')
             s = result.read(1)

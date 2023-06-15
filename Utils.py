@@ -132,7 +132,7 @@ GET = 'get'
 # 其他常量
 CONTINUE = 'continue'
 CANCEL = 'canceltf'
-
+DIRISCORRECT = "dirIsCorrect"
 filename_fmt = '800s'
 fmt = f'>{filename_fmt}{max(len(SEND_FILE), len(SEND_DIR), len(COMPARE_DIR), len(COMMAND), len(SYSINFO), len(SPEEDTEST))}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
 str_len_fmt = '>Q'

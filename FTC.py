@@ -146,12 +146,9 @@ class FTC:
                                  SEND_FILE.encode(), 0)
         self.log('断开与 {0}:{1} 的连接'.format(self.host, server_port), 'blue')
         for conn in self.__conn_pool_ready + self.__conn_pool_working:
-            try:
-                conn.send(close_info)
-                time.sleep(random.randint(0, 50) / 100)
-                conn.close()
-            except:
-                self.log('连接状态异常', 'yellow')
+            conn.send(close_info)
+            time.sleep(random.randint(0, 50) / 100)
+            conn.close()
         with self.__log_lock:
             self.__log_file.close()
 
@@ -228,7 +225,7 @@ class FTC:
             tips = '请输入命令：'
             command = input(tips)
             try:
-                if command == 'q' or command == 'quit' or command == 'exit':
+                if command in ['q', 'quit', 'exit']:
                     self.close_connection()
                     return
                 elif os.path.isdir(command) and os.path.exists(command):
@@ -346,8 +343,8 @@ class FTC:
         filehead = struct.pack(fmt, dest_dir.encode("UTF-8"), COMPARE_DIR.encode(), 0)
         conn = self._get_connection()
         conn.send(filehead)
-        is_dir_correct = receive_data(conn, 14)
-        is_dir_correct = is_dir_correct.decode() == "dir is correct"
+        is_dir_correct = receive_data(conn, len(DIRISCORRECT))
+        is_dir_correct = is_dir_correct.decode() == DIRISCORRECT
         if is_dir_correct:
             local_dict = get_relative_filename_from_basedir(local_dir)
             # 获取本地的文件名
@@ -427,7 +424,9 @@ class FTC:
     def _execute_command(self, command):
         command = command.strip()
         # 防止命令将输入端交给服务器
-        if len(command) == 0 or command.startswith('cmd') or command == 'powershell':
+        if len(command) == 0:
+            return
+        if command.startswith('cmd') or command == 'powershell':
             self.log('请不要将输入端交给服务器！', color='yellow')
             return
         command = command.encode("UTF-8")
@@ -447,14 +446,18 @@ class FTC:
 
     def _compare_sysinfo(self):
         conn = self._get_connection()
-        t = MyThread(get_sys_info, args=())
-        t.start()
+        # 发送比较系统信息的命令到FTS
         filehead = struct.pack(fmt, b'', SYSINFO.encode(), 0)
         conn.send(filehead)
+        # 异步获取自己的系统信息
+        t = MyThread(get_sys_info, args=())
+        t.start()
+        # 接收对方的系统信息
         data_length = struct.unpack(str_len_fmt, receive_data(conn, str_len_size))[0]
         data = receive_data(conn, data_length).decode()
         dest_sysinfo = json.loads(data)
         print_sysinfo(dest_sysinfo)
+        # 等待本机系统信息获取完成
         t.join()
         local_sysinfo = t.get_result()
         print_sysinfo(local_sysinfo)
@@ -471,7 +474,6 @@ class FTC:
                 # 生产随机字节
                 conn.send(secrets.token_bytes(data_unit))
                 pbar.update(data_unit)
-
         self._return_connection(conn)
 
 
