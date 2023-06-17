@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import signal
 import struct
 import sys
 import threading
