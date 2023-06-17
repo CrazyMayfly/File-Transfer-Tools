@@ -492,13 +492,19 @@ if __name__ == '__main__':
     # 启动FTC服务
     ftc = FTC(thread_num=args.t, host=args.host, use_ssl=not args.plaintext)
     ftc.probe_server(1)
-    ftc.connect()
-    ftc.main()
+    if not packaging:
+        ftc.connect()
+        ftc.main()
+    else:
+        try:
+            ftc.connect()
+            ftc.main()
+        finally:
+            os.system('pause')
+            # input('请按任意键继续. . .')
     # try:
     #     ftc.main()
     # except Exception as e:
     #     print(e)
     #     # ftc.log('中断与服务器的文件传输', 'yellow')
     #     ftc.close_connection()
-    if packaging:
-        input('请按任意键继续. . .')

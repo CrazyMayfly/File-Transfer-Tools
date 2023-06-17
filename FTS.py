@@ -243,12 +243,15 @@ class FTS:
         # 发送数据
         conn.send(data)
 
-    def _speedtest(self, conn, filesize):
-        self._log(f"客户端请求速度测试，数据量为: {get_size(filesize, factor=1000)}")
+    def _speedtest(self, conn, data_size):
+        self._log(f"客户端请求速度测试，数据量为: {get_size(data_size, factor=1000)}")
+        start = time.time()
         data_unit = 1000 * 1000
-        for i in range(0, int(filesize / data_unit)):
+        for i in range(0, int(data_size / data_unit)):
             receive_data(conn, data_unit)
-        self._log("速度测试完毕")
+        time_cost = time.time() - start
+        self._log(f"速度测试完毕, 耗时 {time_cost:.2f}s, 平均速度{get_size(data_size / time_cost, factor=1000)}/s.",
+                  color='green')
 
 
 if __name__ == '__main__':
@@ -271,6 +274,11 @@ if __name__ == '__main__':
         print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)))
 
     fts = FTS(base_dir, not args.plaintext, args.avoid)
-    fts.main()
-    if packaging:
-        input('请按任意键继续. . .')
+    if not packaging:
+        fts.main()
+    else:
+        try:
+            fts.main()
+        finally:
+            os.system('pause')
+            # input('请按任意键继续. . .')
