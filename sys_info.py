@@ -134,19 +134,18 @@ def print_sysinfo(info):
     print(f"\t系统信息 : {system['platform']} {system['version']} {system['architecture']}")
     print(f"\t运行时间 : {info['boot time']}")
     print(
-        f"\t处理器  : 利用率:{cpu['percentage']} \n\t\t\t {cpu['manufacturer']} {cpu['count']}核 {cpu['logic_count']}线程 {cpu['frequency']} {cpu['info']}")
+        f"\t处理器  : 利用率:{cpu['percentage']} \n\t\t\t {cpu['manufacturer']} {cpu['count']}核 "
+        f"{cpu['logic_count']}线程 {cpu['frequency']} {cpu['info']}")
     print(f"\t内存    : {memory['used']}/{memory['total']} 利用率:{memory['percentage']}")
     print(f"\t网络    : {network['download']}⬇ {network['upload']}⬆")
-    print(
-        f"\t硬盘    : 读命中 {disks_io['read_count']} 写命中 {disks_io['write_count']} 读取速度 {disks_io['read_bytes']} 写入速度 {disks_io['write_bytes']}")
+    print(f"\t硬盘    : 读命中 {disks_io['read_count']} 写命中 {disks_io['write_count']} "
+          f"读取速度 {disks_io['read_bytes']} 写入速度 {disks_io['write_bytes']}")
     for disk in disks['info']:
         print(
             f"\t\t\t {disk['device']} 可用 {disk['free']:9}，共{disk['total']:9} 已使用 {disk['percent']} 类型 {disk['fstype']}")
-    if battery:
-        print(
-            f"\t电池    : 当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}")
-    else:
-        print("\t电池    : 未检测到电池")
+    print("\t电池    :",
+          f"当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}"
+          if battery else "未检测到电池")
     print()
 
 
