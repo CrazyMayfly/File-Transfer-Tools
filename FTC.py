@@ -489,6 +489,16 @@ if __name__ == '__main__':
                         help='Use plaintext transfer (default: use ssl)')
     args = parser.parse_args()
 
+    # determine platform, to fix ^c doesn't work on Windows
+    if platform.system() == 'Windows':
+        from win32api import SetConsoleCtrlHandler
+
+        SetConsoleCtrlHandler(lambda ctrl_type:
+                              os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+                              if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
+                              else None
+                              , 1)
+
     # 启动FTC服务
     ftc = FTC(thread_num=args.t, host=args.host, use_ssl=not args.plaintext)
     ftc.probe_server(1)

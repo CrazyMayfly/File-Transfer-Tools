@@ -274,6 +274,16 @@ if __name__ == '__main__':
         print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)))
 
     fts = FTS(base_dir, not args.plaintext, args.avoid)
+    # determine platform, to fix ^c doesn't work on Windows
+    if platform.system() == 'Windows':
+        from win32api import SetConsoleCtrlHandler
+
+        SetConsoleCtrlHandler(lambda ctrl_type:
+                              os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+                              if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
+                              else None
+                              , 1)
+
     if not packaging:
         fts.main()
     else:
