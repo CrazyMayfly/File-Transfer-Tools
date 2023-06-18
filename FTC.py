@@ -481,8 +481,9 @@ class FTC:
 if __name__ == '__main__':
     # 添加命令行参数
     parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files.')
+    logical_cpu_count = psutil.cpu_count(logical=True)
     parser.add_argument('-t', metavar='thread', type=int,
-                        help='threading number (default: 3)', default=3)
+                        help=f'threading number (default: {logical_cpu_count})', default=logical_cpu_count)
     parser.add_argument('-host', metavar='host',
                         help='destination hostname or ip address', default='')
     parser.add_argument('-p', '--plaintext', action='store_true',
