@@ -20,32 +20,43 @@ def print_filename_if_exits(prompt, filename_list):
 
 
 class FTC:
-    def __init__(self, thread_num, host, use_ssl):
+    def __init__(self, threads, host, use_ssl, password=''):
         self.__peer_platform = None
+        self.__password = password
         self.__use_ssl = use_ssl
         self.__pbar = None
         self.host = host
-        self.threading_number = thread_num
+        self.threads = threads
         self.__conn_pool_ready = []
         self.__conn_pool_working = []
         self.__lock = threading.Lock()
-        self.__thread_pool = ThreadPool(thread_num)
+        self.__thread_pool = ThreadPool(threads)
         self.__log_lock = threading.Lock()
         self.__base_dir = ''
         self.__process_lock = threading.Lock()
         self.__position = 0
+        self.__first_connect = True
         log_file = os.path.join(log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log')
         print('本次日志文件存放位置为: ' + log_file)
         self.__log_file = open(log_file, 'a', encoding='utf-8')
 
-    def connect(self):
+    def connect(self, nums=1):
+        """
+        将现有的连接数量扩充至nums
+
+        @param nums: 需要扩充到的连接数
+        @return:
+        """
+        additional_connections_nums = nums - len(self.__conn_pool_ready) + len(self.__conn_pool_working)
+        if additional_connections_nums <= 0:
+            return
         try:
             if self.__use_ssl:
                 # 生成SSL上下文
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 # 加载信任根证书
                 context.load_verify_locations(os.path.join(cert_dir, 'ca.crt'))
-                for i in range(0, self.threading_number):
+                for i in range(0, additional_connections_nums):
                     try:
                         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         # 连接至服务器
@@ -53,27 +64,30 @@ class FTC:
                         # 将socket包装为securitySocket
                         ss = context.wrap_socket(s, server_hostname='FTS')
                         # ss = context.wrap_socket(s, server_hostname='Server')
-                        self.__conn_pool_ready.append(ss)
+                        with self.__lock:
+                            self.__conn_pool_ready.append(ss)
                     except ssl.SSLError as e:
                         self.log('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), 'red', highlight=1)
                         sys.exit(-1)
             else:
-                for i in range(0, self.threading_number):
+                for i in range(0, self.threads):
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.connect((self.host, server_port))
                     self.__conn_pool_ready.append(s)
-
-            self.log('成功连接至服务器 ({0}, {1})'.format(self.host, server_port), 'green')
-            if self.__use_ssl:
-                self.log('当前数据使用加密传输', 'green')
+            if self.__first_connect:
+                self.log('成功连接至服务器 ({0}, {1})'.format(self.host, server_port), 'green')
+                if self.__use_ssl:
+                    self.log('当前数据使用加密传输', 'green')
+                else:
+                    self.log('当前数据未进行加密传输', 'yellow')
+                self.__first_connect = False
             else:
-                self.log('当前数据未进行加密传输', 'yellow')
+                self.log(f'将连接数扩充至: {nums}', color='blue')
         except socket.error as msg:
-            self.log('连接至 {0} 失败'.format(self.host), 'red')
-            print(msg)
-            sys.exit(1)
+            self.log(f'连接至 {self.host} 失败, {msg}', 'red')
+            sys.exit(-1)
 
-    def probe_server(self, wait):
+    def probe_server(self, wait=1):
         global server_port
         if self.host:
             splits = self.host.split(":")
@@ -138,14 +152,15 @@ class FTC:
             print_color(msg=msg, color=color, highlight=highlight)
             self.__log_file.write('[{}] {}\n'.format(level, msg))
 
-    def close_connection(self):
+    def close_connection(self, send_close_info=True):
         self.log('关闭线程池', 'blue')
         self.__thread_pool.terminate()
         close_info = struct.pack(fmt, b'', CLOSE.encode(), 0)
         self.log('断开与 {0}:{1} 的连接'.format(self.host, server_port), 'blue')
         try:
             for conn in self.__conn_pool_ready + self.__conn_pool_working:
-                conn.send(close_info)
+                if send_close_info:
+                    conn.send(close_info)
                 # time.sleep(random.randint(0, 50) / 100)
                 conn.close()
         finally:
@@ -220,8 +235,8 @@ class FTC:
             return filepath
 
     def main(self):
-        self.log('当前线程数：{}'.format(self.threading_number), 'blue')
-        self.__peer_platform = self._get_peer_platform()
+        self.log('当前线程数：{}'.format(self.threads), 'blue')
+        self.__peer_platform = self._before_working()
         while True:
             tips = '请输入命令：'
             command = input(tips)
@@ -289,6 +304,7 @@ class FTC:
         return dirnames
 
     def _send_files_in_dir(self, filepath):
+        self.connect(self.threads)
         # 每次发送文件夹时将进度条位置初始化
         self.__position = 0
         self.__base_dir = os.path.dirname(filepath)
@@ -494,21 +510,21 @@ class FTC:
                 pbar.update(data_unit)
         self._return_connection(conn)
 
-    def _get_peer_platform(self):
+    def _before_working(self):
         conn = self._get_connection()
-        filehead = struct.pack(fmt, platform_.encode(), EXCHANGE_PLATFORM.encode(), 0)
+        filehead = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
         conn.send(filehead)
         filehead = receive_data(conn, fileinfo_size)
         self._return_connection(conn)
-        if filehead:
-            peer_platform, command, filesize = struct.unpack(fmt, filehead)
-            peer_platform = peer_platform.decode('UTF-8').strip('\00')
-            command = command.decode().strip('\00')
-            if command == EXCHANGE_PLATFORM:
-                self.log('服务器所在平台: ' + peer_platform, color='blue')
-                return peer_platform
-        self.log('服务器所在平台获取失败，默认为: ' + WINDOWS)
-        return WINDOWS
+        msg = struct.unpack(fmt, filehead)[0]
+        msg = msg.decode('UTF-8').strip('\00')
+        if msg == 'FAIL':
+            self.log('连接至服务器的密码错误', color='red', highlight=1)
+            self.close_connection(send_close_info=False)
+            sys.exit(-1)
+        else:
+            self.log('服务器所在平台: ' + msg, color='blue')
+            return msg
 
 
 if __name__ == '__main__':
@@ -516,10 +532,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files.')
     logical_cpu_count = psutil.cpu_count(logical=True)
     parser.add_argument('-t', metavar='thread', type=int,
-                        help=f'threading number (default: {logical_cpu_count})', default=logical_cpu_count)
+                        help=f'threads (default: {logical_cpu_count})', default=logical_cpu_count)
     parser.add_argument('-host', metavar='host',
                         help='destination hostname or ip address', default='')
-    parser.add_argument('-p', '--plaintext', action='store_true',
+    parser.add_argument('-p', '--password', metavar='password', type=str,
+                        help='Use a password to connect host.', default='')
+    parser.add_argument('--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
     args = parser.parse_args()
 
@@ -534,8 +552,8 @@ if __name__ == '__main__':
                               , 1)
 
     # 启动FTC服务
-    ftc = FTC(thread_num=args.t, host=args.host, use_ssl=not args.plaintext)
-    ftc.probe_server(1)
+    ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
+    ftc.probe_server()
     if not packaging:
         ftc.connect()
         ftc.main()

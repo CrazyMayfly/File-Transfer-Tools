@@ -141,14 +141,14 @@ COMMAND = 'command'
 SYSINFO = 'sysinfo'
 SPEEDTEST = 'speedtest'
 GET = 'get'
-EXCHANGE_PLATFORM = 'exchange_platform'
-CLOSE = 'close_connections'
+BEFORE_WORKING = 'before_working'
+CLOSE = 'close'
 # 其他常量
 CONTINUE = 'continue'
 CANCEL = 'canceltf'
 DIRISCORRECT = "dirIsCorrect"
 filename_fmt = '800s'
-fmt = f'>{filename_fmt}{max(len(item) for item in [SEND_FILE, SEND_DIR, COMPARE_DIR, COMMAND, SYSINFO, SPEEDTEST, EXCHANGE_PLATFORM])}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
+fmt = f'>{filename_fmt}{max(len(item) for item in [SEND_FILE, SEND_DIR, COMPARE_DIR, COMMAND, SYSINFO, SPEEDTEST, BEFORE_WORKING, CLOSE])}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
 str_len_fmt = '>Q'
 filename_size = struct.calcsize(filename_fmt)
 fileinfo_size = struct.calcsize(fmt)

@@ -9,15 +9,17 @@ from sys_info import *
 
 
 class FTS:
-    def __init__(self, base_dir, ssl, avoid):
+    def __init__(self, base_dir, use_ssl, avoid, password=''):
+        self.__password = password
         log_file_path = os.path.join(log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log')
-        print('本次日志文件存放位置为: ' + log_file_path)
+        print('本次日志文件存放位置: ' + log_file_path)
+        print(f'本次服务器密码: {password if password else "无"}')
         self.__log_file = open(log_file_path, 'a', encoding='utf-8')
         self.__log_lock = threading.Lock()
         self.ip = ''
         self.base_dir = base_dir
         self.__log_line = 0
-        self.__use_ssl = ssl
+        self.__use_ssl = use_ssl
         self.__avoid_file_duplicate = avoid
 
     def avoid_filename_duplication(self, filename, filesize):
@@ -84,8 +86,9 @@ class FTS:
                         self._compare_sysinfo(conn)
                     elif command == SPEEDTEST:
                         self._speedtest(conn, filesize)
-                    elif command == EXCHANGE_PLATFORM:
-                        self._exchange_platform(conn)
+                    elif command == BEFORE_WORKING:
+                        if self._before_working(conn, filename):
+                            return
             except ConnectionResetError as e:
                 self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
                 break
@@ -122,7 +125,7 @@ class FTS:
         else:
             self._log('当前数据未进行加密传输', color='yellow')
         self._log('服务器 {0}({1}) 已启动，等待连接...'.format(host, self.ip))
-        self._log('当前默认文件存放位置为：' + self.base_dir)
+        self._log('当前默认文件存放位置：' + self.base_dir)
         with self.__log_lock:
             self.__log_file.flush()
         threading.Thread(target=self._signal_online).start()
@@ -184,7 +187,7 @@ class FTS:
             time_cost = time.time() - begin
             if time_cost == 0:
                 time_cost = 0.00001
-            self._log('{} 接收成功，MD5：{}，{}，耗时：{} s，平均速度为 {} MB/s\n'.
+            self._log('{} 接收成功，MD5：{}，{}，耗时：{} s，平均速度 {} MB/s\n'.
                       format(new_filename, digest.hex(), msg, round(time_cost, 2),
                              round(filesize / 1000000 / time_cost, 2)), color, highlight)
 
@@ -242,7 +245,7 @@ class FTS:
         conn.send(data)
 
     def _speedtest(self, conn, data_size):
-        self._log(f"客户端请求速度测试，数据量为: {get_size(data_size, factor=1000)}")
+        self._log(f"客户端请求速度测试，数据量: {get_size(data_size, factor=1000)}")
         start = time.time()
         data_unit = 1000 * 1000
         for i in range(0, int(data_size / data_unit)):
@@ -251,9 +254,27 @@ class FTS:
         self._log(f"速度测试完毕, 耗时 {time_cost:.2f}s, 平均速度{get_size(data_size / time_cost, factor=1000)}/s.",
                   color='green')
 
-    def _exchange_platform(self, conn):
-        filehead = struct.pack(fmt, platform_.encode(), EXCHANGE_PLATFORM.encode(), 0)
+    def _before_working(self, conn, password):
+        """
+        在传输之前的预处理
+
+        @param conn: 当前连接
+        @param password: 客户端传来的密码
+        @return: True表示断开连接
+        """
+        # 校验密码
+        if password != self.__password:
+            msg = 'FAIL'
+        else:
+            # 发送当前平台
+            msg = platform_
+        filehead = struct.pack(fmt, msg.encode(), BEFORE_WORKING.encode(), 0)
         conn.send(filehead)
+        if password != self.__password:
+            conn.close()
+            self._log(f'客户端密码("{password}")错误，断开连接', color='yellow')
+            return True
+        return False
 
 
 if __name__ == '__main__':
@@ -264,7 +285,9 @@ if __name__ == '__main__':
         default_path = os.path.expanduser('~/FileTransferTool/FileRecv')
     parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
                         help='File storage location (default: {})'.format(default_path), default=default_path)
-    parser.add_argument('-p', '--plaintext', action='store_true',
+    parser.add_argument('-p', '--password', metavar='password', type=str,
+                        help='Set a password for the host.', default='')
+    parser.add_argument('--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
     parser.add_argument('--avoid', action='store_true',
                         help='Do not continue the transfer when the file name is repeated.')
@@ -276,7 +299,7 @@ if __name__ == '__main__':
         os.makedirs(base_dir)
         print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), color='blue')
 
-    fts = FTS(base_dir, not args.plaintext, args.avoid)
+    fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, avoid=args.avoid, password=args.password)
     # determine platform, to fix ^c doesn't work on Windows
     if platform_ == WINDOWS:
         from win32api import SetConsoleCtrlHandler
