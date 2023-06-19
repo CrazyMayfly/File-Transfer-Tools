@@ -311,13 +311,13 @@ class FTC:
             result = self.__thread_pool.apply_async(self._send_dir, (dirname,))
             results.append(result)
         # 将待发送的文件打印到日志
-        self.__log_file.write(get_log_msg("本次待发送的文件列表为：\n"))
+        self.__log_file.write('[INFO] ' + get_log_msg("本次待发送的文件列表为：\n"))
         total_size = 0
         for filename in all_file_name:
             real_path = os.path.join(self.__base_dir, filename)
             file_size = os.stat(real_path).st_size
             sz1, sz2 = calcu_size(file_size)
-            self.__log_file.write(get_log_msg(f"{real_path}, 约{sz1}, {sz2}\n"))
+            self.__log_file.write('[INFO] ' + get_log_msg(f"{real_path}, 约{sz1}, {sz2}\n"))
             total_size += file_size
         self.__log_file.flush()
         # 初始化总进度条
@@ -356,7 +356,7 @@ class FTC:
                 self.log("本次全部文件正常发送", color='green')
 
     def _send_single_file(self, filepath):
-        self.__log_file.write("本次发送的文件: {}\n".format(filepath))
+        self.__log_file.write("[INFO] 本次发送的文件: {}\n".format(filepath))
         self.__base_dir = os.path.dirname(filepath)
         filepath = os.path.basename(filepath)
         if filepath == self._send_file(filepath):
@@ -466,7 +466,7 @@ class FTC:
         filehead = struct.pack(fmt, command, COMMAND.encode(), len(command))
         conn.send(filehead)
         with self.__log_lock:
-            self.__log_file.write(f'执行指令: {command}')
+            self.__log_file.write('[INFO] ' + get_log_msg(f'下达指令: {command}\n'))
         # 接收返回结果
         result = receive_data(conn, 8)
         while result != b'\00' * 8:
