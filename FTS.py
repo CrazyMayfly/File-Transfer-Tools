@@ -81,6 +81,8 @@ class FTS:
                         self._compare_sysinfo(conn)
                     elif command == SPEEDTEST:
                         self._speedtest(conn, filesize)
+                    elif command == EXCHANGE_PLATFORM:
+                        self._exchange_platform(conn)
             except ConnectionResetError as e:
                 self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
                 break
@@ -223,7 +225,7 @@ class FTS:
 
     def _execute_command(self, conn, command):
         self._log("执行命令：" + command)
-        result = os.popen("powershell " + command)
+        result = os.popen(command)
         s = result.read(1)
         while s:
             # UTF-32 为定宽字符编码
@@ -253,11 +255,17 @@ class FTS:
         self._log(f"速度测试完毕, 耗时 {time_cost:.2f}s, 平均速度{get_size(data_size / time_cost, factor=1000)}/s.",
                   color='green')
 
+    def _exchange_platform(self, conn):
+        filehead = struct.pack(fmt, platform_.encode(), EXCHANGE_PLATFORM.encode(), 0)
+        conn.send(filehead)
+
 
 if __name__ == '__main__':
     # base_dir = input('请输入文件保存位置（输入1默认为桌面）：')
     parser = argparse.ArgumentParser(description='File Transfer Server, used to RECEIVE files.')
-    default_path = os.path.expanduser("~\Desktop")
+    default_path = os.path.expanduser("~/Desktop")
+    if platform_ == LINUX:
+        default_path = os.path.expanduser('~/FileTransferTool/FileRecv')
     parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
                         help='File storage location (default: {})'.format(default_path), default=default_path)
     parser.add_argument('-p', '--plaintext', action='store_true',
@@ -266,16 +274,18 @@ if __name__ == '__main__':
                         help='Do not continue the transfer when the file name is repeated.')
     args = parser.parse_args()
     base_dir = pathlib.PureWindowsPath(args.dest).as_posix()
+    if platform_ == LINUX:
+        base_dir = pathlib.PurePath(args.dest).as_posix()
     while not os.path.isdir(base_dir):
         base_dir = input('路径有误，请重新输入：')
 
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
-        print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)))
+        print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), color='blue')
 
     fts = FTS(base_dir, not args.plaintext, args.avoid)
     # determine platform, to fix ^c doesn't work on Windows
-    if platform.system() == 'Windows':
+    if platform_ == WINDOWS:
         from win32api import SetConsoleCtrlHandler
 
         SetConsoleCtrlHandler(lambda ctrl_type:

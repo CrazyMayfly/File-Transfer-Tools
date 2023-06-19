@@ -66,8 +66,8 @@ def get_sys_info():
     host = platform.node()
     # 系统的内存利用率
     memory = psutil.virtual_memory()
-    used = str(round(memory.used / (1024.0 * 1024.0 * 1024.0), 2)) + 'GB'
-    total = str(round(memory.total / (1024.0 * 1024.0 * 1024.0), 2)) + 'GB'
+    used = get_size(memory.used)
+    total = get_size(memory.total)
     memory_use_percent = str(memory.percent) + ' %'
     # 系统电池使用情况
     battery = psutil.sensors_battery()

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import platform
 import signal
 import struct
 import sys
@@ -9,6 +10,11 @@ from datetime import datetime
 
 # 解决win10的cmd中直接使用转义序列失效问题
 os.system("")
+# 获取当前平台
+platform_ = platform.system()
+WINDOWS = 'Windows'
+LINUX = 'Linux'
+MACOS = 'Macos'
 
 
 def crypt(bytes, key, num=1024):
@@ -134,20 +140,26 @@ COMMAND = 'command'
 SYSINFO = 'sysinfo'
 SPEEDTEST = 'speedtest'
 GET = 'get'
+EXCHANGE_PLATFORM = 'exchange_platform'
 # 其他常量
 CONTINUE = 'continue'
 CANCEL = 'canceltf'
 DIRISCORRECT = "dirIsCorrect"
 filename_fmt = '800s'
-fmt = f'>{filename_fmt}{max(len(SEND_FILE), len(SEND_DIR), len(COMPARE_DIR), len(COMMAND), len(SYSINFO), len(SPEEDTEST))}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
+fmt = f'>{filename_fmt}{max(len(item) for item in [SEND_FILE, SEND_DIR, COMPARE_DIR, COMMAND, SYSINFO, SPEEDTEST, EXCHANGE_PLATFORM])}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
 str_len_fmt = '>Q'
 filename_size = struct.calcsize(filename_fmt)
 fileinfo_size = struct.calcsize(fmt)
 str_len_size = struct.calcsize(str_len_fmt)
-log_dir = 'C:\\ProgramData\\logs'
-cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}\\cert'
+# 默认为Windows平台
+log_dir = 'C:/ProgramData/logs'
+# Linux 的日志存放位置
+if platform_ == LINUX:
+    log_dir = os.path.expanduser("~/FileTransferTool/logs")
+
+cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
 if not os.path.exists(cert_dir):
-    cert_dir = '.\\cert'
+    cert_dir = './cert'
 # 打包变量，用于将程序打包为exe后防止直接退出控制台
 packaging = False
 if not os.path.exists(cert_dir):
@@ -157,7 +169,7 @@ if not os.path.exists(cert_dir):
         'please place the certificate file in the "/cert" folder in the program run directory.\n',
         color='red', highlight=1)
     if packaging:
-        input('请按任意键继续. . .')
+        os.system('pause')
     sys.exit(-2)
 unit = 1024 * 1024  # 1MB
 if not os.path.exists(log_dir):

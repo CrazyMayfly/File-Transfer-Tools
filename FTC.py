@@ -1,5 +1,4 @@
 import argparse
-import random
 import secrets
 import socket
 import ssl
@@ -22,6 +21,7 @@ def print_filename_if_exits(prompt, filename_list):
 
 class FTC:
     def __init__(self, thread_num, host, use_ssl):
+        self.__peer_platform = None
         self.__use_ssl = use_ssl
         self.__pbar = None
         self.host = host
@@ -144,12 +144,14 @@ class FTC:
         close_info = struct.pack(fmt, 'd1132ce8-7d22-434d-a4e9-75d81187d0ba'.encode('UTF-8'),
                                  SEND_FILE.encode(), 0)
         self.log('断开与 {0}:{1} 的连接'.format(self.host, server_port), 'blue')
-        for conn in self.__conn_pool_ready + self.__conn_pool_working:
-            conn.send(close_info)
-            time.sleep(random.randint(0, 50) / 100)
-            conn.close()
-        with self.__log_lock:
-            self.__log_file.close()
+        try:
+            for conn in self.__conn_pool_ready + self.__conn_pool_working:
+                conn.send(close_info)
+                # time.sleep(random.randint(0, 50) / 100)
+                conn.close()
+        finally:
+            with self.__log_lock:
+                self.__log_file.close()
 
     def _get_connection(self):
         # 从空闲的conn中取出一个使用
@@ -220,6 +222,7 @@ class FTC:
 
     def main(self):
         self.log('当前线程数：{}'.format(self.threading_number), 'blue')
+        self.__peer_platform = self._get_peer_platform()
         while True:
             tips = '请输入命令：'
             command = input(tips)
@@ -239,15 +242,10 @@ class FTC:
                         times = input("请重新输入数据量（单位MB）：")
                     self._speedtest(times=int(times))
                 elif command.startswith("compare"):
-                    # 该算法仅适用于windows
-                    dirname_splits = command[8:].split(" ")
-                    i = -1
-                    for split in dirname_splits:
-                        i += 1
-                        if i > 0 and len(split) > 1 and split[1] == ":":
-                            break
-                    local_dir = " ".join(dirname_splits[0:i])
-                    dest_dir = " ".join(dirname_splits[i:])
+                    local_dir, dest_dir = self.split_dir(command)
+                    if not dest_dir or not local_dir:
+                        self.log('本地文件夹和远程文件夹不能为空', color='yellow')
+                        continue
                     self._compare_dir(local_dir, dest_dir)
                 # elif command.startswith("get"):
                 #     file_store_location = os.path.expanduser("~\Desktop")
@@ -275,6 +273,23 @@ class FTC:
                 if packaging:
                     input('请按任意键继续. . .')
                 sys.exit(-1)
+
+    def split_dir(self, command):
+        # 该算法仅适用于windows
+        dirnames = command[8:].split('"')
+        if len(dirnames == 1):
+            dirnames = dirnames[0].split(' ')
+        else:
+            results = []
+            for dirname in dirnames:
+                dirname = dirname.strip()
+                if dirname:
+                    results.append(dirname)
+            dirnames = results
+        if len(dirnames) != 2:
+            self.log('参数数量错误', color='yellow')
+            return
+        return dirnames
 
     def _send_files_in_dir(self, filepath):
         # 每次发送文件夹时将进度条位置初始化
@@ -341,6 +356,9 @@ class FTC:
             self.log("发送失败", color='red')
 
     def _compare_dir(self, local_dir, dest_dir):
+        if not os.path.exists(local_dir):
+            self.log('本地文件夹不存在', color='yellow')
+            return
         filehead = struct.pack(fmt, dest_dir.encode("UTF-8"), COMPARE_DIR.encode(), 0)
         conn = self._get_connection()
         conn.send(filehead)
@@ -427,17 +445,19 @@ class FTC:
         # 防止命令将输入端交给服务器
         if len(command) == 0:
             return
-        if command.startswith('cmd') or command == 'powershell':
+        if self.__peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
             self.log('请不要将输入端交给服务器！', color='yellow')
             return
         command = command.encode("UTF-8")
         if len(command) > filename_size:
-            print_color("指令过长", color='yellow')
+            self.log("指令过长", color='yellow')
             return
 
         conn = self._get_connection()
         filehead = struct.pack(fmt, command, COMMAND.encode(), len(command))
         conn.send(filehead)
+        with self.__log_lock:
+            self.__log_file.write(f'执行指令: {command}')
         # 接收返回结果
         result = receive_data(conn, 8)
         while result != b'\00' * 8:
@@ -477,6 +497,22 @@ class FTC:
                 pbar.update(data_unit)
         self._return_connection(conn)
 
+    def _get_peer_platform(self):
+        conn = self._get_connection()
+        filehead = struct.pack(fmt, platform_.encode(), EXCHANGE_PLATFORM.encode(), 0)
+        conn.send(filehead)
+        filehead = receive_data(conn, fileinfo_size)
+        self._return_connection(conn)
+        if filehead:
+            peer_platform, command, filesize = struct.unpack(fmt, filehead)
+            peer_platform = peer_platform.decode('UTF-8').strip('\00')
+            command = command.decode().strip('\00')
+            if command == EXCHANGE_PLATFORM:
+                self.log('服务器所在平台: ' + peer_platform, color='blue')
+                return peer_platform
+        self.log('服务器所在平台获取失败，默认为: ' + WINDOWS)
+        return WINDOWS
+
 
 if __name__ == '__main__':
     # 添加命令行参数
@@ -491,7 +527,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # determine platform, to fix ^c doesn't work on Windows
-    if platform.system() == 'Windows':
+    if platform_ == WINDOWS:
         from win32api import SetConsoleCtrlHandler
 
         SetConsoleCtrlHandler(lambda ctrl_type:
