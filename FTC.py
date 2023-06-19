@@ -141,8 +141,7 @@ class FTC:
     def close_connection(self):
         self.log('关闭线程池', 'blue')
         self.__thread_pool.terminate()
-        close_info = struct.pack(fmt, 'd1132ce8-7d22-434d-a4e9-75d81187d0ba'.encode('UTF-8'),
-                                 SEND_FILE.encode(), 0)
+        close_info = struct.pack(fmt, b'', CLOSE.encode(), 0)
         self.log('断开与 {0}:{1} 的连接'.format(self.host, server_port), 'blue')
         try:
             for conn in self.__conn_pool_ready + self.__conn_pool_working:

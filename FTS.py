@@ -64,15 +64,18 @@ class FTS:
                     filename, command, filesize = struct.unpack(fmt, filehead)
                     filename = filename.decode('UTF-8').strip('\00')
                     command = command.decode().strip('\00')
-                    if command == SEND_DIR:
+                    if command == CLOSE:
+                        conn.close()
+                        self._log('终止与客户端 {0} 的连接'.format(addr), 'blue')
+                        return
+                    elif command == SEND_DIR:
                         # 处理文件夹
                         cur_dir = os.path.join(self.base_dir, filename)
                         if not os.path.exists(cur_dir):
                             os.makedirs(cur_dir)
                             self._log('创建文件夹 {0}'.format(cur_dir))
                     elif command == SEND_FILE:
-                        if self._recv_file(conn, filename, filesize, addr):
-                            return
+                        self._recv_file(conn, filename, filesize)
                     elif command == COMPARE_DIR:
                         self._compare_dir(conn, filename)
                     elif command == COMMAND:
@@ -144,13 +147,7 @@ class FTS:
                 t = threading.Thread(target=self._deal_data, args=(conn, addr))
                 t.start()
 
-    def _recv_file(self, conn, filename, filesize, addr):
-        if filename == 'd1132ce8-7d22-434d-a4e9-75d81187d0ba':
-            conn.close()
-            self._log('终止与客户端 {0} 的连接'.format(addr), 'blue')
-            # 返回True表示终止循环
-            return True
-
+    def _recv_file(self, conn, filename, filesize):
         new_filename, file_exist = self.avoid_filename_duplication(os.path.join(self.base_dir, filename),
                                                                    filesize)
         if file_exist and self.__avoid_file_duplicate:
@@ -190,7 +187,6 @@ class FTS:
             self._log('{} 接收成功，MD5：{}，{}，耗时：{} s，平均速度为 {} MB/s\n'.
                       format(new_filename, digest.hex(), msg, round(time_cost, 2),
                              round(filesize / 1000000 / time_cost, 2)), color, highlight)
-        return False
 
     def _compare_dir(self, conn, dirname):
         self._log(f"客户端请求对比文件夹：{dirname}")

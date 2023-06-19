@@ -141,6 +141,7 @@ SYSINFO = 'sysinfo'
 SPEEDTEST = 'speedtest'
 GET = 'get'
 EXCHANGE_PLATFORM = 'exchange_platform'
+CLOSE = 'close_connections'
 # 其他常量
 CONTINUE = 'continue'
 CANCEL = 'canceltf'
