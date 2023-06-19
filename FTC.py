@@ -277,7 +277,7 @@ class FTC:
     def split_dir(self, command):
         # 该算法仅适用于windows
         dirnames = command[8:].split('"')
-        if len(dirnames == 1):
+        if len(dirnames) == 1:
             dirnames = dirnames[0].split(' ')
         else:
             results = []
