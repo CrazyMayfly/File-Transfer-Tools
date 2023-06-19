@@ -276,9 +276,6 @@ if __name__ == '__main__':
     base_dir = pathlib.PureWindowsPath(args.dest).as_posix()
     if platform_ == LINUX:
         base_dir = pathlib.PurePath(args.dest).as_posix()
-    while not os.path.isdir(base_dir):
-        base_dir = input('路径有误，请重新输入：')
-
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
         print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), color='blue')
