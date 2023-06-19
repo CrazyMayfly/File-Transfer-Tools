@@ -243,7 +243,7 @@ class FTC:
                 elif command.startswith("compare"):
                     local_dir, dest_dir = self.split_dir(command)
                     if not dest_dir or not local_dir:
-                        self.log('本地文件夹和远程文件夹不能为空', color='yellow')
+                        self.log('本地文件夹且远程文件夹不能为空', color='yellow')
                         continue
                     self._compare_dir(local_dir, dest_dir)
                 # elif command.startswith("get"):
@@ -274,7 +274,6 @@ class FTC:
                 sys.exit(-1)
 
     def split_dir(self, command):
-        # 该算法仅适用于windows
         dirnames = command[8:].split('"')
         if len(dirnames) == 1:
             dirnames = dirnames[0].split(' ')
@@ -286,8 +285,7 @@ class FTC:
                     results.append(dirname)
             dirnames = results
         if len(dirnames) != 2:
-            self.log('参数数量错误', color='yellow')
-            return
+            return None, None
         return dirnames
 
     def _send_files_in_dir(self, filepath):

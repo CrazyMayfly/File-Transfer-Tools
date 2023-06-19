@@ -92,9 +92,10 @@ def get_relative_filename_from_basedir(base_dir):
     basedir_length = len(base_dir) + 1
     for path, dir_list, file_list in os.walk(base_dir):
         for file in file_list:
-            real_path = os.path.join(path, file)
+            # 将文件路径风格统一至Linux
+            real_path = os.path.join(path, file).replace(os.path.sep, '/')
             filesize = os.stat(real_path).st_size
-            results.update({os.path.join(path, file)[basedir_length:]: filesize})
+            results.update({real_path[basedir_length:]: filesize})
     return results
 
 
@@ -181,4 +182,4 @@ server_signal_port = 2021
 client_signal_port = 2022
 
 if __name__ == '__main__':
-    print(len(json.dumps(get_relative_filename_from_basedir("E:"), ensure_ascii=True)))
+    print(get_relative_filename_from_basedir(input('>>> ')))
