@@ -19,6 +19,22 @@ def print_filename_if_exits(prompt, filename_list):
         print('\tNone')
 
 
+def split_dir(command):
+    dirnames = command[8:].split('"')
+    if len(dirnames) == 1:
+        dirnames = dirnames[0].split(' ')
+    else:
+        results = []
+        for dirname in dirnames:
+            dirname = dirname.strip()
+            if dirname:
+                results.append(dirname)
+        dirnames = results
+    if len(dirnames) != 2:
+        return None, None
+    return dirnames
+
+
 class FTC:
     def __init__(self, threads, host, use_ssl, password=''):
         self.__peer_platform = None
@@ -125,14 +141,13 @@ class FTC:
             hostname = 'unknown'
             try:
                 hostname = socket.gethostbyaddr(ip)[0]
-            except:
-                pass
-            print('ip: {}, hostname: {}, useSSL: {}'.format(ip, hostname, ip_list.get(ip)))
-            if ip_num == 1:
-                hostname = ip
-                self.__use_ssl = ip_list.get(ip)
-                self.host = hostname
-                break
+            finally:
+                print('ip: {}, hostname: {}, useSSL: {}'.format(ip, hostname, ip_list.get(ip)))
+                if ip_num == 1:
+                    hostname = ip
+                    self.__use_ssl = ip_list.get(ip)
+                    self.host = hostname
+                    break
         if ip_num > 1:
             hostname = input('请输入主机名/ip: ')
             self.host = hostname
@@ -182,57 +197,58 @@ class FTC:
         self.__conn_pool_working.remove(conn)
         self.__lock.release()
 
-    def _send_file(self, filepath, is_dir):
+    def _send_dir(self, dirname):
+        conn = self._get_connection()
+        filehead = struct.pack(fmt, dirname.encode('UTF-8'),
+                               SEND_DIR.encode(), 0)
+        conn.send(filehead)
+        self._return_connection(conn)
+
+    def _send_file(self, filepath):
         # 从空闲的conn中取出一个使用
         conn = self._get_connection()
-        if is_dir:
-            filehead = struct.pack(fmt, filepath.encode('UTF-8'),
-                                   SEND_DIR.encode(), 0)
-            conn.send(filehead)
-            self._return_connection(conn)
-        else:
-            real_path = os.path.join(self.__base_dir, filepath)
-            # 定义文件头信息，包含文件名和文件大小
-            file_size = os.stat(real_path).st_size
-            # unit_1, unit_2 = calcu_size(file_size)
-            # key = token_bytes(nbytes=512)
-            filehead = struct.pack(fmt, filepath.encode('UTF-8'),
-                                   SEND_FILE.encode(), file_size)
-            # key = int.from_bytes(key + key_right, 'big')
-            # self.log('文件名：{}，大小约 {}，{}'.format(filepath, unit_1, unit_2))
-            conn.send(filehead)
-            is_continue = receive_data(conn, 8)
-            is_continue = is_continue.decode('UTF-8') == CONTINUE
-            if is_continue:
-                fp = open(real_path, 'rb')
-                # self.log('开始发送文件')
-                md5 = hashlib.md5()
-                with self.__process_lock:
-                    position = self.__position
-                    self.__position += 1
-                with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
-                          position=position) as pbar:
+        real_path = os.path.join(self.__base_dir, filepath)
+        # 定义文件头信息，包含文件名和文件大小
+        file_size = os.stat(real_path).st_size
+        # unit_1, unit_2 = calcu_size(file_size)
+        # key = token_bytes(nbytes=512)
+        filehead = struct.pack(fmt, filepath.encode('UTF-8'),
+                               SEND_FILE.encode(), file_size)
+        # key = int.from_bytes(key + key_right, 'big')
+        # self.log('文件名：{}，大小约 {}，{}'.format(filepath, unit_1, unit_2))
+        conn.send(filehead)
+        is_continue = receive_data(conn, 8)
+        is_continue = is_continue.decode('UTF-8') == CONTINUE
+        if is_continue:
+            fp = open(real_path, 'rb')
+            # self.log('开始发送文件')
+            md5 = hashlib.md5()
+            with self.__process_lock:
+                position = self.__position
+                self.__position += 1
+            with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
+                      position=position) as pbar:
+                data = fp.read(unit)
+                while data:
+                    conn.send(data)
+                    md5.update(data)
+                    # data = crypt(data, key)
+                    pbar.update(len(data))
+                    with self.__process_lock:
+                        if self.__pbar:
+                            self.__pbar.update(len(data))
                     data = fp.read(unit)
-                    while data:
-                        conn.send(data)
-                        md5.update(data)
-                        # data = crypt(data, key)
-                        pbar.update(len(data))
-                        with self.__process_lock:
-                            if self.__pbar:
-                                self.__pbar.update(len(data))
-                        data = fp.read(unit)
-                fp.close()
-                digest = md5.digest()
-                conn.send(digest)
-                filepath = receive_data(conn, filename_size)
-                filepath = filepath.decode('UTF-8').strip('\00')
-            else:
-                with self.__process_lock:
-                    if self.__pbar:
-                        self.__pbar.update(file_size)
-            self._return_connection(conn)
-            return filepath
+            fp.close()
+            digest = md5.digest()
+            conn.send(digest)
+            filepath = receive_data(conn, filename_size)
+            filepath = filepath.decode('UTF-8').strip('\00')
+        else:
+            with self.__process_lock:
+                if self.__pbar:
+                    self.__pbar.update(file_size)
+        self._return_connection(conn)
+        return filepath
 
     def main(self):
         self.log('当前线程数：{}'.format(self.threads), 'blue')
@@ -256,7 +272,7 @@ class FTC:
                         times = input("请重新输入数据量（单位MB）：")
                     self._speedtest(times=int(times))
                 elif command.startswith("compare"):
-                    local_dir, dest_dir = self.split_dir(command)
+                    local_dir, dest_dir = split_dir(command)
                     if not dest_dir or not local_dir:
                         self.log('本地文件夹且远程文件夹不能为空', color='yellow')
                         continue
@@ -288,21 +304,6 @@ class FTC:
                     input('请按任意键继续. . .')
                 sys.exit(-1)
 
-    def split_dir(self, command):
-        dirnames = command[8:].split('"')
-        if len(dirnames) == 1:
-            dirnames = dirnames[0].split(' ')
-        else:
-            results = []
-            for dirname in dirnames:
-                dirname = dirname.strip()
-                if dirname:
-                    results.append(dirname)
-            dirnames = results
-        if len(dirnames) != 2:
-            return None, None
-        return dirnames
-
     def _send_files_in_dir(self, filepath):
         self.connect(self.threads)
         # 每次发送文件夹时将进度条位置初始化
@@ -313,7 +314,7 @@ class FTC:
         results = []
         # start = time.time()
         for dirname in all_dir_name:
-            result = self.__thread_pool.apply_async(self._send_file, (dirname, True))
+            result = self.__thread_pool.apply_async(self._send_dir, (dirname,))
             results.append(result)
         for result in results:
             result.wait()
@@ -338,7 +339,7 @@ class FTC:
         # 异步发送文件并等待结果
         results = []
         for filename in all_file_name:
-            result = self.__thread_pool.apply_async(self._send_file, (filename, False))
+            result = self.__thread_pool.apply_async(self._send_file, (filename,))
             results.append(result)
         # 比对发送成功或失败的文件
         success_recv = []
@@ -363,7 +364,7 @@ class FTC:
         self.__log_file.write("本次发送的文件: {}\n".format(filepath))
         self.__base_dir = os.path.dirname(filepath)
         filepath = os.path.basename(filepath)
-        if filepath == self._send_file(filepath, False):
+        if filepath == self._send_file(filepath):
             self.log("发送成功", color='green')
         else:
             self.log("发送失败", color='red')
