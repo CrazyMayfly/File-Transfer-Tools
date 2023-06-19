@@ -1,4 +1,5 @@
 import argparse
+import json
 import secrets
 import socket
 import ssl
@@ -312,16 +313,9 @@ class FTC:
         # 将待发送的文件打印到日志
         self.__log_file.write(get_log_msg("本次待发送的文件列表为：\n"))
         total_size = 0
-        small_files = []
-        large_files = []
         for filename in all_file_name:
             real_path = os.path.join(self.__base_dir, filename)
             file_size = os.stat(real_path).st_size
-            # 1M以下的文件为小文件
-            if file_size < 1024 * 1024:
-                small_files.append(filename)
-            else:
-                large_files.append(filename)
             sz1, sz2 = calcu_size(file_size)
             self.__log_file.write(get_log_msg(f"{real_path}, 约{sz1}, {sz2}\n"))
             total_size += file_size
@@ -565,10 +559,3 @@ if __name__ == '__main__':
             ftc.main()
         finally:
             os.system('pause')
-            # input('请按任意键继续. . .')
-    # try:
-    #     ftc.main()
-    # except Exception as e:
-    #     print(e)
-    #     # ftc.log('中断与服务器的文件传输', 'yellow')
-    #     ftc.close_connection()

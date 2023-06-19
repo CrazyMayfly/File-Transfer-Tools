@@ -1,4 +1,5 @@
 import argparse
+import json
 import os.path
 import pathlib
 import socket
@@ -119,16 +120,16 @@ class FTS:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(('0.0.0.0', server_port))
-        s.listen(999)
+        s.listen(9999)
         if self.__use_ssl:
             self._log('当前数据使用加密传输', color='green')
         else:
             self._log('当前数据未进行加密传输', color='yellow')
         self._log('服务器 {0}({1}) 已启动，等待连接...'.format(host, self.ip))
         self._log('当前默认文件存放位置：' + self.base_dir)
+        threading.Thread(target=self._signal_online).start()
         with self.__log_lock:
             self.__log_file.flush()
-        threading.Thread(target=self._signal_online).start()
         if self.__use_ssl:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -185,11 +186,10 @@ class FTS:
                 filename_confirm = struct.pack(filename_fmt, "fail to receive".encode("UTF-8"))
             conn.send(filename_confirm)
             time_cost = time.time() - begin
-            if time_cost == 0:
-                time_cost = 0.00001
-            self._log('{} 接收成功，MD5：{}，{}，耗时：{} s，平均速度 {} MB/s\n'.
-                      format(new_filename, digest.hex(), msg, round(time_cost, 2),
-                             round(filesize / 1000000 / time_cost, 2)), color, highlight)
+            time_cost = 0.00001 if time_cost == 0 else time_cost
+            self._log(
+                f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {filesize / 1000000 / time_cost:.2f} MB/s\n'
+                , color, highlight)
 
     def _compare_dir(self, conn, dirname):
         self._log(f"客户端请求对比文件夹：{dirname}")
@@ -317,4 +317,3 @@ if __name__ == '__main__':
             fts.main()
         finally:
             os.system('pause')
-            # input('请按任意键继续. . .')

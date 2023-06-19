@@ -1,5 +1,4 @@
 import hashlib
-import json
 import os
 import platform
 import signal
@@ -8,20 +7,15 @@ import sys
 import threading
 from datetime import datetime
 
-# 解决win10的cmd中直接使用转义序列失效问题
-os.system("")
 # 获取当前平台
 platform_ = platform.system()
 WINDOWS = 'Windows'
 LINUX = 'Linux'
 MACOS = 'Macos'
 
-
-def crypt(bytes, key, num=1024):
-    # 将字节转化为二进制数据进行异或操作
-    bin_data = int.from_bytes(bytes, 'big') ^ key
-    # 将结果转化为字节
-    return int.to_bytes(bin_data, num, 'big')
+# 解决win10的cmd中直接使用转义序列失效问题
+if platform_ == WINDOWS:
+    os.system("")
 
 
 def receive_data(connection, size):
@@ -53,12 +47,6 @@ def calcu_size(filesize):
         return MB_Str, KB_Str
     else:
         return KB_Str, str(filesize) + ' bytes'
-
-
-def get_rate_and_residue(number):
-    residue = number % 1024
-    rate = int((number - residue) / 1024)
-    return rate, residue
 
 
 def print_color(msg, color='white', highlight=0):
@@ -143,6 +131,7 @@ SPEEDTEST = 'speedtest'
 GET = 'get'
 BEFORE_WORKING = 'before_working'
 CLOSE = 'close'
+
 # 其他常量
 CONTINUE = 'continue'
 CANCEL = 'canceltf'
@@ -153,6 +142,7 @@ str_len_fmt = '>Q'
 filename_size = struct.calcsize(filename_fmt)
 fileinfo_size = struct.calcsize(fmt)
 str_len_size = struct.calcsize(str_len_fmt)
+
 # 默认为Windows平台
 log_dir = 'C:/ProgramData/logs'
 # Linux 的日志存放位置
@@ -162,6 +152,7 @@ if platform_ == LINUX:
 cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
 if not os.path.exists(cert_dir):
     cert_dir = './cert'
+
 # 打包变量，用于将程序打包为exe后防止直接退出控制台
 packaging = False
 if not os.path.exists(cert_dir):
@@ -173,6 +164,7 @@ if not os.path.exists(cert_dir):
     if packaging:
         os.system('pause')
     sys.exit(-2)
+
 unit = 1024 * 1024  # 1MB
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
