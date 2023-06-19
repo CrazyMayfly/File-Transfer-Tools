@@ -184,38 +184,32 @@ class FTC:
 
     def _get_connection(self):
         # 从空闲的conn中取出一个使用
-        self.__lock.acquire()
-        conn = self.__conn_pool_ready.pop()
-        self.__conn_pool_working.append(conn)
-        self.__lock.release()
+        with self.__lock:
+            conn = self.__conn_pool_ready.pop()
+            self.__conn_pool_working.append(conn)
         return conn
 
     def _return_connection(self, conn):
         # conn使用完毕，回收conn
-        self.__lock.acquire()
-        self.__conn_pool_ready.append(conn)
-        self.__conn_pool_working.remove(conn)
-        self.__lock.release()
+        with self.__lock:
+            self.__conn_pool_ready.append(conn)
+            self.__conn_pool_working.remove(conn)
 
     def _send_dir(self, dirname):
-        conn = self._get_connection()
         filehead = struct.pack(fmt, dirname.encode('UTF-8'),
                                SEND_DIR.encode(), 0)
+        conn = self._get_connection()
         conn.send(filehead)
         self._return_connection(conn)
 
     def _send_file(self, filepath):
-        # 从空闲的conn中取出一个使用
-        conn = self._get_connection()
         real_path = os.path.join(self.__base_dir, filepath)
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
-        # unit_1, unit_2 = calcu_size(file_size)
-        # key = token_bytes(nbytes=512)
         filehead = struct.pack(fmt, filepath.encode('UTF-8'),
                                SEND_FILE.encode(), file_size)
-        # key = int.from_bytes(key + key_right, 'big')
-        # self.log('文件名：{}，大小约 {}，{}'.format(filepath, unit_1, unit_2))
+        # 从空闲的conn中取出一个使用
+        conn = self._get_connection()
         conn.send(filehead)
         is_continue = receive_data(conn, 8)
         is_continue = is_continue.decode('UTF-8') == CONTINUE
@@ -232,7 +226,6 @@ class FTC:
                 while data:
                     conn.send(data)
                     md5.update(data)
-                    # data = crypt(data, key)
                     pbar.update(len(data))
                     with self.__process_lock:
                         if self.__pbar:
@@ -480,9 +473,9 @@ class FTC:
         self._return_connection(conn)
 
     def _compare_sysinfo(self):
-        conn = self._get_connection()
         # 发送比较系统信息的命令到FTS
         filehead = struct.pack(fmt, b'', SYSINFO.encode(), 0)
+        conn = self._get_connection()
         conn.send(filehead)
         # 异步获取自己的系统信息
         t = MyThread(get_sys_info, args=())
@@ -490,19 +483,19 @@ class FTC:
         # 接收对方的系统信息
         data_length = struct.unpack(str_len_fmt, receive_data(conn, str_len_size))[0]
         data = receive_data(conn, data_length).decode()
+        self._return_connection(conn)
         dest_sysinfo = json.loads(data)
         print_sysinfo(dest_sysinfo)
         # 等待本机系统信息获取完成
         t.join()
         local_sysinfo = t.get_result()
         print_sysinfo(local_sysinfo)
-        self._return_connection(conn)
 
     def _speedtest(self, times):
-        conn = self._get_connection()
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
         filehead = struct.pack(fmt, b'', SPEEDTEST.encode(), data_size)
+        conn = self._get_connection()
         conn.send(filehead)
         with tqdm(total=data_size, desc='speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
             for i in range(0, times):
@@ -512,8 +505,8 @@ class FTC:
         self._return_connection(conn)
 
     def _before_working(self):
-        conn = self._get_connection()
         filehead = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
+        conn = self._get_connection()
         conn.send(filehead)
         filehead = receive_data(conn, fileinfo_size)
         self._return_connection(conn)
