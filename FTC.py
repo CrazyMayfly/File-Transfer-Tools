@@ -309,26 +309,34 @@ class FTC:
         for dirname in all_dir_name:
             result = self.__thread_pool.apply_async(self._send_dir, (dirname,))
             results.append(result)
-        for result in results:
-            result.wait()
-        # self.log('文件夹发送完毕，耗时 {} s'.format(round(time.time() - start, 2)), 'blue')
         # 将待发送的文件打印到日志
         self.__log_file.write(get_log_msg("本次待发送的文件列表为：\n"))
         total_size = 0
+        small_files = []
+        large_files = []
         for filename in all_file_name:
             real_path = os.path.join(self.__base_dir, filename)
             file_size = os.stat(real_path).st_size
+            # 1M以下的文件为小文件
+            if file_size < 1024 * 1024:
+                small_files.append(filename)
+            else:
+                large_files.append(filename)
             sz1, sz2 = calcu_size(file_size)
             self.__log_file.write(get_log_msg(f"{real_path}, 约{sz1}, {sz2}\n"))
             total_size += file_size
         self.__log_file.flush()
-        self.log('开始发送 {} 路径下所有文件，文件个数为 {}\n'.format(filepath, len(all_file_name)), 'blue')
         # 初始化总进度条
         with self.__process_lock:
             self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes', unit_scale=True,
                                mininterval=1,
                                position=0)
             self.__position += 1
+        # 等待文件夹发送完成
+        for result in results:
+            result.wait()
+        # self.log('文件夹发送完毕，耗时 {} s'.format(round(time.time() - start, 2)), 'blue')
+        self.log('开始发送 {} 路径下所有文件，文件个数为 {}\n'.format(filepath, len(all_file_name)), 'blue')
         # 异步发送文件并等待结果
         results = []
         for filename in all_file_name:
