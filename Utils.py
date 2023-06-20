@@ -1,3 +1,4 @@
+import configparser
 import hashlib
 import os
 import platform
@@ -148,12 +149,12 @@ def compress_log_files(base_dir, log_type, log):
         if not matching_files or len(matching_files) == 0:
             return
         # 当日志文件数大于10个时归档
-        file_list = matching_files if len(matching_files) >= 10 else None
+        file_list = matching_files if len(matching_files) >= log_file_archive_count else None
         total_size = sum(
             os.stat(real_path).st_size for real_path in [os.path.join(path, file) for file in matching_files])
         if not file_list:
             # 日志文件小于十个但是总体积大于50MB也进行归档处理
-            file_list = matching_files if total_size >= 50 * 1024 * 1024 else None
+            file_list = matching_files if total_size >= log_file_archive_size else None
             if not file_list:
                 return
         dates = [datetime.strptime(file[0:10], '%Y_%m_%d') for file in matching_files]
@@ -216,6 +217,8 @@ section_Other = 'Other'
 
 option_windows_log_dir = 'windows_log_dir'
 option_linux_log_dir = 'linux_log_dir'
+option_log_file_archive_count = 'log_file_archive_count'
+option_log_file_archive_size = 'log_file_archive_size'
 option_server_port = 'server_port'
 option_server_signal_port = 'server_signal_port'
 option_client_signal_port = 'client_signal_port'
@@ -231,6 +234,8 @@ if not os.path.exists(config_file):
     config.add_section(section_Log)
     config.set(section_Log, option_windows_log_dir, 'C:/ProgramData/logs')
     config.set(section_Log, option_linux_log_dir, '~/FileTransferTool/logs')
+    config.set(section_Log, option_log_file_archive_count, '10')
+    config.set(section_Log, option_log_file_archive_size, '52428800')
     config.add_section(section_Port)
     config.set(section_Port, option_server_port, '2023')
     config.set(section_Port, option_server_signal_port, '2021')
@@ -245,36 +250,45 @@ if not os.path.exists(config_file):
 config = ConfigParser()
 config.read(config_file, encoding='UTF-8')
 
-cert_dir = config.get(section_Other, option_cert_dir)
-if not os.path.exists(cert_dir):
-    cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
+try:
+    cert_dir = config.get(section_Other, option_cert_dir)
+    if not os.path.exists(cert_dir):
+        cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
 
-# 打包控制变量，用于将程序打包为exe后防止直接退出控制台
-packaging = config.getboolean(section_Other, option_packaging)
-if not os.path.exists(cert_dir):
-    print_color(
-        '未找到证书文件，默认位置为"./cert"文件夹中。\n'
-        'The certificate file was not found, the default location is in the "./cert" folder.\n',
-        color='red', highlight=1)
-    if packaging:
-        os.system('pause')
-    sys.exit(-2)
+    # 打包控制变量，用于将程序打包为exe后防止直接退出控制台
+    packaging = config.getboolean(section_Other, option_packaging)
+    if not os.path.exists(cert_dir):
+        print_color(
+            '未找到证书文件，默认位置为"./cert"文件夹中。\n'
+            'The certificate file was not found, the default location is in the "./cert" folder.\n',
+            color='red', highlight=1)
+        if packaging:
+            os.system('pause')
+        sys.exit(-2)
 
-# 默认为Windows平台
-log_dir = os.path.expanduser(config.get(section_Log, option_windows_log_dir))
-# Linux 的日志存放位置
-if platform_ == LINUX:
-    log_dir = os.path.expanduser(config.get(section_Log, option_linux_log_dir))
-if not os.path.exists(log_dir):
-    try:
-        os.makedirs(log_dir)
-    except Exception as e:
-        print_color(f'日志文件夹 "{log_dir}" 创建失败 {e}', color='red', highlight=1)
-        sys.exit(-1)
+    # 默认为Windows平台
+    log_dir = os.path.expanduser(config.get(section_Log, option_windows_log_dir))
+    # Linux 的日志存放位置
+    if platform_ == LINUX:
+        log_dir = os.path.expanduser(config.get(section_Log, option_linux_log_dir))
+    if not os.path.exists(log_dir):
+        try:
+            os.makedirs(log_dir)
+        except Exception as e:
+            print_color(f'日志文件夹 "{log_dir}" 创建失败 {e}', color='red', highlight=1)
+            sys.exit(-1)
 
-server_port = config.getint(section_Port, option_server_port)
-server_signal_port = config.getint(section_Port, option_server_signal_port)
-client_signal_port = config.getint(section_Port, option_client_signal_port)
+    log_file_archive_count = config.getint(section_Log, option_log_file_archive_count)
+    log_file_archive_size = config.getint(section_Log, option_log_file_archive_size)
+    server_port = config.getint(section_Port, option_server_port)
+    server_signal_port = config.getint(section_Port, option_server_signal_port)
+    client_signal_port = config.getint(section_Port, option_client_signal_port)
+except configparser.NoOptionError as e:
+    print_color(f'未在配置文件中找到选项 {e}', color='red', highlight=1)
+    sys.exit(-1)
+except ValueError as e:
+    print_color(f'配置错误 {e}', color='red', highlight=1)
+    sys.exit(-1)
 
 if __name__ == '__main__':
     print(get_relative_filename_from_basedir(input('>>> ')))

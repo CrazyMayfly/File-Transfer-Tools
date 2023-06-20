@@ -1,6 +1,10 @@
 [Log]
 windows_log_dir = C:/ProgramData/logs
 linux_log_dir = ~/FileTransferTool/logs
+# Number of log files archived
+log_file_archive_count = 10
+# Size of log files archived
+log_file_archive_size = 52428800
 
 [Port]
 server_port = 2023
