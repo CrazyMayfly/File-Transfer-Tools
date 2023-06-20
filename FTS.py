@@ -17,7 +17,6 @@ class FTS:
         self.__log_lock = threading.Lock()
         self.ip = ''
         self.base_dir = base_dir
-        self.__log_line = 0
         self.__use_ssl = use_ssl
         self.__avoid_file_duplicate = avoid
         self._log('本次日志文件存放位置: ' + log_file_path)
@@ -55,10 +54,7 @@ class FTS:
             level = 'ERROR'
         with self.__log_lock:
             print_color(msg=msg, color=color, highlight=highlight)
-            self.__log_line += 1
             self.__log_file.write('[{}] {}\n'.format(level, msg))
-            if self.__log_line % 100 == 0:
-                self.__log_file.flush()
 
     def _deal_data(self, conn, addr):
         self._log('客户端连接 {0}'.format(addr), 'blue')
