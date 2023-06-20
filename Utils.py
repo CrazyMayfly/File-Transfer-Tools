@@ -148,17 +148,16 @@ def compress_log_files(base_dir, log_type, log):
             return
         # 当日志文件数大于10个时归档
         file_list = matching_files if len(matching_files) >= 10 else None
+        total_size = sum(os.stat(real_path).st_size for real_path in [os.path.join(path, file) for file in matching_files])
         if not file_list:
             # 日志文件小于十个但是总体积大于50MB也进行归档处理
-            file_list = matching_files if sum(
-                os.stat(real_path).st_size for real_path in
-                [os.path.join(path, file) for file in matching_files]) >= 50 * 1024 * 1024 else None
-        if not file_list:
-            return
+            file_list = matching_files if total_size >= 50 * 1024 * 1024 else None
+            if not file_list:
+                return
         dates = [datetime.strptime(file[0:10], '%Y_%m_%d') for file in matching_files]
         max_date = max(dates).strftime('%Y%m%d')
         min_date = min(dates).strftime('%Y%m%d')
-        log(f'开始对 {min_date} - {max_date} 时间范围内的 {log_type.upper()} 日志进行归档', color='blue')
+        log(f'开始对 {min_date} - {max_date} 时间范围内的 {log_type.upper()} 日志进行归档, 总计大小: {get_size(total_size)}', color='blue')
         # 压缩后的输出文件名
         output_file = f'{min_date}_{max_date}.{log_type}.tar.gz'
         output_file = os.path.join(base_dir, output_file).replace('/', os.path.sep)
