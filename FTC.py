@@ -57,7 +57,7 @@ class FTC:
         self.log('本次日志文件存放位置为: ' + log_file.replace('/', os.path.sep))
         # 进行日志归档
         threading.Thread(target=compress_log_files, args=(log_dir, 'client', self.log)).start()
-        self.__thread_pool = ThreadPool(threads)
+        self.__thread_pool = None
 
     def connect(self, nums=1):
         """
@@ -171,8 +171,9 @@ class FTC:
             self.__log_file.write('[{}] {}\n'.format(level, msg))
 
     def close_connection(self, send_close_info=True):
-        self.log('关闭线程池', 'blue')
-        self.__thread_pool.terminate()
+        if self.__thread_pool:
+            self.log('关闭线程池', 'blue')
+            self.__thread_pool.terminate()
         close_info = struct.pack(fmt, b'', CLOSE.encode(), 0)
         self.log('断开与 {0}:{1} 的连接'.format(self.host, server_port), 'blue')
         try:
@@ -309,6 +310,8 @@ class FTC:
         self.log('开始发送 {} 路径下所有文件夹，文件夹个数为 {}\n'.format(filepath, len(all_dir_name)), 'blue')
         results = []
         # start = time.time()
+        if self.__thread_pool is None:
+            self.__thread_pool = ThreadPool(self.threads)
         for dirname in all_dir_name:
             result = self.__thread_pool.apply_async(self._send_dir, (dirname,))
             results.append(result)
