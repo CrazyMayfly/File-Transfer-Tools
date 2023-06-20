@@ -57,7 +57,7 @@ class FTS:
             self.__log_file.write('[{}] {}\n'.format(level, msg))
 
     def _deal_data(self, conn, addr):
-        self._log('客户端连接 {0}'.format(addr), 'blue')
+        self._log(f'客户端连接 {addr[0]}:{addr[1]}', 'blue')
         while True:
             try:
                 filehead = receive_data(conn, fileinfo_size)
@@ -123,7 +123,7 @@ class FTS:
             self._log('当前数据使用加密传输', color='green')
         else:
             self._log('当前数据未进行加密传输', color='yellow')
-        self._log('服务器 {0}({1}) 已启动，等待连接...'.format(host, self.ip))
+        self._log(f'服务器 {host}({self.ip}:{server_port}) 已启动，等待连接...')
         self._log('当前默认文件存放位置：' + self.base_dir)
         threading.Thread(target=self._signal_online).start()
         with self.__log_lock:

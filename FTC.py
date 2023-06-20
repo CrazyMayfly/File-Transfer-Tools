@@ -94,7 +94,7 @@ class FTC:
                     s.connect((self.host, server_port))
                     self.__conn_pool_ready.append(s)
             if self.__first_connect:
-                self.log('成功连接至服务器 ({0}, {1})'.format(self.host, server_port), 'green')
+                self.log(f'成功连接至服务器 {self.host}:{server_port}', 'green')
                 if self.__use_ssl:
                     self.log('当前数据使用加密传输', 'green')
                 else:
