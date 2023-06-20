@@ -2,11 +2,16 @@ import hashlib
 import json
 import os
 import platform
+import re
 import signal
 import struct
 import sys
 import threading
 from datetime import datetime
+import tarfile
+import gzip
+from send2trash import send2trash
+from sys_info import get_size
 
 # 解决win10的cmd中直接使用转义序列失效问题
 os.system("")
@@ -131,6 +136,62 @@ def get_file_md5(filename):
             md5.update(data)
             data = fp.read(unit)
     return md5.hexdigest()
+
+
+def compress_log_files(base_dir, log_type, log):
+    """
+    压缩日志文件
+
+    @param base_dir: 日志文件所在的目录
+    @param log_type: 日志文件的类型：client 或 server
+    @param log: 打印日志方法
+    @return:
+    """
+    appendix = log_type + '.log'
+    # 必须以日期开头的文件
+    pattern = r'^\d{4}_\d{2}_\d{2}'
+    if not os.path.exists(base_dir):
+        return
+    for path, _, file_list in os.walk(base_dir):
+        # 获取非今天的FTC或FTS日志文件名
+        matching_files = [file for file in file_list if re.match(pattern, file) and
+                          file.endswith(appendix) and not file.startswith(datetime.now().strftime('%Y_%m_%d'))]
+        if not matching_files or len(matching_files) == 0:
+            return
+        # 当日志文件数大于10个时归档
+        file_list = matching_files if len(matching_files) >= 10 else None
+        if not file_list:
+            # 日志文件小于十个但是总体积大于50MB也进行归档处理
+            file_list = matching_files if sum(
+                os.stat(real_path).st_size for real_path in
+                [os.path.join(path, file) for file in matching_files]) >= 50 * 1024 * 1024 else None
+        if not file_list:
+            return
+        dates = [datetime.strptime(file[0:10], '%Y_%m_%d') for file in matching_files]
+        max_date = max(dates).strftime('%Y%m%d')
+        min_date = min(dates).strftime('%Y%m%d')
+        log(f'开始对 {min_date} - {max_date} 时间范围内的 {log_type.upper()} 日志进行归档', color='blue')
+        # 压缩后的输出文件名
+        output_file = f'{min_date}_{max_date}.{log_type}.tar.gz'
+        output_file = os.path.join(base_dir, output_file).replace('/', os.path.sep)
+        # 创建一个 tar 归档文件对象
+        with tarfile.open(os.path.join(base_dir, output_file), 'w:gz') as tar:
+            # 逐个添加文件到归档文件中
+            for file_name in file_list:
+                tar.add(os.path.join(base_dir, file_name), arcname=file_name)
+        # 若压缩文件完整则将日志文件移入回收站
+        if tarfile.is_tarfile(output_file):
+            for file_name in file_list:
+                try:
+                    send2trash(os.path.join(base_dir, file_name).replace('/', os.path.sep))
+                except Exception as e:
+                    log(f'{file_name}送往回收站失败，执行删除{e}', color='yellow')
+                    os.remove(os.path.join(base_dir, file_name))
+
+        log(f'日志文件归档完成: {output_file}，压缩后的文件大小: {get_size(os.stat(output_file).st_size)}',
+            color='green')
+        # 不进行文件夹递归
+        return
 
 
 # 命令类型

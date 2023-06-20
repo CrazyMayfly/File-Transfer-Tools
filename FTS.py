@@ -12,8 +12,6 @@ class FTS:
     def __init__(self, base_dir, use_ssl, avoid, password=''):
         self.__password = password
         log_file_path = os.path.join(log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log')
-        print('本次日志文件存放位置: ' + log_file_path)
-        print(f'本次服务器密码: {password if password else "无"}')
         self.__log_file = open(log_file_path, 'a', encoding='utf-8')
         self.__log_lock = threading.Lock()
         self.ip = ''
@@ -21,6 +19,10 @@ class FTS:
         self.__log_line = 0
         self.__use_ssl = use_ssl
         self.__avoid_file_duplicate = avoid
+        self._log('本次日志文件存放位置: ' + log_file_path)
+        self._log(f'本次服务器密码: {password if password else "无"}')
+        # 进行日志归档
+        threading.Thread(target=compress_log_files, args=(log_dir, 'server', self._log)).start()
 
     def avoid_filename_duplication(self, filename, filesize):
         if os.path.exists(filename):

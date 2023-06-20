@@ -46,15 +46,17 @@ class FTC:
         self.__conn_pool_ready = []
         self.__conn_pool_working = []
         self.__lock = threading.Lock()
-        self.__thread_pool = ThreadPool(threads)
         self.__log_lock = threading.Lock()
         self.__base_dir = ''
         self.__process_lock = threading.Lock()
         self.__position = 0
         self.__first_connect = True
         log_file = os.path.join(log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log')
-        print('本次日志文件存放位置为: ' + log_file)
         self.__log_file = open(log_file, 'a', encoding='utf-8')
+        self.log('本次日志文件存放位置为: ' + log_file.replace('/', os.path.sep))
+        # 进行日志归档
+        threading.Thread(target=compress_log_files, args=(log_dir, 'client', self.log)).start()
+        self.__thread_pool = ThreadPool(threads)
 
     def connect(self, nums=1):
         """
