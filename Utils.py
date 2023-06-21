@@ -250,7 +250,7 @@ config.read(config_file, encoding='UTF-8')
 # 打包控制变量，用于将程序打包为exe后防止直接退出控制台
 # Packaging control variable,
 # used to prevent the console from exiting directly after the program is packaged as exe
-packaging = True
+packaging = False
 
 try:
     cert_dir = config.get(section_Other, option_cert_dir)
