@@ -12,8 +12,5 @@ server_signal_port = 2022
 client_signal_port = 2021
 
 [Other]
-# Packaging control variable,
-# used to prevent the console from exiting directly after the program is packaged as exe
-packaging = False
 # Certificate storage path
 cert_dir = ./cert

@@ -222,7 +222,6 @@ option_log_file_archive_size = 'log_file_archive_size'
 option_server_port = 'server_port'
 option_server_signal_port = 'server_signal_port'
 option_client_signal_port = 'client_signal_port'
-option_packaging = 'packaging'
 option_cert_dir = 'cert_dir'
 
 if not os.path.exists(config_file):
@@ -241,7 +240,6 @@ if not os.path.exists(config_file):
     config.set(section_Port, option_server_signal_port, '2021')
     config.set(section_Port, option_client_signal_port, '2022')
     config.add_section(section_Other)
-    config.set(section_Other, option_packaging, 'False')
     config.set(section_Other, option_cert_dir, './cert')
     with open(config_file, 'w', encoding='UTF-8') as f:
         config.write(f)
@@ -250,13 +248,16 @@ if not os.path.exists(config_file):
 config = ConfigParser()
 config.read(config_file, encoding='UTF-8')
 
+# 打包控制变量，用于将程序打包为exe后防止直接退出控制台
+# Packaging control variable,
+# used to prevent the console from exiting directly after the program is packaged as exe
+packaging = False
+
 try:
     cert_dir = config.get(section_Other, option_cert_dir)
     if not os.path.exists(cert_dir):
         cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
 
-    # 打包控制变量，用于将程序打包为exe后防止直接退出控制台
-    packaging = config.getboolean(section_Other, option_packaging)
     if not os.path.exists(cert_dir):
         print_color(
             '未找到证书文件，默认位置为"./cert"文件夹中。\n'
