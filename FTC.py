@@ -1,6 +1,6 @@
 import argparse
 import json
-import secrets
+from secrets import token_bytes
 import socket
 import ssl
 from multiprocessing.pool import ThreadPool
@@ -507,7 +507,7 @@ class FTC:
         with tqdm(total=data_size, desc='speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
             for i in range(0, times):
                 # 生产随机字节
-                conn.send(secrets.token_bytes(data_unit))
+                conn.send(token_bytes(data_unit))
                 pbar.update(data_unit)
         self._return_connection(conn)
 

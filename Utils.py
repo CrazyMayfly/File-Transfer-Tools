@@ -1,4 +1,3 @@
-import configparser
 import hashlib
 import os
 import platform
@@ -12,7 +11,7 @@ import tarfile
 import gzip
 from send2trash import send2trash
 from sys_info import get_size
-from configparser import ConfigParser
+from configparser import ConfigParser, NoOptionError
 
 # 获取当前平台
 platform_ = platform.system()
@@ -251,7 +250,7 @@ config.read(config_file, encoding='UTF-8')
 # 打包控制变量，用于将程序打包为exe后防止直接退出控制台
 # Packaging control variable,
 # used to prevent the console from exiting directly after the program is packaged as exe
-packaging = False
+packaging = True
 
 try:
     cert_dir = config.get(section_Other, option_cert_dir)
@@ -284,7 +283,7 @@ try:
     server_port = config.getint(section_Port, option_server_port)
     server_signal_port = config.getint(section_Port, option_server_signal_port)
     client_signal_port = config.getint(section_Port, option_client_signal_port)
-except configparser.NoOptionError as e:
+except NoOptionError as e:
     print_color(f'未在配置文件中找到选项 {e}', color='red', highlight=1)
     sys.exit(-1)
 except ValueError as e:
