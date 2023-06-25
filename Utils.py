@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import hashlib
 import os
 import platform
@@ -18,10 +19,22 @@ platform_ = platform.system()
 WINDOWS = 'Windows'
 LINUX = 'Linux'
 MACOS = 'Macos'
-
 # 解决win10的cmd中直接使用转义序列失效问题
 if platform_ == WINDOWS:
     os.system("")
+
+
+# 配置实体类
+@dataclass
+class Configration:
+    default_path: str
+    cert_dir: str
+    log_dir: str
+    log_file_archive_count: int
+    log_file_archive_size: int
+    server_port: int
+    server_signal_port: int
+    client_signal_port: int
 
 
 def receive_data(connection, size):
@@ -148,12 +161,12 @@ def compress_log_files(base_dir, log_type, log):
         if not matching_files or len(matching_files) == 0:
             return
         # 当日志文件数大于10个时归档
-        file_list = matching_files if len(matching_files) >= log_file_archive_count else None
+        file_list = matching_files if len(matching_files) >= config.log_file_archive_count else None
         total_size = sum(
-            os.stat(real_path).st_size for real_path in [os.path.join(path, file) for file in matching_files])
+            os.stat(real_path).st_size for real_path in (os.path.join(path, file) for file in matching_files))
         if not file_list:
             # 日志文件小于十个但是总体积大于50MB也进行归档处理
-            file_list = matching_files if total_size >= log_file_archive_size else None
+            file_list = matching_files if total_size >= config.log_file_archive_size else None
             if not file_list:
                 return
         dates = [datetime.strptime(file[0:10], '%Y_%m_%d') for file in matching_files]
@@ -183,6 +196,80 @@ def compress_log_files(base_dir, log_type, log):
         # 不进行文件夹递归
         return
 
+
+def generate_config():
+    config = ConfigParser()
+    config.add_section(section_Main)
+    if platform_ == WINDOWS:
+        config.set(section_Main, option_windows_default_path, '~/Desktop')
+    elif platform_ == LINUX:
+        config.set(section_Main, option_linux_default_path, '~/FileTransferTool/FileRecv')
+    config.set(section_Main, option_cert_dir, './cert')
+    config.add_section(section_Log)
+    config.set(section_Log, option_windows_log_dir, 'C:/ProgramData/logs')
+    config.set(section_Log, option_linux_log_dir, '~/FileTransferTool/logs')
+    config.set(section_Log, option_log_file_archive_count, '10')
+    config.set(section_Log, option_log_file_archive_size, '52428800')
+    config.add_section(section_Port)
+    config.set(section_Port, option_server_port, '2023')
+    config.set(section_Port, option_server_signal_port, '2021')
+    config.set(section_Port, option_client_signal_port, '2022')
+    with open(config_file, 'w', encoding='UTF-8') as f:
+        config.write(f)
+
+
+def load_config():
+    config = ConfigParser()
+    config.read(config_file, encoding='UTF-8')
+    try:
+        default_path = config.get(section_Main, option_windows_default_path) if platform_ == WINDOWS else config.get(
+            section_Main, option_linux_default_path)
+        cert_dir = config.get(section_Main, option_cert_dir)
+        if not os.path.exists(cert_dir):
+            cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
+
+        if not os.path.exists(cert_dir):
+            print_color(
+                '未找到证书文件，默认位置为"./cert"文件夹中。\n'
+                'The certificate file was not found, the default location is in the "./cert" folder.\n',
+                color='red', highlight=1)
+            if packaging:
+                os.system('pause')
+            sys.exit(-2)
+
+        # 默认为Windows平台
+        log_dir = os.path.expanduser(config.get(section_Log, option_windows_log_dir))
+        # Linux 的日志存放位置
+        if platform_ == LINUX:
+            log_dir = os.path.expanduser(config.get(section_Log, option_linux_log_dir))
+        if not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir)
+            except Exception as e:
+                print_color(f'日志文件夹 "{log_dir}" 创建失败 {e}', color='red', highlight=1)
+                sys.exit(-1)
+
+        log_file_archive_count = config.getint(section_Log, option_log_file_archive_count)
+        log_file_archive_size = config.getint(section_Log, option_log_file_archive_size)
+        server_port = config.getint(section_Port, option_server_port)
+        server_signal_port = config.getint(section_Port, option_server_signal_port)
+        client_signal_port = config.getint(section_Port, option_client_signal_port)
+    except NoOptionError as e:
+        print_color(f'未在配置文件中找到选项 {e}', color='red', highlight=1)
+        sys.exit(-1)
+    except ValueError as e:
+        print_color(f'配置错误 {e}', color='red', highlight=1)
+        sys.exit(-1)
+    return Configration(default_path=default_path, cert_dir=cert_dir, log_dir=log_dir,
+                        log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,
+                        server_port=server_port, server_signal_port=server_signal_port,
+                        client_signal_port=client_signal_port)
+
+
+# 打包控制变量，用于将程序打包为exe后防止直接退出控制台
+# Packaging control variable,
+# used to prevent the console from exiting directly after the program is packaged as exe
+packaging = False
 
 # 命令类型
 SEND_FILE = "send_file"
@@ -230,74 +317,10 @@ if not os.path.exists(config_file):
         '未找到配置文件，采用默认配置\nThe configuration file was not found, using the default configuration.\n',
         color='yellow', highlight=1)
     # 生成配置文件
-    config = ConfigParser()
-    config.add_section(section_Main)
-    if platform_ == WINDOWS:
-        config.set(section_Main, option_windows_default_path, '~/Desktop')
-    elif platform_ == LINUX:
-        config.set(section_Main, option_linux_default_path, '~/FileTransferTool/FileRecv')
-    config.set(section_Main, option_cert_dir, './cert')
-    config.add_section(section_Log)
-    config.set(section_Log, option_windows_log_dir, 'C:/ProgramData/logs')
-    config.set(section_Log, option_linux_log_dir, '~/FileTransferTool/logs')
-    config.set(section_Log, option_log_file_archive_count, '10')
-    config.set(section_Log, option_log_file_archive_size, '52428800')
-    config.add_section(section_Port)
-    config.set(section_Port, option_server_port, '2023')
-    config.set(section_Port, option_server_signal_port, '2021')
-    config.set(section_Port, option_client_signal_port, '2022')
-
-    with open(config_file, 'w', encoding='UTF-8') as f:
-        config.write(f)
+    generate_config()
 
 # 加载配置
-config = ConfigParser()
-config.read(config_file, encoding='UTF-8')
-
-# 打包控制变量，用于将程序打包为exe后防止直接退出控制台
-# Packaging control variable,
-# used to prevent the console from exiting directly after the program is packaged as exe
-packaging = False
-
-try:
-    default_path = config.get(section_Main, option_windows_default_path) if platform_ == WINDOWS else config.get(
-        section_Main, option_linux_default_path)
-    cert_dir = config.get(section_Main, option_cert_dir)
-    if not os.path.exists(cert_dir):
-        cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
-
-    if not os.path.exists(cert_dir):
-        print_color(
-            '未找到证书文件，默认位置为"./cert"文件夹中。\n'
-            'The certificate file was not found, the default location is in the "./cert" folder.\n',
-            color='red', highlight=1)
-        if packaging:
-            os.system('pause')
-        sys.exit(-2)
-
-    # 默认为Windows平台
-    log_dir = os.path.expanduser(config.get(section_Log, option_windows_log_dir))
-    # Linux 的日志存放位置
-    if platform_ == LINUX:
-        log_dir = os.path.expanduser(config.get(section_Log, option_linux_log_dir))
-    if not os.path.exists(log_dir):
-        try:
-            os.makedirs(log_dir)
-        except Exception as e:
-            print_color(f'日志文件夹 "{log_dir}" 创建失败 {e}', color='red', highlight=1)
-            sys.exit(-1)
-
-    log_file_archive_count = config.getint(section_Log, option_log_file_archive_count)
-    log_file_archive_size = config.getint(section_Log, option_log_file_archive_size)
-    server_port = config.getint(section_Port, option_server_port)
-    server_signal_port = config.getint(section_Port, option_server_signal_port)
-    client_signal_port = config.getint(section_Port, option_client_signal_port)
-except NoOptionError as e:
-    print_color(f'未在配置文件中找到选项 {e}', color='red', highlight=1)
-    sys.exit(-1)
-except ValueError as e:
-    print_color(f'配置错误 {e}', color='red', highlight=1)
-    sys.exit(-1)
+config = load_config()
 
 if __name__ == '__main__':
     print(get_relative_filename_from_basedir(input('>>> ')))
