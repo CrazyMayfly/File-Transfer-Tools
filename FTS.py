@@ -12,7 +12,7 @@ from sys_info import *
 class FTS:
     def __init__(self, base_dir, use_ssl, avoid, password=''):
         self.__password = password
-        log_file_path = os.path.join(log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log')
+        log_file_path = os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log')
         self.__log_file = open(log_file_path, 'a', encoding='utf-8')
         self.__log_lock = threading.Lock()
         self.ip = ''
@@ -22,7 +22,7 @@ class FTS:
         self._log('本次日志文件存放位置: ' + log_file_path)
         self._log(f'本次服务器密码: {password if password else "无"}')
         # 进行日志归档
-        threading.Thread(target=compress_log_files, args=(log_dir, 'server', self._log)).start()
+        threading.Thread(target=compress_log_files, args=(config.log_dir, 'server', self._log)).start()
 
     def avoid_filename_duplication(self, filename, filesize):
         if os.path.exists(filename):
@@ -98,9 +98,9 @@ class FTS:
 
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-        sk.bind((self.ip, server_signal_port))
+        sk.bind((self.ip, config.server_signal_port))
         content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode('UTF-8')
-        addr = (self.ip[0:self.ip.rindex('.')] + '.255', client_signal_port)
+        addr = (self.ip[0:self.ip.rindex('.')] + '.255', config.client_signal_port)
         self._log('广播主机信息服务已启动')
         # 广播
         sk.sendto(content, addr)
@@ -110,20 +110,20 @@ class FTS:
                 target_ip = data[1]
                 self._log('收到来自 {0} 的探测请求'.format(target_ip))
                 # 单播
-                sk.sendto(content, (target_ip, client_signal_port))
+                sk.sendto(content, (target_ip, config.client_signal_port))
 
     def main(self):
         host = socket.gethostname()
         self.ip = socket.gethostbyname(host)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(('0.0.0.0', server_port))
+        s.bind(('0.0.0.0', config.server_port))
         s.listen(9999)
         if self.__use_ssl:
             self._log('当前数据使用加密传输', color='green')
         else:
             self._log('当前数据未进行加密传输', color='yellow')
-        self._log(f'服务器 {host}({self.ip}:{server_port}) 已启动，等待连接...')
+        self._log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
         self._log('当前默认文件存放位置：' + self.base_dir)
         threading.Thread(target=self._signal_online).start()
         with self.__log_lock:
@@ -132,8 +132,8 @@ class FTS:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             # 加载服务器所用证书和私钥
-            context.load_cert_chain(os.path.join(cert_dir, 'server.crt'),
-                                    os.path.join(cert_dir, 'server_rsa_private.pem'))
+            context.load_cert_chain(os.path.join(config.cert_dir, 'server.crt'),
+                                    os.path.join(config.cert_dir, 'server_rsa_private.pem'))
             with context.wrap_socket(s, server_side=True) as ss:
                 while True:
                     try:
@@ -278,7 +278,7 @@ class FTS:
 if __name__ == '__main__':
     # base_dir = input('请输入文件保存位置（输入1默认为桌面）：')
     parser = argparse.ArgumentParser(description='File Transfer Server, used to RECEIVE files.')
-    default_path = os.path.expanduser(default_path)
+    default_path = os.path.expanduser(config.default_path)
     parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
                         help='File storage location (default: {})'.format(default_path), default=default_path)
     parser.add_argument('-p', '--password', metavar='password', type=str,

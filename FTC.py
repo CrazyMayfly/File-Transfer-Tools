@@ -52,11 +52,11 @@ class FTC:
         self.__process_lock = threading.Lock()
         self.__position = 0
         self.__first_connect = True
-        log_file = os.path.join(log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log')
+        log_file = os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log')
         self.__log_file = open(log_file, 'a', encoding='utf-8')
         self.log('本次日志文件存放位置为: ' + log_file.replace('/', os.path.sep))
         # 进行日志归档
-        threading.Thread(target=compress_log_files, args=(log_dir, 'client', self.log)).start()
+        threading.Thread(target=compress_log_files, args=(config.log_dir, 'client', self.log)).start()
         self.__thread_pool = None
 
     def connect(self, nums=1):
@@ -74,12 +74,12 @@ class FTC:
                 # 生成SSL上下文
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 # 加载信任根证书
-                context.load_verify_locations(os.path.join(cert_dir, 'ca.crt'))
+                context.load_verify_locations(os.path.join(config.cert_dir, 'ca.crt'))
                 for i in range(0, additional_connections_nums):
                     try:
                         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         # 连接至服务器
-                        s.connect((self.host, server_port))
+                        s.connect((self.host, config.server_port))
                         # 将socket包装为securitySocket
                         ss = context.wrap_socket(s, server_hostname='FTS')
                         # ss = context.wrap_socket(s, server_hostname='Server')
@@ -91,10 +91,10 @@ class FTC:
             else:
                 for i in range(0, self.threads):
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    s.connect((self.host, server_port))
+                    s.connect((self.host, config.server_port))
                     self.__conn_pool_ready.append(s)
             if self.__first_connect:
-                self.log(f'成功连接至服务器 {self.host}:{server_port}', 'green')
+                self.log(f'成功连接至服务器 {self.host}:{config.server_port}', 'green')
                 if self.__use_ssl:
                     self.log('当前数据使用加密传输', 'green')
                 else:
@@ -107,22 +107,21 @@ class FTC:
             sys.exit(-1)
 
     def probe_server(self, wait=1):
-        global server_port
         if self.host:
             splits = self.host.split(":")
             if len(splits) == 2:
-                server_port = int(splits[1])
+                config.server_port = int(splits[1])
                 self.host = splits[0]
-            self.log("目标主机: " + self.host + ", 目标端口: " + str(server_port))
+            self.log("目标主机: " + self.host + ", 目标端口: " + str(config.server_port))
             return
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         local_host = socket.gethostname()
         ip = socket.gethostbyname(local_host)
-        sk.bind((ip, client_signal_port))
+        sk.bind((ip, config.client_signal_port))
         ip_list = {}
         self.log('开始探测服务器信息，最短探测时长：{0}s.'.format(wait))
         content = ('53b997bc-a140-11ed-a8fc-0242ac120002_' + ip).encode('UTF-8')
-        addr = (ip[0:ip.rindex('.')] + '.255', server_signal_port)
+        addr = (ip[0:ip.rindex('.')] + '.255', config.server_signal_port)
         sk.sendto(content, addr)
         begin = time.time()
         while time.time() - begin < wait:
@@ -175,7 +174,7 @@ class FTC:
             self.log('关闭线程池', 'blue')
             self.__thread_pool.terminate()
         close_info = struct.pack(fmt, b'', CLOSE.encode(), 0)
-        self.log('断开与 {0}:{1} 的连接'.format(self.host, server_port), 'blue')
+        self.log('断开与 {0}:{1} 的连接'.format(self.host, config.server_port), 'blue')
         try:
             for conn in self.__conn_pool_ready + self.__conn_pool_working:
                 if send_close_info:
