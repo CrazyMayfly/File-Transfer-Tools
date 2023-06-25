@@ -44,10 +44,8 @@ class FTC:
         self.__pbar = None
         self.host = host
         self.threads = threads
-        self.__conn_pool_ready = []
-        self.__conn_pool_working = []
-        self.__lock = threading.Lock()
         self.__log_lock = threading.Lock()
+        self.__connections = self.Connections()
         self.__base_dir = ''
         self.__process_lock = threading.Lock()
         self.__position = 0
@@ -59,6 +57,31 @@ class FTC:
         threading.Thread(target=compress_log_files, args=(config.log_dir, 'client', self.log)).start()
         self.__thread_pool = None
 
+    class Connections:
+        def __init__(self):
+            self.__conn_pool_ready = []
+            self.__conn_pool_working = {}
+            self.__lock = threading.Lock()
+
+        def __enter__(self):
+            # 从空闲的conn中取出一个使用
+            with self.__lock:
+                conn = self.__conn_pool_ready.pop()
+                self.__conn_pool_working.update({threading.current_thread().ident: conn})
+            return conn
+
+        def get_connections(self):
+            return self.__conn_pool_ready + list(self.__conn_pool_working.values())
+
+        def add(self, conn):
+            self.__conn_pool_ready.append(conn)
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            # conn使用完毕，回收conn
+            with self.__lock:
+                conn = self.__conn_pool_working.pop(threading.current_thread().ident)
+                self.__conn_pool_ready.append(conn)
+
     def connect(self, nums=1):
         """
         将现有的连接数量扩充至nums
@@ -66,7 +89,7 @@ class FTC:
         @param nums: 需要扩充到的连接数
         @return:
         """
-        additional_connections_nums = nums - len(self.__conn_pool_ready) + len(self.__conn_pool_working)
+        additional_connections_nums = nums - len(self.__connections.get_connections())
         if additional_connections_nums <= 0:
             return
         try:
@@ -83,8 +106,7 @@ class FTC:
                         # 将socket包装为securitySocket
                         ss = context.wrap_socket(s, server_hostname='FTS')
                         # ss = context.wrap_socket(s, server_hostname='Server')
-                        with self.__lock:
-                            self.__conn_pool_ready.append(ss)
+                        self.__connections.add(ss)
                     except ssl.SSLError as e:
                         self.log('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), 'red', highlight=1)
                         sys.exit(-1)
@@ -92,7 +114,7 @@ class FTC:
                 for i in range(0, self.threads):
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.connect((self.host, config.server_port))
-                    self.__conn_pool_ready.append(s)
+                    self.__connections.add(s)
             if self.__first_connect:
                 self.log(f'成功连接至服务器 {self.host}:{config.server_port}', 'green')
                 if self.__use_ssl:
@@ -176,7 +198,7 @@ class FTC:
         close_info = struct.pack(fmt, b'', CLOSE.encode(), 0)
         self.log('断开与 {0}:{1} 的连接'.format(self.host, config.server_port), 'blue')
         try:
-            for conn in self.__conn_pool_ready + self.__conn_pool_working:
+            for conn in self.__connections.get_connections():
                 if send_close_info:
                     conn.send(close_info)
                 # time.sleep(random.randint(0, 50) / 100)
@@ -185,25 +207,11 @@ class FTC:
             with self.__log_lock:
                 self.__log_file.close()
 
-    def _get_connection(self):
-        # 从空闲的conn中取出一个使用
-        with self.__lock:
-            conn = self.__conn_pool_ready.pop()
-            self.__conn_pool_working.append(conn)
-        return conn
-
-    def _return_connection(self, conn):
-        # conn使用完毕，回收conn
-        with self.__lock:
-            self.__conn_pool_ready.append(conn)
-            self.__conn_pool_working.remove(conn)
-
     def _send_dir(self, dirname):
         filehead = struct.pack(fmt, dirname.encode('UTF-8'),
                                SEND_DIR.encode(), 0)
-        conn = self._get_connection()
-        conn.send(filehead)
-        self._return_connection(conn)
+        with self.__connections as conn:
+            conn.send(filehead)
 
     def _send_file(self, filepath):
         real_path = os.path.join(self.__base_dir, filepath)
@@ -212,38 +220,37 @@ class FTC:
         filehead = struct.pack(fmt, filepath.encode('UTF-8'),
                                SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
-        conn = self._get_connection()
-        conn.send(filehead)
-        is_continue = receive_data(conn, 8)
-        is_continue = is_continue.decode('UTF-8') == CONTINUE
-        if is_continue:
-            fp = open(real_path, 'rb')
-            # self.log('开始发送文件')
-            md5 = hashlib.md5()
-            with self.__process_lock:
-                position = self.__position
-                self.__position += 1
-            with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
-                      position=position) as pbar:
-                data = fp.read(unit)
-                while data:
-                    conn.send(data)
-                    md5.update(data)
-                    pbar.update(len(data))
-                    with self.__process_lock:
-                        if self.__pbar:
-                            self.__pbar.update(len(data))
+        with self.__connections as conn:
+            conn.send(filehead)
+            is_continue = receive_data(conn, 8)
+            is_continue = is_continue.decode('UTF-8') == CONTINUE
+            if is_continue:
+                fp = open(real_path, 'rb')
+                # self.log('开始发送文件')
+                md5 = hashlib.md5()
+                with self.__process_lock:
+                    position = self.__position
+                    self.__position += 1
+                with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
+                          position=position) as pbar:
                     data = fp.read(unit)
-            fp.close()
-            digest = md5.digest()
-            conn.send(digest)
-            filepath = receive_data(conn, filename_size)
-            filepath = filepath.decode('UTF-8').strip('\00')
-        else:
-            with self.__process_lock:
-                if self.__pbar:
-                    self.__pbar.update(file_size)
-        self._return_connection(conn)
+                    while data:
+                        conn.send(data)
+                        md5.update(data)
+                        pbar.update(len(data))
+                        with self.__process_lock:
+                            if self.__pbar:
+                                self.__pbar.update(len(data))
+                        data = fp.read(unit)
+                fp.close()
+                digest = md5.digest()
+                conn.send(digest)
+                filepath = receive_data(conn, filename_size)
+                filepath = filepath.decode('UTF-8').strip('\00')
+            else:
+                with self.__process_lock:
+                    if self.__pbar:
+                        self.__pbar.update(file_size)
         return filepath
 
     def main(self):
@@ -373,85 +380,84 @@ class FTC:
             self.log('本地文件夹不存在', color='yellow')
             return
         filehead = struct.pack(fmt, dest_dir.encode("UTF-8"), COMPARE_DIR.encode(), 0)
-        conn = self._get_connection()
-        conn.send(filehead)
-        is_dir_correct = receive_data(conn, len(DIRISCORRECT))
-        is_dir_correct = is_dir_correct.decode() == DIRISCORRECT
-        if is_dir_correct:
-            local_dict = get_relative_filename_from_basedir(local_dir)
-            # 获取本地的文件名
-            local_filename = local_dict.keys()
-            # 获取本次字符串大小
-            data_size = receive_data(conn, str_len_size)
-            data_size = struct.unpack(str_len_fmt, data_size)[0]
-            # 接收字符串
-            data = receive_data(conn, data_size).decode()
-            # 将字符串转化为dict
-            dest_dict = json.loads(data)
-            dest_filename = dest_dict.keys()
+        with self.__connections as conn:
+            conn.send(filehead)
+            is_dir_correct = receive_data(conn, len(DIRISCORRECT))
+            is_dir_correct = is_dir_correct.decode() == DIRISCORRECT
+            if is_dir_correct:
+                local_dict = get_relative_filename_from_basedir(local_dir)
+                # 获取本地的文件名
+                local_filename = local_dict.keys()
+                # 获取本次字符串大小
+                data_size = receive_data(conn, str_len_size)
+                data_size = struct.unpack(str_len_fmt, data_size)[0]
+                # 接收字符串
+                data = receive_data(conn, data_size).decode()
+                # 将字符串转化为dict
+                dest_dict = json.loads(data)
+                dest_filename = dest_dict.keys()
 
-            # 求各种集合
-            file_not_exits_in_dest = []
-            file_not_exits_in_local = []
-            file_in_local_smaller_than_dest = []
-            file_in_dest_smaller_than_local = []
-            filesize_and_name_both_equal = []
-            hash_not_matching = []
-            for filename in local_filename:
-                if filename not in dest_dict:
-                    file_not_exits_in_dest.append(filename)
-                else:
-                    local_filesize = local_dict[filename]
-                    dest_filesize = dest_dict[filename]
-                    if local_filesize < dest_filesize:
-                        file_in_local_smaller_than_dest.append(filename)
-                    elif local_filesize == dest_filesize:
-                        filesize_and_name_both_equal.append(filename)
+                # 求各种集合
+                file_not_exits_in_dest = []
+                file_not_exits_in_local = []
+                file_in_local_smaller_than_dest = []
+                file_in_dest_smaller_than_local = []
+                filesize_and_name_both_equal = []
+                hash_not_matching = []
+                for filename in local_filename:
+                    if filename not in dest_dict:
+                        file_not_exits_in_dest.append(filename)
                     else:
-                        file_in_dest_smaller_than_local.append(filename)
+                        local_filesize = local_dict[filename]
+                        dest_filesize = dest_dict[filename]
+                        if local_filesize < dest_filesize:
+                            file_in_local_smaller_than_dest.append(filename)
+                        elif local_filesize == dest_filesize:
+                            filesize_and_name_both_equal.append(filename)
+                        else:
+                            file_in_dest_smaller_than_local.append(filename)
 
-            for filename in dest_filename:
-                if filename not in local_filename:
-                    file_not_exits_in_local.append(filename)
+                for filename in dest_filename:
+                    if filename not in local_filename:
+                        file_not_exits_in_local.append(filename)
 
-            print_filename_if_exits("file exits in dest but not exits in local: ", file_not_exits_in_local)
-            print_filename_if_exits("file exits in local but not exits in dest: ", file_not_exits_in_dest)
-            print_filename_if_exits("file in local smaller than dest: ", file_in_local_smaller_than_dest)
-            print_filename_if_exits("file in dest smaller than local: ", file_in_dest_smaller_than_local)
-            print_filename_if_exits("filename and size both equal in two sides: ", filesize_and_name_both_equal)
+                print_filename_if_exits("file exits in dest but not exits in local: ", file_not_exits_in_local)
+                print_filename_if_exits("file exits in local but not exits in dest: ", file_not_exits_in_dest)
+                print_filename_if_exits("file in local smaller than dest: ", file_in_local_smaller_than_dest)
+                print_filename_if_exits("file in dest smaller than local: ", file_in_dest_smaller_than_local)
+                print_filename_if_exits("filename and size both equal in two sides: ", filesize_and_name_both_equal)
 
-            if filesize_and_name_both_equal:
-                is_continue = input("Continue to compare hash for filename and size both equal set?(y/n): ") == 'y'
-                if is_continue:
-                    # 发送继续请求
-                    conn.send(CONTINUE.encode())
-                    # 发送相同的文件名称大小
-                    data_to_send = "|".join(filesize_and_name_both_equal).encode("UTF-8")
-                    conn.send(struct.pack(str_len_fmt, len(data_to_send)))
-                    # 发送字符串
-                    conn.send(data_to_send)
-                    results = {}
-                    for filename in filesize_and_name_both_equal:
-                        real_path = os.path.join(local_dir, filename)
-                        results.update({filename: get_file_md5(real_path)})
-                    # 获取本次字符串大小
-                    data_size = receive_data(conn, str_len_size)
-                    data_size = struct.unpack(str_len_fmt, data_size)[0]
-                    # 接收字符串
-                    data = receive_data(conn, data_size).decode()
-                    # 将字符串转化为dict
-                    dest_dict = json.loads(data)
-                    for filename in results.keys():
-                        if results[filename] != dest_dict[filename]:
-                            hash_not_matching.append(filename)
-                    print_filename_if_exits("hash not matching: ", hash_not_matching)
+                if filesize_and_name_both_equal:
+                    is_continue = input("Continue to compare hash for filename and size both equal set?(y/n): ") == 'y'
+                    if is_continue:
+                        # 发送继续请求
+                        conn.send(CONTINUE.encode())
+                        # 发送相同的文件名称大小
+                        data_to_send = "|".join(filesize_and_name_both_equal).encode("UTF-8")
+                        conn.send(struct.pack(str_len_fmt, len(data_to_send)))
+                        # 发送字符串
+                        conn.send(data_to_send)
+                        results = {}
+                        for filename in filesize_and_name_both_equal:
+                            real_path = os.path.join(local_dir, filename)
+                            results.update({filename: get_file_md5(real_path)})
+                        # 获取本次字符串大小
+                        data_size = receive_data(conn, str_len_size)
+                        data_size = struct.unpack(str_len_fmt, data_size)[0]
+                        # 接收字符串
+                        data = receive_data(conn, data_size).decode()
+                        # 将字符串转化为dict
+                        dest_dict = json.loads(data)
+                        for filename in results.keys():
+                            if results[filename] != dest_dict[filename]:
+                                hash_not_matching.append(filename)
+                        print_filename_if_exits("hash not matching: ", hash_not_matching)
+                    else:
+                        conn.send(CANCEL.encode())
                 else:
                     conn.send(CANCEL.encode())
             else:
-                conn.send(CANCEL.encode())
-        else:
-            self.log(f"目标文件夹 {dest_dir} 不存在", color="yellow")
-        self._return_connection(conn)
+                self.log(f"目标文件夹 {dest_dir} 不存在", color="yellow")
 
     def _execute_command(self, command):
         command = command.strip()
@@ -466,30 +472,28 @@ class FTC:
             self.log("指令过长", color='yellow')
             return
 
-        conn = self._get_connection()
-        filehead = struct.pack(fmt, command, COMMAND.encode(), len(command))
-        conn.send(filehead)
-        with self.__log_lock:
-            self.__log_file.write('[INFO] ' + get_log_msg(f'下达指令: {command}\n'))
-        # 接收返回结果
-        result = receive_data(conn, 8)
-        while result != b'\00' * 8:
-            print(result.decode('UTF-32'), end='')
+        with self.__connections as conn:
+            filehead = struct.pack(fmt, command, COMMAND.encode(), len(command))
+            conn.send(filehead)
+            with self.__log_lock:
+                self.__log_file.write('[INFO] ' + get_log_msg(f'下达指令: {command}\n'))
+            # 接收返回结果
             result = receive_data(conn, 8)
-        self._return_connection(conn)
+            while result != b'\00' * 8:
+                print(result.decode('UTF-32'), end='')
+                result = receive_data(conn, 8)
 
     def _compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
         filehead = struct.pack(fmt, b'', SYSINFO.encode(), 0)
-        conn = self._get_connection()
-        conn.send(filehead)
-        # 异步获取自己的系统信息
-        t = MyThread(get_sys_info, args=())
-        t.start()
-        # 接收对方的系统信息
-        data_length = struct.unpack(str_len_fmt, receive_data(conn, str_len_size))[0]
-        data = receive_data(conn, data_length).decode()
-        self._return_connection(conn)
+        with self.__connections as conn:
+            conn.send(filehead)
+            # 异步获取自己的系统信息
+            t = MyThread(get_sys_info, args=())
+            t.start()
+            # 接收对方的系统信息
+            data_length = struct.unpack(str_len_fmt, receive_data(conn, str_len_size))[0]
+            data = receive_data(conn, data_length).decode()
         dest_sysinfo = json.loads(data)
         print_sysinfo(dest_sysinfo)
         # 等待本机系统信息获取完成
@@ -501,21 +505,19 @@ class FTC:
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
         filehead = struct.pack(fmt, b'', SPEEDTEST.encode(), data_size)
-        conn = self._get_connection()
-        conn.send(filehead)
-        with tqdm(total=data_size, desc='speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
-            for i in range(0, times):
-                # 生产随机字节
-                conn.send(token_bytes(data_unit))
-                pbar.update(data_unit)
-        self._return_connection(conn)
+        with self.__connections as conn:
+            conn.send(filehead)
+            with tqdm(total=data_size, desc='speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
+                for i in range(0, times):
+                    # 生产随机字节
+                    conn.send(token_bytes(data_unit))
+                    pbar.update(data_unit)
 
     def _before_working(self):
         filehead = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
-        conn = self._get_connection()
-        conn.send(filehead)
-        filehead = receive_data(conn, fileinfo_size)
-        self._return_connection(conn)
+        with self.__connections as conn:
+            conn.send(filehead)
+            filehead = receive_data(conn, fileinfo_size)
         msg = struct.unpack(fmt, filehead)[0]
         msg = msg.decode('UTF-8').strip('\00')
         if msg == 'FAIL':
