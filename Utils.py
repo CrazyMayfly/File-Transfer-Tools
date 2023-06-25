@@ -210,10 +210,13 @@ unit = 1024 * 1024  # 1MB
 # 配置文件相关
 config_file = 'config.txt'
 
+section_Main = 'Main'
 section_Log = 'Log'
 section_Port = 'Port'
-section_Other = 'Other'
 
+option_windows_default_path = 'windows_default_path'
+option_linux_default_path = 'linux_default_path'
+option_cert_dir = 'cert_dir'
 option_windows_log_dir = 'windows_log_dir'
 option_linux_log_dir = 'linux_log_dir'
 option_log_file_archive_count = 'log_file_archive_count'
@@ -221,7 +224,6 @@ option_log_file_archive_size = 'log_file_archive_size'
 option_server_port = 'server_port'
 option_server_signal_port = 'server_signal_port'
 option_client_signal_port = 'client_signal_port'
-option_cert_dir = 'cert_dir'
 
 if not os.path.exists(config_file):
     print_color(
@@ -229,6 +231,12 @@ if not os.path.exists(config_file):
         color='yellow', highlight=1)
     # 生成配置文件
     config = ConfigParser()
+    config.add_section(section_Main)
+    if platform_ == WINDOWS:
+        config.set(section_Main, option_windows_default_path, '~/Desktop')
+    elif platform_ == LINUX:
+        config.set(section_Main, option_linux_default_path, '~/FileTransferTool/FileRecv')
+    config.set(section_Main, option_cert_dir, './cert')
     config.add_section(section_Log)
     config.set(section_Log, option_windows_log_dir, 'C:/ProgramData/logs')
     config.set(section_Log, option_linux_log_dir, '~/FileTransferTool/logs')
@@ -238,8 +246,7 @@ if not os.path.exists(config_file):
     config.set(section_Port, option_server_port, '2023')
     config.set(section_Port, option_server_signal_port, '2021')
     config.set(section_Port, option_client_signal_port, '2022')
-    config.add_section(section_Other)
-    config.set(section_Other, option_cert_dir, './cert')
+
     with open(config_file, 'w', encoding='UTF-8') as f:
         config.write(f)
 
@@ -253,7 +260,9 @@ config.read(config_file, encoding='UTF-8')
 packaging = False
 
 try:
-    cert_dir = config.get(section_Other, option_cert_dir)
+    default_path = config.get(section_Main, option_windows_default_path) if platform_ == WINDOWS else config.get(
+        section_Main, option_linux_default_path)
+    cert_dir = config.get(section_Main, option_cert_dir)
     if not os.path.exists(cert_dir):
         cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
 

@@ -278,9 +278,7 @@ class FTS:
 if __name__ == '__main__':
     # base_dir = input('请输入文件保存位置（输入1默认为桌面）：')
     parser = argparse.ArgumentParser(description='File Transfer Server, used to RECEIVE files.')
-    default_path = os.path.expanduser("~/Desktop")
-    if platform_ == LINUX:
-        default_path = os.path.expanduser('~/FileTransferTool/FileRecv')
+    default_path = os.path.expanduser(default_path)
     parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
                         help='File storage location (default: {})'.format(default_path), default=default_path)
     parser.add_argument('-p', '--password', metavar='password', type=str,
@@ -294,7 +292,11 @@ if __name__ == '__main__':
     if platform_ == LINUX:
         base_dir = pathlib.PurePath(args.dest).as_posix()
     if not os.path.exists(base_dir):
-        os.makedirs(base_dir)
+        try:
+            os.makedirs(base_dir)
+        except OSError as e:
+            print_color(f'无法创建 {base_dir}, {e}', color='red', highlight=1)
+            sys.exit(1)
         print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), color='blue')
 
     fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, avoid=args.avoid, password=args.password)
