@@ -1,20 +1,19 @@
-from dataclasses import dataclass
 import hashlib
 import os
 import platform
 import re
-import signal
 import struct
 import sys
-import threading
-from datetime import datetime
 import tarfile
-import gzip
+import threading
+from configparser import ConfigParser, NoOptionError, NoSectionError
+from dataclasses import dataclass
+from datetime import datetime
 
 import pyperclip
 from send2trash import send2trash
+
 from sys_info import get_size
-from configparser import ConfigParser, NoOptionError
 
 # 获取当前平台
 platform_ = platform.system()
@@ -50,21 +49,25 @@ def receive_data(connection, size):
     return result
 
 
-def send_clipboard(conn, log):
+def send_clipboard(conn, log, FTC=True):
     # 读取并编码剪切板的内容
     content = pyperclip.paste().encode()
     # 没有内容则不发送
     content_length = len(content)
     if content_length == 0:
+        if not FTC:
+            filehead = struct.pack(fmt, b'', b'', 0)
+            conn.send(filehead)
         return
+
     log(f'发送剪切板的内容，大小为 {get_size(content_length)}', color='blue')
     # 需要发送的内容较小则一趟发送
     if content_length <= filename_size:
-        filehead = struct.pack(fmt, content, SEND_CLIPBOARD.encode(), 0)
+        filehead = struct.pack(fmt, content, PUSH_CLIPBOARD.encode(), 0)
         conn.send(filehead)
     else:
         # 较大则多趟发送
-        filehead = struct.pack(fmt, b'', SEND_CLIPBOARD.encode(), content_length)
+        filehead = struct.pack(fmt, b'', PUSH_CLIPBOARD.encode(), content_length)
         conn.send(filehead)
         conn.send(content)
 
@@ -72,11 +75,14 @@ def send_clipboard(conn, log):
 def get_clipboard(conn, log, filehead=None, FTC=True):
     # 获取对方剪切板的内容
     if FTC:
-        filehead = struct.pack(fmt, b'', GET_CLIPBOARD.encode(), 0)
+        filehead = struct.pack(fmt, b'', PULL_CLIPBOARD.encode(), 0)
         conn.send(filehead)
         filehead = receive_data(conn, fileinfo_size)
-    content, _, filesize, = struct.unpack(fmt, filehead)
-    # 对方发送的内容较多则继续接收
+    content, command, filesize, = struct.unpack(fmt, filehead)
+    if command.decode() != PUSH_CLIPBOARD:
+        log('对方剪切板为空', color='yellow')
+        return
+        # 对方发送的内容较多则继续接收
     if filesize != 0:
         content = receive_data(conn, filesize)
     log('获取对方剪切板的内容，大小为 {}'.format(get_size(len(content.strip(b"\00")))), color='blue')
@@ -291,8 +297,8 @@ def load_config():
         server_port = config.getint(section_Port, option_server_port)
         server_signal_port = config.getint(section_Port, option_server_signal_port)
         client_signal_port = config.getint(section_Port, option_client_signal_port)
-    except NoOptionError as e:
-        print_color(f'未在配置文件中找到选项 {e}', color='red', highlight=1)
+    except (NoOptionError, NoSectionError) as e:
+        print_color(f'{e}', color='red', highlight=1)
         sys.exit(-1)
     except ValueError as e:
         print_color(f'配置错误 {e}', color='red', highlight=1)
@@ -319,8 +325,10 @@ GET = 'get'
 SEND = 'send'
 BEFORE_WORKING = 'before_working'
 CLOSE = 'close'
-SEND_CLIPBOARD = 'send_clipboard'
-GET_CLIPBOARD = 'get_clipboard'
+PUSH = 'push'
+PULL = 'pull'
+PUSH_CLIPBOARD = 'push_clipboard'
+PULL_CLIPBOARD = 'pull_clipboard'
 
 # 其他常量
 CONTINUE = 'continue'
