@@ -88,6 +88,11 @@ class FTS:
                     elif command == BEFORE_WORKING:
                         if self._before_working(conn, filename):
                             return
+                    elif command == GET_CLIPBOARD:
+                        send_clipboard(conn, self._log)
+                    elif command == SEND_CLIPBOARD:
+                        get_clipboard(conn, self._log, filehead=filehead, FTC=False)
+
             except ConnectionResetError as e:
                 self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
                 break

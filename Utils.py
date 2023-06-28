@@ -10,6 +10,8 @@ import threading
 from datetime import datetime
 import tarfile
 import gzip
+
+import pyperclip
 from send2trash import send2trash
 from sys_info import get_size
 from configparser import ConfigParser, NoOptionError
@@ -46,6 +48,41 @@ def receive_data(connection, size):
         rest_size -= len(data)
         result += data
     return result
+
+
+def send_clipboard(conn, log):
+    # 读取并编码剪切板的内容
+    content = pyperclip.paste().encode()
+    # 没有内容则不发送
+    content_length = len(content)
+    if content_length == 0:
+        return
+    log(f'发送剪切板的内容，大小为 {get_size(content_length)}', color='blue')
+    # 需要发送的内容较小则一趟发送
+    if content_length <= filename_size:
+        filehead = struct.pack(fmt, content, SEND_CLIPBOARD.encode(), 0)
+        conn.send(filehead)
+    else:
+        # 较大则多趟发送
+        filehead = struct.pack(fmt, b'', SEND_CLIPBOARD.encode(), content_length)
+        conn.send(filehead)
+        conn.send(content)
+
+
+def get_clipboard(conn, log, filehead=None, FTC=True):
+    # 获取对方剪切板的内容
+    if FTC:
+        filehead = struct.pack(fmt, b'', GET_CLIPBOARD.encode(), 0)
+        conn.send(filehead)
+        filehead = receive_data(conn, fileinfo_size)
+    content, _, filesize, = struct.unpack(fmt, filehead)
+    # 对方发送的内容较多则继续接收
+    if filesize != 0:
+        content = receive_data(conn, filesize)
+    log('获取对方剪切板的内容，大小为 {}'.format(get_size(len(content.strip(b"\00")))), color='blue')
+    content = content.decode('UTF-8').strip('\00')
+    # 拷贝到剪切板
+    pyperclip.copy(content)
 
 
 def calcu_size(filesize):
@@ -279,15 +316,18 @@ COMMAND = 'command'
 SYSINFO = 'sysinfo'
 SPEEDTEST = 'speedtest'
 GET = 'get'
+SEND = 'send'
 BEFORE_WORKING = 'before_working'
 CLOSE = 'close'
+SEND_CLIPBOARD = 'send_clipboard'
+GET_CLIPBOARD = 'get_clipboard'
 
 # 其他常量
 CONTINUE = 'continue'
 CANCEL = 'canceltf'
 DIRISCORRECT = "dirIsCorrect"
 filename_fmt = '800s'
-fmt = f'>{filename_fmt}{max(len(item) for item in [SEND_FILE, SEND_DIR, COMPARE_DIR, COMMAND, SYSINFO, SPEEDTEST, BEFORE_WORKING, CLOSE])}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
+fmt = f'>{filename_fmt}{len(BEFORE_WORKING)}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
 str_len_fmt = '>Q'
 filename_size = struct.calcsize(filename_fmt)
 fileinfo_size = struct.calcsize(fmt)

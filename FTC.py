@@ -280,6 +280,10 @@ class FTC:
                         self.log('本地文件夹且远程文件夹不能为空', color='yellow')
                         continue
                     self._compare_dir(local_dir, dest_dir)
+                elif command.startswith('clip'):
+                    if ' ' not in command:
+                        continue
+                    self.__exchange_clipboard(command.split()[1])
                 # elif command.startswith("get"):
                 #     file_store_location = os.path.expanduser("~\Desktop")
                 #     dirname_splits = command[4:].split(" ")
@@ -527,6 +531,19 @@ class FTC:
         else:
             self.log('服务器所在平台: ' + msg, color='blue')
             return msg
+
+    def __exchange_clipboard(self, command):
+        """
+        交换（发送，获取）对方剪切板内容
+
+        @param command: get 或 send
+        @return:
+        """
+        with self.__connections as conn:
+            if command == SEND:
+                send_clipboard(conn, self.log)
+            elif command == GET:
+                get_clipboard(conn, self.log)
 
 
 if __name__ == '__main__':
