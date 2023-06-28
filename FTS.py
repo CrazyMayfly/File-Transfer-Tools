@@ -2,6 +2,7 @@ import argparse
 import json
 import os.path
 import pathlib
+import signal
 import socket
 import ssl
 
@@ -88,9 +89,9 @@ class FTS:
                     elif command == BEFORE_WORKING:
                         if self._before_working(conn, filename):
                             return
-                    elif command == GET_CLIPBOARD:
-                        send_clipboard(conn, self._log)
-                    elif command == SEND_CLIPBOARD:
+                    elif command == PULL_CLIPBOARD:
+                        send_clipboard(conn, self._log, FTC=False)
+                    elif command == PUSH_CLIPBOARD:
                         get_clipboard(conn, self._log, filehead=filehead, FTC=False)
 
             except ConnectionResetError as e:

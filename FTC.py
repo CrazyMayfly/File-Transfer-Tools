@@ -3,6 +3,7 @@ import json
 from secrets import token_bytes
 import socket
 import ssl
+import signal
 from multiprocessing.pool import ThreadPool
 
 from tqdm import tqdm
@@ -540,9 +541,9 @@ class FTC:
         @return:
         """
         with self.__connections as conn:
-            if command == SEND:
+            if command == SEND or command == PUSH:
                 send_clipboard(conn, self.log)
-            elif command == GET:
+            elif command == GET or command == PULL:
                 get_clipboard(conn, self.log)
 
 
