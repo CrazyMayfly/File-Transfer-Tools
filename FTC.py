@@ -3,7 +3,6 @@ import json
 from secrets import token_bytes
 import socket
 import ssl
-import signal
 from multiprocessing.pool import ThreadPool
 
 from tqdm import tqdm
@@ -549,17 +548,7 @@ if __name__ == '__main__':
     parser.add_argument('--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
     args = parser.parse_args()
-
-    # determine platform, to fix ^c doesn't work on Windows
-    if platform_ == WINDOWS:
-        from win32api import SetConsoleCtrlHandler
-
-        SetConsoleCtrlHandler(lambda ctrl_type:
-                              os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
-                              if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
-                              else None
-                              , 1)
-
+    handle_ctrl_event()
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
     ftc.probe_server()

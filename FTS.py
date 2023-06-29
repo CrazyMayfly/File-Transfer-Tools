@@ -2,7 +2,6 @@ import argparse
 import json
 import os.path
 import pathlib
-import signal
 import socket
 import ssl
 
@@ -312,16 +311,7 @@ if __name__ == '__main__':
         print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), color='blue')
 
     fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, avoid=args.avoid, password=args.password)
-    # determine platform, to fix ^c doesn't work on Windows
-    if platform_ == WINDOWS:
-        from win32api import SetConsoleCtrlHandler
-
-        SetConsoleCtrlHandler(lambda ctrl_type:
-                              os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
-                              if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
-                              else None
-                              , 1)
-
+    handle_ctrl_event()
     if not packaging:
         fts.main()
     else:

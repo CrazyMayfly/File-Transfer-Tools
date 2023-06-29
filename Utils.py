@@ -2,6 +2,7 @@ import hashlib
 import os
 import platform
 import re
+import signal
 import struct
 import sys
 import tarfile
@@ -179,6 +180,17 @@ def get_file_md5(filename):
             md5.update(data)
             data = fp.read(unit)
     return md5.hexdigest()
+
+
+def handle_ctrl_event():
+    # determine platform, to fix ^c doesn't work on Windows
+    if platform_ == WINDOWS:
+        from win32api import SetConsoleCtrlHandler
+        SetConsoleCtrlHandler(lambda ctrl_type:
+                              os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+                              if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
+                              else None
+                              , 1)
 
 
 def compress_log_files(base_dir, log_type, log):
