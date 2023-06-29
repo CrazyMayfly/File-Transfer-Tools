@@ -198,16 +198,23 @@ Os itens de configuração estão no arquivo de configuração `config.txt`, qua
 
 ### A configuração principal do programa Principal
 `windows_default_path`: O arquivo padrão que recebe o local na plataforma Windows
+
 `linux_default_path`: O arquivo padrão que recebe o local na plataforma Linux
+
 `cert_dir`: O local de armazenamento do arquivo de certificado
 
 ### Configuração relacionada ao registro
 `windows_log_dir`: O local padrão de armazenamento do arquivo de log na plataforma Windows
+
 `linux_log_dir`: O local padrão de armazenamento do arquivo de log na plataforma Linux
+
 `log_file_archive_count`: Arquive quando o número de arquivos de log exceder este tamanho
+
 `log_file_archive_size`: Arquivo quando o tamanho total (bytes) do arquivo de log excede esse tamanho
 
 ### Conteúdo relacionado à porta de configuração de porta
 `server_port`: porta de escuta TCP do servidor
+
 `server_signal_port`: porta de escuta UDP do servidor
+
 `client_signal_port`: porta de escuta UDP do cliente

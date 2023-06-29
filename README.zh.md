@@ -198,16 +198,23 @@ optional arguments:
 
 ### Main 程序的主要配置
 `windows_default_path`: Windows平台下默认的文件接收位置
+
 `linux_default_path`: Linux平台下默认的文件接收位置
+
 `cert_dir`: 证书文件的存放位置
 
 ### Log 日志相关配置
 `windows_log_dir`: Windows平台下默认的日志文件存放位置
+
 `linux_log_dir`: Linux平台下默认的日志文件存放位置
+
 `log_file_archive_count`: 当日志文件数超过该大小时归档
+
 `log_file_archive_size`: 当日志文件的总大小(字节)超过该大小时归档
 
 ### Port 配置端口相关内容
 `server_port`：服务器 TCP 侦听端口
+
 `server_signal_port`：服务器 UDP 侦听端口
+
 `client_signal_port`：客户端 UDP 侦听端口

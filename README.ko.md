@@ -198,16 +198,23 @@ FTC는 파일 및 지침을 보내는 클라이언트입니다.
 
 ### Main 프로그램의 주요 구성
 `windows_default_path`: Windows 플랫폼에서 기본 파일 수신 위치
+
 `linux_default_path`: Linux 플랫폼에서 기본 파일 수신 위치
+
 `cert_dir`: 인증서 파일의 저장 위치
 
 ### 로그 관련 설정
 `windows_log_dir`: Windows 플랫폼에서 기본 로그 파일 저장 위치
+
 `linux_log_dir`: Linux 플랫폼에서 기본 로그 파일 저장 위치
+
 `log_file_archive_count`: 로그 파일 수가 이 크기를 초과할 때 아카이브
+
 `log_file_archive_size`: 로그 파일의 총 크기(바이트)가 이 크기를 초과할 때 아카이브
 
 ### 포트 구성 포트 관련 내용
 `server_port`: 서버 TCP 수신 포트
+
 `server_signal_port`: 서버 UDP 수신 포트
+
 `client_signal_port`: 클라이언트 UDP 수신 포트

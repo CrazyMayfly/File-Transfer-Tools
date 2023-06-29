@@ -198,16 +198,23 @@ Die Konfigurationselemente befinden sich in der Konfigurationsdatei `config.txt`
 
 ### Die Hauptkonfiguration des Hauptprogramms
 `windows_default_path`: Der Standardspeicherort für den Dateiempfang auf der Windows-Plattform
+
 `linux_default_path`: Der Standardspeicherort für den Dateiempfang unter der Linux-Plattform
+
 `cert_dir`: Der Speicherort der Zertifikatsdatei
 
 ### Protokollbezogene Konfiguration
 `windows_log_dir`: Der Standardspeicherort für Protokolldateien unter der Windows-Plattform
+
 `linux_log_dir`: Der Standardspeicherort für Protokolldateien unter der Linux-Plattform
+
 `log_file_archive_count`: Archivieren, wenn die Anzahl der Protokolldateien diese Größe überschreitet
+
 `log_file_archive_size`: Archivieren, wenn die Gesamtgröße (Bytes) der Protokolldatei diese Größe überschreitet
 
 ### Portbezogener Inhalt zur Portkonfiguration
 `server_port`: TCP-Abhörport des Servers
+
 `server_signal_port`: UDP-Abhörport des Servers
+
 `client_signal_port`: Client-UDP-Abhörport

@@ -198,16 +198,23 @@ optional arguments:
 
 ### Main プログラムの主な構成
 `windows_default_path`: Windows プラットフォームでのデフォルトのファイル受信場所
+
 `linux_default_path`: Linux プラットフォームでのデフォルトのファイル受信場所
+
 `cert_dir`: 証明書ファイルの保存場所
 
 ### ログ関連の設定
 `windows_log_dir`: Windows プラットフォームでのデフォルトのログ ファイルの保存場所
+
 `linux_log_dir`: Linux プラットフォームでのデフォルトのログ ファイルの保存場所
+
 `log_file_archive_count`: ログ ファイルの数がこのサイズを超えた場合にアーカイブします
+
 `log_file_archive_size`: ログ ファイルの合計サイズ (バイト) がこのサイズを超えた場合にアーカイブします。
 
 ### ポート設定ポート関連のコンテンツ
 `server_port`: サーバーの TCP リスニング ポート
+
 `server_signal_port`: サーバー UDP リスニング ポート
+
 `client_signal_port`: クライアント UDP リスニング ポート

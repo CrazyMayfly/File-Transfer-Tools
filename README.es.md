@@ -198,16 +198,23 @@ Los elementos de configuración están en el archivo de configuración `config.t
 
 ### La configuración principal del programa Principal
 `windows_default_path`: la ubicación predeterminada de recepción de archivos en la plataforma Windows
+
 `linux_default_path`: la ubicación de recepción de archivos predeterminada en la plataforma Linux
+
 `cert_dir`: la ubicación de almacenamiento del archivo de certificado
 
 ### Configuración relacionada con el registro
 `windows_log_dir`: la ubicación de almacenamiento de archivos de registro predeterminada en la plataforma Windows
+
 `linux_log_dir`: la ubicación de almacenamiento de archivos de registro predeterminada en la plataforma Linux
+
 `log_file_archive_count`: archivar cuando el número de archivos de registro exceda este tamaño
+
 `log_file_archive_size`: Archivar cuando el tamaño total (bytes) del archivo de registro excede este tamaño
 
 ### Configuración del puerto contenido relacionado con el puerto
 `server_port`: puerto de escucha TCP del servidor
+
 `server_signal_port`: puerto de escucha UDP del servidor
+
 `client_signal_port`: puerto de escucha UDP del cliente

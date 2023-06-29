@@ -198,16 +198,23 @@ Les éléments de configuration sont dans le fichier de configuration `config.tx
 
 ### La configuration principale du programme principal
 `windows_default_path` : L'emplacement de réception du fichier par défaut sous la plate-forme Windows
+
 `linux_default_path` : l'emplacement de réception du fichier par défaut sous la plate-forme Linux
+
 `cert_dir` : l'emplacement de stockage du fichier de certificat
 
 ### Configuration liée au journal
 `windows_log_dir` : L'emplacement de stockage du fichier journal par défaut sous la plate-forme Windows
+
 `linux_log_dir` : L'emplacement de stockage du fichier journal par défaut sous la plate-forme Linux
+
 `log_file_archive_count` : archive lorsque le nombre de fichiers journaux dépasse cette taille
+
 `log_file_archive_size` : archive lorsque la taille totale (octets) du fichier journal dépasse cette taille
 
 ### Contenu relatif au port de configuration de port
 `server_port` : port d'écoute TCP du serveur
+
 `server_signal_port` : port d'écoute UDP du serveur
+
 `client_signal_port` : port d'écoute UDP du client
