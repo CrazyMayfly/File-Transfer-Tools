@@ -1,177 +1,213 @@
-# Herramienta de transmisión de archivos
+# Widget de transferencia de archivos
 
-> Advertencia: este artículo está traducido por una máquina, lo que puede dar lugar a una mala calidad o información incorrecta. ¡Lea atentamente!
+## Introducción
 
-## Breve introducción
-
-`File Transfer Tools`  Incluir `FTS (File Transfer Server) ` , `FTC (File Transfer Client) ` Dos componentes, sí **Ligero** Así como **rápido** Así como **Seguridad** Así como **Multifunción** Script de transmisión de archivos cruzados.
+`Herramientas de transferencia de archivos` contiene dos componentes `FTS (Servidor de transferencia de archivos)` y `FTC (Cliente de transferencia de archivos)`, que son **ligeros**, **rápidos**, **seguros** y más. potente secuencia de comandos de transferencia de archivos entre dispositivos.
 
 ### Función
 
-1. transferencia de archivos
+1. Transferencia de archivos
 
-  - Puede transmitir un solo archivo o toda la carpeta
-  - Garantía de seguridad: transmisión cifrada (utilizando un protocolo de capa de conexión de concesión), transmisión explícita
-  - Cierta garantía: a través de la consistencia del archivo de verificación de valor hash, determine si todos los archivos en la carpeta se transmiten correctamente
-  - Pantalla de la barra de progreso: progreso de transmisión de archivos de pantalla real, velocidad de red actual, duración de la transmisión restante
-  - Transmisión recién nombrada, evite la transmisión repetida y la transmisión de cubierta del mismo nombre
+- Transferir archivos individuales o carpetas enteras
+- Garantía de seguridad: se puede utilizar la transmisión cifrada (mediante el protocolo de capa de sockets seguros) y la transmisión de texto claro
+- Garantía de corrección: verifique la consistencia de los archivos a través del valor Hash y juzgue si todos los archivos en la carpeta se transmiten correctamente
+- Visualización de la barra de progreso: visualización en tiempo real del progreso de la transferencia de archivos, la velocidad actual de la red y el tiempo de transferencia restante
+- Tres métodos para cambiar el nombre del archivo con el mismo nombre, evitar la transferencia duplicada y sobrescribir la transferencia
 
-2. La línea de comando puede ejecutar fácilmente el comando en el control remoto y devolver el resultado en tiempo real, similar a SSH
-3. Encontrar el host de servicio automáticamente, también puede especificar manualmente el host de conexión
-4. La comparación de las carpetas puede mostrar información de los archivos en las dos carpetas, las mismas diferencias, etc.
-5. Verifique el estado y la información del sistema e información del sistema del cliente y del servidor
-6. Registros de salida de tiempo real a la consola y los archivos
-7. prueba de velocidad de Internet
+2. Línea de comandos, que puede ejecutar fácilmente comandos de forma remota y devolver resultados en tiempo real, similar a ssh
+3. Encuentre automáticamente el host de servicio o especifique manualmente el host de conexión
+4. Comparación de carpetas, que puede mostrar información como lo mismo y las diferencias de archivos en dos carpetas
+5. Ver el estado y la información del sistema del cliente y del servidor
+6. Salida de registros a la consola y archivos en tiempo real, y puede organizar automáticamente archivos de registro comprimidos
+7. Pruebe convenientemente el ancho de banda de la red entre el cliente y el servidor
+8. Puede establecer una contraseña de conexión para el servidor para mejorar la seguridad
+9. Sincronice convenientemente el contenido del portapapeles del cliente y el servidor
 
-### Característica
+### Características
 
-1. Velocidad rápida de inicio, ejecución y respuesta
-2. Se puede utilizar en cualquier entorno de red, como la red de área local y la red pública.
-3. La transmisión de múltiples temas, la velocidad de transmisión rápida, puede ejecutarse más de 1000Mbps en el ancho de banda en la medición real. Debido al límite del equipo, no se prueba un mayor ancho de banda
-4. La ocupación de la memoria es pequeña durante el tiempo de ejecución
-5. Es decir, abrir y apagar el proceso no seguirá siendo el proceso
+1. Comience, ejecute y responda rápidamente
+2. Adopte el principio de configuración predeterminada mínima, que se puede usar de forma inmediata, y puede modificar fácilmente la configuración usted mismo
+2. Se puede utilizar en cualquier entorno de red, como LAN y red pública, siempre que los dos hosts puedan conectarse a la red.
+3. Transmisión de subprocesos múltiples, velocidad de transmisión rápida, la prueba real puede funcionar con un ancho de banda de hasta 1000 Mbps, debido a las limitaciones del equipo, no hay prueba para un ancho de banda más alto
+4. El uso de la memoria es pequeño en tiempo de ejecución y se adopta el modo de carga diferida para garantizar la ocupación mínima de recursos
+5. Abre, cierra y listo al instante, no quedará ningún proceso después de cerrar el programa
+6. Actualmente compatible con plataformas Windows y Linux
 
 ### como escoger
 
-1. Si desea un servicio de transmisión de archivos más potente, seleccione el servidor FTP y el cliente (como `FileZilla` Así como `WinSCP` esperar)
-2. Si desea sincronización y compartir de archivos estables, se recomienda usar `Resilio Sync` Así como `Syncthing` esperar
-3. Si simplemente transmite archivos ocasionalmente/no me gusta la retención de fondo de los servicios anteriores, ocupación de recursos/no más poderoso servicio/Si desea personalizar su propia función, elija `File Transfer Tools` 
+1. Si desea un servicio de transferencia de archivos más potente, elija un servidor FTP, un cliente (como `FileZilla`, `WinSCP`, etc.)
+2. Si desea sincronizar y compartir archivos de forma estable, se recomienda utilizar `Resilio Sync`, `Syncthing`, etc.
+3. Si solo transfiere archivos ocasionalmente/no le gusta el almacenamiento en segundo plano y la ocupación de recursos de los servicios anteriores/no necesita un servicio tan potente/quiere personalizar las funciones, elija `Herramientas de transferencia de archivos`
 
-## Instalación y operación
+## Instalar y ejecutar
 
- `FTS` Occupy Port 2023,2021, FTC Ocupa Port 2022. Entre ellos, el puerto 2023 se utiliza como `FTS` El puerto de escucha TCP, 2021, 2022 como la interfaz de transmisión UDP entre el servidor y el cliente. Puede verificar los detalles al final de este artículo.
+`FTS` ocupa los puertos 2023 y 2021 de forma predeterminada, y FTC ocupa el puerto 2022 de forma predeterminada. Entre ellos, el puerto 2023 se usa como puerto de escucha TCP de `FTS`, y 2021 y 2022 se usan como interfaces de transmisión UDP entre el servidor y el cliente.
+Puede consultar la información de configuración detallada y modificar la configuración anterior al final de este artículo.
 
-### Descargar el programa ejecutable
+### Descargar programa ejecutable
 
-1. Haga clic a la derecha `Release` 
-2. descargar `File Transfer Tools.zip` 
-3. Carpeta descifrada, doble clic `FTC.exe`  o  `FTS.exe`  Solo corre
-4. O ejecute el programa en el terminal para usar el parámetro del programa, por ejemplo `.\FTC.exe [-h] [-t thread] [-host host] [-p]` 
+1. Haga clic en "Liberar" a la derecha
+2. Descargue `Herramientas de transferencia de archivos.zip`
+3. Descomprima la carpeta, haga doble clic en `FTC.exe` o `FTS.exe` para ejecutar
+4. O ejecute el programa en una terminal para usar los parámetros del programa, como `.\FTC.exe [-h] [-t thread] [-host host] [-p]`
 
-### Usa el intérprete de Python para ejecutar
+### Ejecutar con el intérprete de Python
 
-1. Clon el código fuente de la ubicación de su proyecto
-2. usar `pip install -r requirements.txt` Instalar todas las dependencias
-3. Use su intérprete de Python para ejecutar el script
+1. Clona el código fuente en la ubicación de tu proyecto
+2. Instale todas las dependencias usando `pip install -r requirements.txt`
+3. Ejecute el script usando su intérprete de python
 
-#### Método de práctica
+#### método de ejecución de atajos
 
-Tomando Windows como ejemplo, puede escribir los comandos en ejecución de FTS y FTCS como archivos por lotes, y luego agregar el directorio del archivo por lotes a su variable de entorno, para que pueda escribir la línea de comandos simplemente en la línea de comandos `FTS` Así como `FTC` Usemos el comando predeterminado y más simple para ejecutar el programa.
+Tomando Windows como ejemplo, puede escribir los comandos de ejecución de FTS y FTC como archivos por lotes, y luego agregar el directorio del archivo por lotes a su variable de entorno, de modo que simplemente pueda escribir `FTS `, `FTC`
+Usemos el comando predeterminado y más simple para ejecutar el programa.
 
-Por ejemplo, puede escribir el siguiente comando en el archivo `FTS.bat` medio
-
-```powershell
-@echo off
- "The dir of your Python interpreter" \Scripts\python.exe  "The dir of your project" \FTS.py %1 %2 %3 %4 %5 %6
-```
-
-Escriba el siguiente comando en el archivo `FTC.bat` medio
+Por ejemplo, puede escribir el siguiente comando en el archivo `FTS.bat`
 
 ```powershell
-@echo off
- "The dir of your Python interpreter" \Scripts\python.exe  "The dir of your project" \FTC.py %1 %2 %3 %4 %5 %6
+@echo apagado
+"El directorio de su intérprete de Python"\Scripts\python.exe "El directorio de su proyecto"\FTS.py %1 %2 %3 %4 %5 %6
 ```
 
-Luego, agregue la carpeta por lotes a su variable de entorno y finalmente escriba el siguiente comando en su terminal para ejecutar el código rápidamente
+Escribe el siguiente comando en el archivo `FTC.bat`
 
 ```powershell
-FTC [-h] [-t thread] [-host host] [-p]
-或
-FTS [-h] [-d base_dir] [-p] [--avoid]
+@echo apagado
+"El directorio de su intérprete de Python"\Scripts\python.exe "El directorio de su proyecto"\FTC.py %1 %2 %3 %4 %5 %6
 ```
 
-En el lote anterior de documentos de procesamiento, `%1~%9` Expresar el parámetro del programa ( `%0` Representa la ruta actual)
+Luego, agregue la carpeta por lotes a sus variables de entorno y, finalmente, escriba el siguiente comando en su terminal para ejecutar rápidamente el código
 
+```powershell
+FTC.py [-h] [-t subproceso] [-host host] [-p contraseña] [--texto sin formato]
+o
+FTS.py [-h] [-d base_dir] [-p contraseña] [--texto sin formato] [--evitar]
+```
 
+En el archivo por lotes anterior, `%1~%9` representa los parámetros pasados ​​por el programa (`%0` representa la ruta actual)
+Tenga en cuenta que la ruta de trabajo predeterminada del terminal es el directorio de usuario (~), si necesita modificar el archivo de configuración, modifíquelo en este directorio.
 
-## uso
+## Uso
 
-### FTC
+###FTC
 
-FTC es un final de envío de archivos, instrucción que envía final, para enviar archivos e instrucciones.
+FTC es el cliente para el envío de archivos e instrucciones.
 
 ```
-usage: FTC.py [-h] [-t thread] [-host host] [-p]
+uso: FTC.py [-h] [-t subproceso] [-host host] [-p contraseña] [--texto sin formato]
 
-File Transfer Client, used to SEND files.
+File Transfer Client, utilizado para ENVIAR archivos e instrucciones.
 
-optional arguments:
-  -h, --help       show this help message and exit
-  -t thread        threading number (default: 3)
-  -host host       destination hostname or ip address
-  -p, --plaintext  Use plaintext transfer (default: use ssl)
+argumentos opcionales:
+   -h, --help muestra este mensaje de ayuda y sale
+   -t subprocesos subprocesos (predeterminado: 8)
+   -host host destino nombre de host o dirección IP
+   -p contraseña, --contraseña contraseña
+                         Use una contraseña para conectarse al host.
+   --plaintext Usar transferencia de texto sin formato (predeterminado: usar ssl)
 ```
 
 #### Descripción de parámetros
 
- `-t` : Especifique el número de subprocesos, el valor predeterminado es 3 subprocesos.
+`-t`: especifica el número de subprocesos, el valor predeterminado es el número de procesadores lógicos.
 
- `-host` : Especifique explícitamente el host del lado receptor (usando el nombre de host o la dirección IP). Cuando esta opción no se usa, el cliente encontrará automáticamente **La misma subred** El servidor
+`-host`: especifique explícitamente el nombre de host del servidor (nombre de host o ip) y el número de puerto (opcional). Cuando no se usa esta opción, el cliente buscará automáticamente un servidor en **misma subred**
 
- `-p` : Cooperar `-host`  Use, porque las dos partes intercambiarán información automáticamente, por lo que generalmente no es necesario especificar. Solo cuando las dos partes no pueden conectarse normalmente, debe especificarse aparentemente.
+`-p`: Especifique explícitamente la contraseña de conexión para el servidor (el servidor no tiene contraseña por defecto).
 
-#### Instrucciones de comando
+`--plaintext`: especifique explícitamente los datos de transmisión de texto sin formato, lo que requiere que el servidor también utilice la transmisión de texto sin formato.
 
-Después de la conexión normal, ingrese las instrucciones
+#### Descripción del comando
 
-1. Ingrese la ruta del archivo (clip), luego ejecute el archivo de envío
-2. ingresar `sysinfo` , Mostrará la información del sistema de ambas partes
-3. ingresar `speedtest n` , Luego pruebe la velocidad de la red. **Neto** En el medio, 1 GB = 1000 MB = 1000000 KB.
-4. ingresar `compare local_dir dest_dir` Comparemos la diferencia entre la carpeta y la carpeta del servidor.
-5. Al ingresar a otros contenidos, realice como una instrucción y devuelva los resultados en tiempo real.
+Después de una conexión normal, ingrese el comando
 
-#### Ejecutar una captura de pantalla
+1. Introduzca la ruta del archivo (carpeta) y se enviará el archivo (carpeta)
+2. Ingrese `sysinfo`, se mostrará la información del sistema de ambas partes
+3. Ingrese `speedtest n` y se probará la velocidad de la red, donde n es la cantidad de datos en esta prueba, en MB. Tenga en cuenta que en **Redes informáticas**, 1 GB = 1000 MB = 1000000 KB.
+4. Ingrese `compare local_dir dest_dir` para comparar la diferencia entre los archivos en la carpeta local y la carpeta del servidor.
+5. Ingrese `clip pull/push` o `clip get/send` para sincronizar el contenido del portapapeles del cliente y del servidor
+6. Cuando se ingresa otro contenido, se usa como una instrucción para que el servidor lo ejecute y el resultado se devuelve en tiempo real.
+
+#### Ejecuta la captura de pantalla
 
 Las siguientes son capturas de pantalla que se ejecutan en el mismo host.
 
-<img src= "assets/image-20230421175852690.png"  alt= "image-20230421175852690"  style= "zoom:67%;"  />
+inicio del programa
 
-<img src= "assets/image-20230421174220808.png"  alt= "sysinfo效果（同一台主机展示）"  style= "zoom:60%;"  />
+![inicio](assets/startup.png)
 
-<img src= "assets/image-20230421175214141.png"  alt= "测试1GB数据量"  style= "zoom: 80%;"  />
+transferir archivos
+![archivo](assets/file.png)
 
-<img src= "assets/image-20230421175524115.png"  alt= "image-20230421175524115"  style= "zoom:67%;"  />
+Comando de ejecución: sysinfo
 
-<img src= "assets/image-20230421175725094.png"  alt= "image-20230421175725094"  style= "zoom:80%;"  />
+![info del sistema](assets/sysinfo.png)
 
-### Fts
+Ejecute el comando: prueba de velocidad
 
- `FTS` Es el extremo de recepción del archivo, el lado del servidor, que se utiliza para recibir y almacenar archivos, y ejecutar las instrucciones del cliente.
+![prueba de velocidad](assets/speedtest.png)
+
+Ejecute el comando: comparar
+
+![comparar](assets/compare.png)
+
+Ejecute el comando: recortar
+
+![clip](assets/clip.png)
+
+Ejecutar comandos de línea de comandos
+
+![comando](assets/cmd.png)
+
+### FTS
+
+`FTS` es el lado del servidor, utilizado para recibir y almacenar archivos y ejecutar las instrucciones enviadas por el cliente.
 
 ```
-usage: FTS.py [-h] [-d base_dir] [-p] [--avoid]
+uso: FTS.py [-h] [-d base_dir] [-p contraseña] [--texto sin formato] [--evitar]
 
-File Transfer Server, used to RECEIVE files.
+Servidor de transferencia de archivos, utilizado para RECIBIR archivos y EJECUTAR instrucciones.
 
-optional arguments:
-  -h, --help            show this help message and exit
-  -d base_dir, --dest base_dir
-                        File storage location (default: C:\Users\admin\Desktop)
-  -p, --plaintext       Use plaintext transfer (default: use ssl)
-  --avoid               Do not continue the transfer when the file name is repeated.
+argumentos opcionales:
+   -h, --help muestra este mensaje de ayuda y sale
+   -d directorio_base, --dest directorio_base
+                         Ubicación de almacenamiento de archivos (predeterminada: C:\Users\admin/Desktop)
+   -p contraseña, --contraseña contraseña
+                         Establezca una contraseña para el host.
+   --plaintext Usar transferencia de texto sin formato (predeterminado: usar ssl)
+   --evitar No continuar la transferencia cuando se repite el nombre del archivo.
 ```
 
 #### Descripción de parámetros
 
- `-d, --dest` : Especifique la posición de almacenamiento del archivo, si no se especifica, se almacena en el usuario actual. **escritorio** Luego luego
+`-d, --dest`: especifique explícitamente la ubicación de recepción del archivo, el valor predeterminado es el valor del elemento de configuración "platform_default_path" (la plataforma de Windows tiene como valor predeterminado **escritorio**).
 
- `-p` : Especifique la transmisión explícita y use la transmisión de cifrado SSL de forma predeterminada. Si no tiene un certificado de firma en la actualidad, especifique la transmisión explícita. **Para garantizar la seguridad, utilice su propio certificado de firma.** 
+`-p, --password`: establezca una contraseña para el servidor para evitar conexiones maliciosas.
 
- `--avoid` : En el momento de la apertura, si ya hay archivos del mismo nombre en el directorio, hay dos casos en dos casos. **Prevenir** La transmisión de este archivo, de lo contrario se recibirá y **Sobrescribir** Este archivo; esta función se usa principalmente para transmitir una gran cantidad de archivos después de ser interrumpido. **Usar con cautela** Cuando no se abre, si se nombra el archivo `a.txt` Entonces el archivo transmitido será de acuerdo con `a (1).txt` Así como `a (2).txt` Nombrado en orden.
+`--plaintext`: especifique explícitamente la transmisión de datos en texto sin formato y utilice la transmisión cifrada SSL de forma predeterminada.
 
-#### Ejecutar una captura de pantalla
+`--evitar`: cuando está habilitado, si ya hay un archivo con el mismo nombre en el directorio, hay dos casos.Si el tamaño del archivo en el extremo receptor es mayor o igual que el extremo emisor, ** bloquear** la transmisión del archivo, de lo contrario, recibir y **sobrescribir* *Este archivo; esta función se usa principalmente para la retransmisión después de que una gran cantidad de archivos se interrumpen a la vez, similar a la retransmisión de punto de interrupción, por favor **use con precaución ** en otros casos. Cuando no está habilitado, si el nombre del archivo existente es `a.txt`, los archivos transferidos se nombrarán de acuerdo con `a (1).txt`, `a (2).txt` en secuencia.
 
-<img src= "assets/image-20230421180254963.png"  alt= "image-20230421180254963"  style= "zoom:70%;"  />
+#### Ejecutar captura de pantalla
 
-## Configuración
+![FTS](assets/FTS.png)
 
-Elemento de configuración `Utils.py` medio
+## configuración
 
- `log_dir` : Ubicación de la tienda de registros </br>
- `cert_dir` : Tienda de certificados </br>
- `unit`  : Unidad de envío de datos </br>
+Los elementos de configuración están en el archivo de configuración `config.txt`, cuando el archivo de configuración no existe, el programa creará automáticamente el archivo de configuración predeterminado
 
- `server_port` : Puerto de escucha TCP del servidor </b>
- `server_signal_port` : Puerto de escucha UDP del servidor </br>
- `client_signal_port` : Puerto de audición UDP del cliente </br>
+### La configuración principal del programa Principal
+`windows_default_path`: la ubicación predeterminada de recepción de archivos en la plataforma Windows
+`linux_default_path`: la ubicación de recepción de archivos predeterminada en la plataforma Linux
+`cert_dir`: la ubicación de almacenamiento del archivo de certificado
 
+### Configuración relacionada con el registro
+`windows_log_dir`: la ubicación de almacenamiento de archivos de registro predeterminada en la plataforma Windows
+`linux_log_dir`: la ubicación de almacenamiento de archivos de registro predeterminada en la plataforma Linux
+`log_file_archive_count`: archivar cuando el número de archivos de registro exceda este tamaño
+`log_file_archive_size`: Archivar cuando el tamaño total (bytes) del archivo de registro excede este tamaño
+
+### Configuración del puerto contenido relacionado con el puerto
+`server_port`: puerto de escucha TCP del servidor
+`server_signal_port`: puerto de escucha UDP del servidor
+`client_signal_port`: puerto de escucha UDP del cliente

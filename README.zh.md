@@ -79,9 +79,9 @@
 然后，将批处理文件夹添加到你的环境变量中，最后在你的终端中键入以下命令就可以快捷运行代码了
 
 ```powershell
-FTC [-h] [-t thread] [-host host] [-p]
+FTC.py [-h] [-t thread] [-host host] [-p password] [--plaintext]
 或
-FTS [-h] [-d base_dir] [-p] [--avoid]
+FTS.py [-h] [-d base_dir] [-p password] [--plaintext] [--avoid]
 ```
 
 以上批处理文件中，`%1~%9`表示程序传入的参数（`%0`表示当前路径）
