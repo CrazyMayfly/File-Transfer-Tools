@@ -106,6 +106,9 @@ class FTC:
                         s.connect((self.host, config.server_port))
                         # 将socket包装为securitySocket
                         ss = context.wrap_socket(s, server_hostname='FTS')
+                        # 验证密码
+                        if not self.__first_connect:
+                            self.validate_password(ss)
                         # ss = context.wrap_socket(s, server_hostname='Server')
                         self.__connections.add(ss)
                     except ssl.SSLError as e:
@@ -115,6 +118,9 @@ class FTC:
                 for i in range(0, self.threads):
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.connect((self.host, config.server_port))
+                    # 验证密码
+                    if not self.__first_connect:
+                        self.validate_password(s)
                     self.__connections.add(s)
             if self.__first_connect:
                 self.log(f'成功连接至服务器 {self.host}:{config.server_port}', 'green')
@@ -128,6 +134,14 @@ class FTC:
         except socket.error as msg:
             self.log(f'连接至 {self.host} 失败, {msg}', 'red')
             sys.exit(-1)
+
+    def validate_password(self, conn):
+        filehead = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
+        conn.send(filehead)
+        filehead = receive_data(conn, fileinfo_size)
+        msg = struct.unpack(fmt, filehead)[0]
+        msg = msg.decode('UTF-8').strip('\00')
+        return msg
 
     def probe_server(self, wait=1):
         if self.host:
@@ -268,9 +282,9 @@ class FTC:
                     self._send_files_in_dir(command)
                 elif os.path.isfile(command) and os.path.exists(command):
                     self._send_single_file(command)
-                elif command == "sysinfo":
+                elif command == SYSINFO:
                     self._compare_sysinfo()
-                elif command.startswith('speedtest'):
+                elif command.startswith(SPEEDTEST):
                     times = command[10:]
                     while not (times.isdigit() and int(times)) > 0:
                         times = input("请重新输入数据量（单位MB）：")
@@ -283,31 +297,12 @@ class FTC:
                     self._compare_dir(local_dir, dest_dir)
                 elif command.startswith('clip '):
                     self.__exchange_clipboard(command.split()[1])
-                # elif command.startswith("get"):
-                #     file_store_location = os.path.expanduser("~\Desktop")
-                #     dirname_splits = command[4:].split(" ")
-                #     has_2nd_arg = False
-                #     i = -1
-                #     for split in dirname_splits:
-                #         i += 1
-                #         if i > 0 and len(split) > 1 and split[1] == ":":
-                #             has_2nd_arg = True
-                #             break
-                #     if has_2nd_arg:
-                #         dest_resource = " ".join(dirname_splits[0:i])
-                #         file_store_location = " ".join(dirname_splits[i:])
-                #     else:
-                #         dest_resource = " ".join(dirname_splits[0:])
-                #     print("dest_resource: " + dest_resource)
-                #     print("file_store_location: " + file_store_location)
-                #     self._get_resources(dest_resource, file_store_location)
-
                 else:
                     self._execute_command(command)
             except ConnectionResetError as e:
                 self.log(e.strerror, color='red', highlight=1)
                 if packaging:
-                    input('请按任意键继续. . .')
+                    os.system('pause')
                 sys.exit(-1)
 
     def _send_files_in_dir(self, filepath):
@@ -517,13 +512,9 @@ class FTC:
                     pbar.update(data_unit)
 
     def _before_working(self):
-        filehead = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
         with self.__connections as conn:
-            conn.send(filehead)
-            filehead = receive_data(conn, fileinfo_size)
-        msg = struct.unpack(fmt, filehead)[0]
-        msg = msg.decode('UTF-8').strip('\00')
-        if msg == 'FAIL':
+            msg = self.validate_password(conn)
+        if msg == FAIL:
             self.log('连接至服务器的密码错误', color='red', highlight=1)
             self.close_connection(send_close_info=False)
             sys.exit(-1)

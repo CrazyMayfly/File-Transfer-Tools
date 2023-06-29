@@ -57,42 +57,40 @@ class FTS:
             print_color(msg=msg, color=color, highlight=highlight)
             self.__log_file.write('[{}] {}\n'.format(level, msg))
 
-    def _deal_data(self, conn, addr):
+    def _deal_data(self, conn: socket.socket, addr):
+        if self._before_working(conn):
+            return
         self._log(f'客户端连接 {addr[0]}:{addr[1]}', 'blue')
         while True:
             try:
                 filehead = receive_data(conn, fileinfo_size)
-                if filehead:
-                    filename, command, filesize = struct.unpack(fmt, filehead)
-                    filename = filename.decode('UTF-8').strip('\00')
-                    command = command.decode().strip('\00')
-                    if command == CLOSE:
-                        conn.close()
-                        self._log('终止与客户端 {0} 的连接'.format(addr), 'blue')
-                        return
-                    elif command == SEND_DIR:
-                        # 处理文件夹
-                        cur_dir = os.path.join(self.base_dir, filename)
-                        if not os.path.exists(cur_dir):
-                            os.makedirs(cur_dir)
-                            self._log('创建文件夹 {0}'.format(cur_dir))
-                    elif command == SEND_FILE:
-                        self._recv_file(conn, filename, filesize)
-                    elif command == COMPARE_DIR:
-                        self._compare_dir(conn, filename)
-                    elif command == COMMAND:
-                        self._execute_command(conn, filename)
-                    elif command == SYSINFO:
-                        self._compare_sysinfo(conn)
-                    elif command == SPEEDTEST:
-                        self._speedtest(conn, filesize)
-                    elif command == BEFORE_WORKING:
-                        if self._before_working(conn, filename):
-                            return
-                    elif command == PULL_CLIPBOARD:
-                        send_clipboard(conn, self._log, FTC=False)
-                    elif command == PUSH_CLIPBOARD:
-                        get_clipboard(conn, self._log, filehead=filehead, FTC=False)
+                filename, command, filesize = struct.unpack(fmt, filehead)
+                filename = filename.decode('UTF-8').strip('\00')
+                command = command.decode().strip('\00')
+                if command == CLOSE:
+                    conn.close()
+                    self._log('终止与客户端 {0} 的连接'.format(addr), 'blue')
+                    return
+                elif command == SEND_DIR:
+                    # 处理文件夹
+                    cur_dir = os.path.join(self.base_dir, filename)
+                    if not os.path.exists(cur_dir):
+                        os.makedirs(cur_dir)
+                        self._log('创建文件夹 {0}'.format(cur_dir))
+                elif command == SEND_FILE:
+                    self._recv_file(conn, filename, filesize)
+                elif command == COMPARE_DIR:
+                    self._compare_dir(conn, filename)
+                elif command == COMMAND:
+                    self._execute_command(conn, filename)
+                elif command == SYSINFO:
+                    self._compare_sysinfo(conn)
+                elif command == SPEEDTEST:
+                    self._speedtest(conn, filesize)
+                elif command == PULL_CLIPBOARD:
+                    send_clipboard(conn, self._log, FTC=False)
+                elif command == PUSH_CLIPBOARD:
+                    get_clipboard(conn, self._log, filehead=filehead, FTC=False)
 
             except ConnectionResetError as e:
                 self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
@@ -155,7 +153,7 @@ class FTS:
                 t = threading.Thread(target=self._deal_data, args=(conn, addr))
                 t.start()
 
-    def _recv_file(self, conn, filename, filesize):
+    def _recv_file(self, conn: socket.socket, filename, filesize):
         new_filename, file_exist = self.avoid_filename_duplication(os.path.join(self.base_dir, filename),
                                                                    filesize)
         if file_exist and self.__avoid_file_duplicate:
@@ -195,7 +193,7 @@ class FTS:
                 f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {filesize / 1000000 / time_cost:.2f} MB/s\n'
                 , color, highlight)
 
-    def _compare_dir(self, conn, dirname):
+    def _compare_dir(self, conn: socket.socket, dirname):
         self._log(f"客户端请求对比文件夹：{dirname}")
         if os.path.exists(dirname):
             conn.send(DIRISCORRECT.encode())
@@ -226,7 +224,7 @@ class FTS:
         else:
             conn.send(b'\00' * len(DIRISCORRECT))
 
-    def _execute_command(self, conn, command):
+    def _execute_command(self, conn: socket.socket, command):
         self._log("执行命令：" + command)
         result = os.popen(command)
         s = result.read(1)
@@ -238,7 +236,7 @@ class FTS:
         # 命令执行结束
         conn.send(b'\00' * 8)
 
-    def _compare_sysinfo(self, conn):
+    def _compare_sysinfo(self, conn: socket.socket):
         self._log("目标获取系统信息")
         info = get_sys_info()
         data = json.dumps(info, ensure_ascii=True).encode()
@@ -248,7 +246,7 @@ class FTS:
         # 发送数据
         conn.send(data)
 
-    def _speedtest(self, conn, data_size):
+    def _speedtest(self, conn: socket.socket, data_size):
         self._log(f"客户端请求速度测试，数据量: {get_size(data_size, factor=1000)}")
         start = time.time()
         data_unit = 1000 * 1000
@@ -258,25 +256,33 @@ class FTS:
         self._log(f"速度测试完毕, 耗时 {time_cost:.2f}s, 平均速度{get_size(data_size / time_cost, factor=1000)}/s.",
                   color='green')
 
-    def _before_working(self, conn, password):
+    def _before_working(self, conn: socket.socket):
         """
         在传输之前的预处理
 
         @param conn: 当前连接
-        @param password: 客户端传来的密码
         @return: True表示断开连接
         """
-        # 校验密码
-        if password != self.__password:
-            msg = 'FAIL'
-        else:
-            # 发送当前平台
-            msg = platform_
+        filehead = receive_data(conn, fileinfo_size)
+        peer_host, peer_port = conn.getpeername()
+        try:
+            password, command, _ = struct.unpack(fmt, filehead)
+        except struct.error:
+            conn.close()
+            self._log(f'服务器遭遇不明连接 {peer_host}:{peer_port}', color='yellow')
+            return True
+        password = password.decode('UTF-8').strip('\00')
+        command = command.decode().strip('\00')
+        if command != BEFORE_WORKING:
+            conn.close()
+            return True
+        # 校验密码, 密码正确则发送当前平台
+        msg = FAIL if password != self.__password else platform_
         filehead = struct.pack(fmt, msg.encode(), BEFORE_WORKING.encode(), 0)
         conn.send(filehead)
         if password != self.__password:
             conn.close()
-            self._log(f'客户端密码("{password}")错误，断开连接', color='yellow')
+            self._log(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接', color='yellow')
             return True
         return False
 
