@@ -6,13 +6,11 @@ import struct
 import sys
 import tarfile
 import threading
+import pyperclip
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
-
-import pyperclip
 from send2trash import send2trash
-
 from sys_info import get_size
 
 # 获取当前平台
