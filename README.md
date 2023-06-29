@@ -196,17 +196,17 @@ optional arguments:
 The configuration items are in the configuration file `config.txt`, when the configuration file does not exist, the program will automatically create the default configuration file.
 
 ### Main configuration
-`windows_default_path`: The default file receiving location under the Windows platform
-`linux_default_path`: The default file receiving location under the Linux platform
-`cert_dir`: The storage location of the certificate file
+`windows_default_path`: The default file receiving location under the Windows platform</br>
+`linux_default_path`: The default file receiving location under the Linux platform</br>
+`cert_dir`: The storage location of the certificate file</br>
 
 ### Log related configuration
-`windows_log_dir`: The default log file storage location under the Windows platform
-`linux_log_dir`: The default log file storage location under the Linux platform
-`log_file_archive_count`: Archive when the number of log files exceeds this size
-`log_file_archive_size`: Archive when the total size (bytes) of the log file exceeds this size
+`windows_log_dir`: The default log file storage location under the Windows platform</br>
+`linux_log_dir`: The default log file storage location under the Linux platform</br>
+`log_file_archive_count`: Archive when the number of log files exceeds this size</br>
+`log_file_archive_size`: Archive when the total size (bytes) of the log file exceeds this size</br>
 
 ### Port related configuration
-`server_port`: server TCP listening port
-`server_signal_port`: server UDP listening port
-`client_signal_port`: client UDP listening port
+`server_port`: server TCP listening port</br>
+`server_signal_port`: server UDP listening port</br>
+`client_signal_port`: client UDP listening port</br>
