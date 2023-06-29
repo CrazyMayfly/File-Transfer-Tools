@@ -25,12 +25,16 @@ class FTS:
         threading.Thread(target=compress_log_files, args=(config.log_dir, 'server', self._log)).start()
 
     def avoid_filename_duplication(self, filename, filesize):
+        """
+        避免文件名重复，以及是否重复接收
+
+        @param filename: 文件名
+        @param filesize: 对方的文件大小
+        @return: 返回True表示文件的完整副本已经存在于本地，
+        """
         if os.path.exists(filename):
             if self.__avoid_file_duplicate:
-                if os.stat(filename).st_size < filesize:
-                    return filename, False
-                else:
-                    return filename, True
+                return filename, os.stat(filename).st_size == filesize
             i = 1
             while os.path.exists(filename):
                 path_split = os.path.splitext(filename)
@@ -210,10 +214,8 @@ class FTS:
                 str_len = struct.unpack(str_len_fmt, str_len)[0]
                 filesize_and_name_both_equal = receive_data(conn, str_len).decode("UTF-8").split("|")
                 # 得到文件相对路径名: hash值字典
-                results = {}
-                for filename in filesize_and_name_both_equal:
-                    real_path = os.path.join(dirname, filename)
-                    results.update({filename: get_file_md5(real_path)})
+                results = {filename: get_file_md5(os.path.join(dirname, filename)) for filename in
+                           filesize_and_name_both_equal}
                 data = json.dumps(results, ensure_ascii=True).encode()
                 conn.send(struct.pack(str_len_fmt, len(data)))
                 conn.send(data)

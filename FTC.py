@@ -22,18 +22,9 @@ def print_filename_if_exits(prompt, filename_list):
 
 def split_dir(command):
     dirnames = command[8:].split('"')
-    if len(dirnames) == 1:
-        dirnames = dirnames[0].split(' ')
-    else:
-        results = []
-        for dirname in dirnames:
-            dirname = dirname.strip()
-            if dirname:
-                results.append(dirname)
-        dirnames = results
-    if len(dirnames) != 2:
-        return None, None
-    return dirnames
+    dirnames = dirnames[0].split(' ') if len(dirnames) == 1 else \
+        [dirname.strip() for dirname in dirnames if dirname.strip()]
+    return dirnames if len(dirnames) == 2 else (None, None)
 
 
 class FTC:
@@ -114,7 +105,7 @@ class FTC:
                         self.log('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), 'red', highlight=1)
                         sys.exit(-1)
             else:
-                for i in range(0, self.threads):
+                for i in range(0, additional_connections_nums):
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.connect((self.host, config.server_port))
                     # 验证密码
@@ -189,10 +180,8 @@ class FTC:
         if ip_num > 1:
             hostname = input('请输入主机名/ip: ')
             self.host = hostname
-            if hostname in all_ip:
-                self.__use_ssl = ip_list.get(ip)
-            else:
-                self.__use_ssl = input('开启 SSL(y/n)? ').lower() == 'y'
+            self.__use_ssl = ip_list.get(ip) if hostname in all_ip \
+                else input('开启 SSL(y/n)? ').lower() == 'y'
 
     def log(self, msg, color='white', highlight=0):
         msg = get_log_msg(msg)
@@ -311,13 +300,10 @@ class FTC:
         self.__base_dir = os.path.dirname(filepath)
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         self.log('开始发送 {} 路径下所有文件夹，文件夹个数为 {}\n'.format(filepath, len(all_dir_name)), 'blue')
-        results = []
         # start = time.time()
         if self.__thread_pool is None:
             self.__thread_pool = ThreadPool(self.threads)
-        for dirname in all_dir_name:
-            result = self.__thread_pool.apply_async(self._send_dir, (dirname,))
-            results.append(result)
+        results = [self.__thread_pool.apply_async(self._send_dir, (dirname,)) for dirname in all_dir_name]
         # 将待发送的文件打印到日志
         self.__log_file.write('[INFO] ' + get_log_msg("本次待发送的文件列表为：\n"))
         total_size = 0
@@ -330,9 +316,8 @@ class FTC:
         self.__log_file.flush()
         # 初始化总进度条
         with self.__process_lock:
-            self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes', unit_scale=True,
-                               mininterval=1,
-                               position=0)
+            self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
+                               unit_scale=True, mininterval=1, position=0)
             self.__position += 1
         # 等待文件夹发送完成
         for result in results:
@@ -340,10 +325,7 @@ class FTC:
         # self.log('文件夹发送完毕，耗时 {} s'.format(round(time.time() - start, 2)), 'blue')
         self.log('开始发送 {} 路径下所有文件，文件个数为 {}\n'.format(filepath, len(all_file_name)), 'blue')
         # 异步发送文件并等待结果
-        results = []
-        for filename in all_file_name:
-            result = self.__thread_pool.apply_async(self._send_file, (filename,))
-            results.append(result)
+        results = [self.__thread_pool.apply_async(self._send_file, (filename,)) for filename in all_file_name]
         # 比对发送成功或失败的文件
         success_recv = []
         try:
@@ -367,10 +349,8 @@ class FTC:
         self.__log_file.write("[INFO] 本次发送的文件: {}\n".format(filepath))
         self.__base_dir = os.path.dirname(filepath)
         filepath = os.path.basename(filepath)
-        if filepath == self._send_file(filepath):
-            self.log("发送成功", color='green')
-        else:
-            self.log("发送失败", color='red')
+        self.log("发送成功", color='green') if filepath == self._send_file(filepath) \
+            else self.log("发送失败", color='red')
 
     def _compare_dir(self, local_dir, dest_dir):
         if not os.path.exists(local_dir):
@@ -395,28 +375,20 @@ class FTC:
                 dest_filename = dest_dict.keys()
 
                 # 求各种集合
-                file_not_exits_in_dest = []
-                file_not_exits_in_local = []
                 file_in_local_smaller_than_dest = []
                 file_in_dest_smaller_than_local = []
                 filesize_and_name_both_equal = []
-                hash_not_matching = []
                 for filename in local_filename:
-                    if filename not in dest_dict:
-                        file_not_exits_in_dest.append(filename)
+                    size_diff = local_dict[filename] - dest_dict[filename]
+                    if size_diff < 0:
+                        file_in_local_smaller_than_dest.append(filename)
+                    elif size_diff == 0:
+                        filesize_and_name_both_equal.append(filename)
                     else:
-                        local_filesize = local_dict[filename]
-                        dest_filesize = dest_dict[filename]
-                        if local_filesize < dest_filesize:
-                            file_in_local_smaller_than_dest.append(filename)
-                        elif local_filesize == dest_filesize:
-                            filesize_and_name_both_equal.append(filename)
-                        else:
-                            file_in_dest_smaller_than_local.append(filename)
+                        file_in_dest_smaller_than_local.append(filename)
 
-                for filename in dest_filename:
-                    if filename not in local_filename:
-                        file_not_exits_in_local.append(filename)
+                file_not_exits_in_local = [filename for filename in dest_filename if filename not in local_filename]
+                file_not_exits_in_dest = [filename for filename in local_filename if filename not in dest_dict]
 
                 print_filename_if_exits("file exits in dest but not exits in local: ", file_not_exits_in_local)
                 print_filename_if_exits("file exits in local but not exits in dest: ", file_not_exits_in_dest)
@@ -434,10 +406,8 @@ class FTC:
                         conn.send(struct.pack(str_len_fmt, len(data_to_send)))
                         # 发送字符串
                         conn.send(data_to_send)
-                        results = {}
-                        for filename in filesize_and_name_both_equal:
-                            real_path = os.path.join(local_dir, filename)
-                            results.update({filename: get_file_md5(real_path)})
+                        results = {filename: get_file_md5(os.path.join(local_dir, filename)) for filename in
+                                   filesize_and_name_both_equal}
                         # 获取本次字符串大小
                         data_size = receive_data(conn, str_len_size)
                         data_size = struct.unpack(str_len_fmt, data_size)[0]
@@ -445,9 +415,8 @@ class FTC:
                         data = receive_data(conn, data_size).decode()
                         # 将字符串转化为dict
                         dest_dict = json.loads(data)
-                        for filename in results.keys():
-                            if results[filename] != dest_dict[filename]:
-                                hash_not_matching.append(filename)
+                        hash_not_matching = [filename for filename in results.keys() if
+                                             results[filename] != dest_dict[filename]]
                         print_filename_if_exits("hash not matching: ", hash_not_matching)
                     else:
                         conn.send(CANCEL.encode())

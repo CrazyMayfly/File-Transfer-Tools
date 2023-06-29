@@ -79,18 +79,12 @@ def get_sys_info():
                      'total': get_size(usage.total), 'free': get_size(usage.free), 'percent': f'{usage.percent}%'}
         disks.append(disk_info)
     # 异步获取cpu、网络、硬盘的io
-    t1 = MyThread(get_net_io, args=())
-    t2 = MyThread(get_cpu_percent, args=())
-    t3 = MyThread(get_disk_io, args=())
-    t1.start()
-    t2.start()
-    t3.start()
-    t1.join()
-    t2.join()
-    t3.join()
-    net_io = t1.get_result()
-    cpu_percent = t2.get_result()
-    disk_io = t3.get_result()
+    threads = [MyThread(method, args=()) for method in [get_net_io, get_cpu_percent, get_disk_io]]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    net_io, cpu_percent, disk_io = [thread.get_result() for thread in threads]
     # 整合信息
     info = {
         "user": {"username": username, 'host': host},
@@ -108,14 +102,14 @@ def get_sys_info():
     }
     if battery:
         if battery.secsleft == -1:
-            secsleft = 'POWER_TIME_UNKNOWN'
+            secs_left = 'POWER_TIME_UNKNOWN'
         elif battery.secsleft == -2:
-            secsleft = 'POWER_TIME_UNLIMITED'
+            secs_left = 'POWER_TIME_UNLIMITED'
         else:
-            secsleft = stringify_time(battery.secsleft)
+            secs_left = stringify_time(battery.secsleft)
         info.update({"battery": {"percent": battery.percent,
                                  "power_plugged": "已接通电源" if battery.power_plugged else "未接通电源",
-                                 "secsleft": secsleft}})
+                                 "secsleft": secs_left}})
     else:
         info.update({"battery": None})
     return info

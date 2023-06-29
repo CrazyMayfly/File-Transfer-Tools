@@ -111,29 +111,13 @@ def calcu_size(filesize):
 
 
 def print_color(msg, color='white', highlight=0):
-    color_dict = {
-        'black': ';30',
-        'red': ';31',
-        'green': ';32',
-        'yellow': ';33',
-        'blue': ';34',
-        'white': ''
-    }
-
     print("\033[{}{}m{}\033[0m".format(highlight, color_dict[color], msg))
 
 
 def get_log_msg(msg):
     t = threading.current_thread()
     now = datetime.now().strftime('%H:%M:%S.%f')[0:-3]
-    ident = str(t.ident)
-    while len(ident) < 5:
-        ident = ident + ' '
-    name = t.name
-    while len(name) < 10:
-        name = name + ' '
-    msg = now + ' ' + ident + ' ' + name + ' ' + msg
-    return msg
+    return f'{now} {str(t.ident).ljust(5)} {t.name.ljust(10)} {msg}'
 
 
 def get_relative_filename_from_basedir(base_dir):
@@ -154,18 +138,17 @@ def get_dir_file_name(dirname):
     :param dirname: 文件路径
     :return :返回该文件路径下的所有文件夹、文件的相对路径
     """
-    all_dir_name = []
+    all_dir_name = set()
     all_file_name = []
     # 获取上一级文件夹名称
     back_dir = os.path.dirname(dirname)
     for path, dir_list, file_list in os.walk(dirname):
         # 获取相对路径
         path = os.path.relpath(path, back_dir)
-        all_dir_name.append(path)
-        if os.path.dirname(path) in all_dir_name:
-            all_dir_name.remove(os.path.dirname(path))
-        for file in file_list:
-            all_file_name.append(os.path.join(path, file))
+        all_dir_name.add(path)
+        # 去除重复的路径，防止多次创建，降低效率
+        all_dir_name.discard(os.path.dirname(path))
+        all_file_name += [os.path.join(path, file) for file in file_list]
     return all_dir_name, all_file_name
 
 
@@ -186,11 +169,9 @@ def handle_ctrl_event():
     # determine platform, to fix ^c doesn't work on Windows
     if platform_ == WINDOWS:
         from win32api import SetConsoleCtrlHandler
-        SetConsoleCtrlHandler(lambda ctrl_type:
-                              os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+        SetConsoleCtrlHandler(lambda ctrl_type: os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
                               if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
-                              else None
-                              , 1)
+                              else None, 1)
 
 
 def compress_log_files(base_dir, log_type, log):
@@ -352,7 +333,14 @@ filename_size = struct.calcsize(filename_fmt)
 fileinfo_size = struct.calcsize(fmt)
 str_len_size = struct.calcsize(str_len_fmt)
 unit = 1024 * 1024  # 1MB
-
+color_dict = {
+    'black': ';30',
+    'red': ';31',
+    'green': ';32',
+    'yellow': ';33',
+    'blue': ';34',
+    'white': ''
+}
 # 配置文件相关
 config_file = 'config.txt'
 
