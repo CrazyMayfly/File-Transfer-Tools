@@ -281,9 +281,7 @@ class FTC:
                         self.log('本地文件夹且远程文件夹不能为空', color='yellow')
                         continue
                     self._compare_dir(local_dir, dest_dir)
-                elif command.startswith('clip'):
-                    if ' ' not in command:
-                        continue
+                elif command.startswith('clip '):
                     self.__exchange_clipboard(command.split()[1])
                 # elif command.startswith("get"):
                 #     file_store_location = os.path.expanduser("~\Desktop")
