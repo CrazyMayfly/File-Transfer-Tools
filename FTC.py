@@ -506,7 +506,7 @@ class FTC:
 
 if __name__ == '__main__':
     # 添加命令行参数
-    parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files.')
+    parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files and instructions.')
     logical_cpu_count = psutil.cpu_count(logical=True)
     parser.add_argument('-t', metavar='thread', type=int,
                         help=f'threads (default: {logical_cpu_count})', default=logical_cpu_count)

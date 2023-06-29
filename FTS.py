@@ -290,7 +290,8 @@ class FTS:
 
 if __name__ == '__main__':
     # base_dir = input('请输入文件保存位置（输入1默认为桌面）：')
-    parser = argparse.ArgumentParser(description='File Transfer Server, used to RECEIVE files.')
+    parser = argparse.ArgumentParser(
+        description='File Transfer Server, used to RECEIVE files and EXECUTE instructions.')
     default_path = os.path.expanduser(config.default_path)
     parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
                         help='File storage location (default: {})'.format(default_path), default=default_path)
