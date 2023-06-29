@@ -319,19 +319,20 @@ COMPARE_DIR = "compare_dir"
 COMMAND = 'command'
 SYSINFO = 'sysinfo'
 SPEEDTEST = 'speedtest'
-GET = 'get'
-SEND = 'send'
 BEFORE_WORKING = 'before_working'
 CLOSE = 'close'
-PUSH = 'push'
-PULL = 'pull'
 PUSH_CLIPBOARD = 'push_clipboard'
 PULL_CLIPBOARD = 'pull_clipboard'
 
 # 其他常量
+FAIL = 'fail'
+PUSH = 'push'
+PULL = 'pull'
+GET = 'get'
+SEND = 'send'
 CONTINUE = 'continue'
-CANCEL = 'canceltf'
-DIRISCORRECT = "dirIsCorrect"
+CANCEL = 'cancelTf'
+DIRISCORRECT = "DirIsCorrect"
 filename_fmt = '800s'
 fmt = f'>{filename_fmt}{len(BEFORE_WORKING)}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
 str_len_fmt = '>Q'
