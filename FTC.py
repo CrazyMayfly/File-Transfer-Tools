@@ -1,5 +1,6 @@
 import argparse
 import json
+import time
 from secrets import token_bytes
 import socket
 import ssl
@@ -304,6 +305,8 @@ class FTC:
         if self.__thread_pool is None:
             self.__thread_pool = ThreadPool(self.threads)
         results = [self.__thread_pool.apply_async(self._send_dir, (dirname,)) for dirname in all_dir_name]
+        # 打乱列表以避免多个小文件聚簇在一起，影响效率
+        random.shuffle(all_file_name)
         # 将待发送的文件打印到日志
         self.__log_file.write('[INFO] ' + get_log_msg("本次待发送的文件列表为：\n"))
         total_size = 0
