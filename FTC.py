@@ -1,6 +1,6 @@
 import argparse
 import json
-import time
+import random
 from secrets import token_bytes
 import socket
 import ssl
@@ -293,6 +293,8 @@ class FTC:
                 if packaging:
                     os.system('pause')
                 sys.exit(-1)
+            except FileNotFoundError as e:
+                self.log(f'文件路径太长(Windows限制文件绝对路径长度在250左右): {e.filename}', color='red', highlight=1)
 
     def _send_files_in_dir(self, filepath):
         self.connect(self.threads)

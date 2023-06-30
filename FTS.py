@@ -97,7 +97,10 @@ class FTS:
 
             except ConnectionResetError as e:
                 self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
-                break
+                return
+            except FileNotFoundError as e:
+                self._log(f'文件路径太长(Windows限制文件绝对路径长度在250左右): {e.filename}', color='red', highlight=1)
+                return
             finally:
                 # 每执行完一个操作写入日志文件
                 with self.__log_lock:
