@@ -1,10 +1,10 @@
 import argparse
 import json
 import random
-from secrets import token_bytes
 import socket
 import ssl
 from multiprocessing.pool import ThreadPool
+from secrets import token_bytes
 
 from tqdm import tqdm
 
@@ -226,34 +226,31 @@ class FTC:
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.send(filehead)
-            is_continue = receive_data(conn, 8)
-            is_continue = is_continue.decode('UTF-8') == CONTINUE
+            is_continue = receive_data(conn, 8).decode('UTF-8') == CONTINUE
             if is_continue:
-                fp = open(real_path, 'rb')
-                # self.log('开始发送文件')
                 md5 = hashlib.md5()
                 with self.__process_lock:
                     position = self.__position
                     self.__position += 1
-                with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
-                          position=position) as pbar:
-                    data = fp.read(unit)
-                    while data:
-                        conn.send(data)
-                        md5.update(data)
-                        pbar.update(len(data))
-                        with self.__process_lock:
-                            if self.__pbar:
-                                self.__pbar.update(len(data))
+                with open(real_path, 'rb') as fp:
+                    # self.log('开始发送文件')
+                    with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
+                              position=position) as pbar:
                         data = fp.read(unit)
-                fp.close()
-                digest = md5.digest()
-                conn.send(digest)
+                        while data:
+                            conn.send(data)
+                            md5.update(data)
+                            pbar.update(len(data))
+                            if self.__pbar:
+                                with self.__process_lock:
+                                    self.__pbar.update(len(data))
+                            data = fp.read(unit)
+                conn.send(md5.digest())
                 filepath = receive_data(conn, filename_size)
                 filepath = filepath.decode('UTF-8').strip('\00')
             else:
-                with self.__process_lock:
-                    if self.__pbar:
+                if self.__pbar:
+                    with self.__process_lock:
                         self.__pbar.update(file_size)
         return filepath
 
@@ -275,7 +272,7 @@ class FTC:
                     self._compare_sysinfo()
                 elif command.startswith(SPEEDTEST):
                     times = command[10:]
-                    while not (times.isdigit() and int(times)) > 0:
+                    while not (times.isdigit() and int(times) > 0):
                         times = input("请重新输入数据量（单位MB）：")
                     self._speedtest(times=int(times))
                 elif command.startswith("compare"):
@@ -340,8 +337,8 @@ class FTC:
         except Exception as e:
             print(e)
         finally:
-            with self.__process_lock:
-                self.__pbar.close()
+            self.__pbar.close()
+            self.__pbar = None
             fails = set(all_file_name) - set(success_recv)
             if fails:
                 self.log("发送失败的文件：", color="red", highlight=1)
@@ -394,12 +391,12 @@ class FTC:
 
                 file_not_exits_in_local = [filename for filename in dest_filename if filename not in local_filename]
                 file_not_exits_in_dest = [filename for filename in local_filename if filename not in dest_dict]
-
-                print_filename_if_exits("file exits in dest but not exits in local: ", file_not_exits_in_local)
-                print_filename_if_exits("file exits in local but not exits in dest: ", file_not_exits_in_dest)
-                print_filename_if_exits("file in local smaller than dest: ", file_in_local_smaller_than_dest)
-                print_filename_if_exits("file in dest smaller than local: ", file_in_dest_smaller_than_local)
-                print_filename_if_exits("filename and size both equal in two sides: ", filesize_and_name_both_equal)
+                for arg in [("file exits in dest but not exits in local: ", file_not_exits_in_local),
+                            ("file exits in local but not exits in dest: ", file_not_exits_in_dest),
+                            ("file in local smaller than dest: ", file_in_local_smaller_than_dest),
+                            ("file in dest smaller than local: ", file_in_dest_smaller_than_local),
+                            ("filename and size both equal in two sides: ", filesize_and_name_both_equal)]:
+                    print_filename_if_exits(*arg)
 
                 if filesize_and_name_both_equal:
                     is_continue = input("Continue to compare hash for filename and size both equal set?(y/n): ") == 'y'
