@@ -39,11 +39,10 @@ class Configration:
 
 def receive_data(connection, size):
     # 避免粘包
-    rest_size = size
     result = b''
-    while rest_size > 0:
-        data = connection.recv(min(rest_size, unit))
-        rest_size -= len(data)
+    while size > 0:
+        data = connection.recv(min(size, unit))
+        size -= len(data)
         result += data
     return result
 
@@ -90,24 +89,18 @@ def get_clipboard(conn, log, filehead=None, FTC=True):
     pyperclip.copy(content)
 
 
-def calcu_size(filesize):
+def calcu_size(bytes, factor=1024):
     """
     计算文件大小所对应的合适的单位
-    :param filesize: 原始文件大小，单位byte
+    :param bytes: 原始文件大小，单位byte
+    :param factor: 计算因子
     :return:返回合适的两个单位及对应的大小
     """
-    file_size_KB = filesize / 1024
-    file_size_MB = file_size_KB / 1024
-    file_size_GB = file_size_MB / 1024
-    KB_Str = str(round(file_size_KB, 2)) + ' KB'
-    MB_Str = str(round(file_size_MB, 2)) + ' MB'
-    GB_Str = str(round(file_size_GB, 2)) + ' GB'
-    if file_size_GB >= 0.5:
-        return GB_Str, MB_Str
-    elif file_size_MB >= 0.5:
-        return MB_Str, KB_Str
-    else:
-        return KB_Str, str(filesize) + ' bytes'
+    scale = ["", "K", "M", "G", "T", "P"]
+    for position, data_unit in enumerate(scale):
+        if bytes < factor:
+            return f"{bytes:.2f}{data_unit}B", f"{bytes * factor:.2f}{scale[position - 1]}B" if position > 0 else ''
+        bytes /= factor
 
 
 def print_color(msg, color='white', highlight=0):
@@ -117,7 +110,7 @@ def print_color(msg, color='white', highlight=0):
 def get_log_msg(msg):
     t = threading.current_thread()
     now = datetime.now().strftime('%H:%M:%S.%f')[0:-3]
-    return f'{now} {str(t.ident).ljust(5)} {t.name.ljust(10)} {msg}'
+    return f'{now} {t.ident:5} {t.name:10} {msg}'
 
 
 def get_relative_filename_from_basedir(base_dir):
@@ -127,22 +120,21 @@ def get_relative_filename_from_basedir(base_dir):
         for file in file_list:
             # 将文件路径风格统一至Linux
             real_path = os.path.join(path, file).replace(os.path.sep, '/')
-            filesize = os.stat(real_path).st_size
-            results.update({real_path[basedir_length:]: filesize})
+            results.update({real_path[basedir_length:]: os.stat(real_path).st_size})
     return results
 
 
-def get_dir_file_name(dirname):
+def get_dir_file_name(filepath):
     """
     获取某文件路径下的所有文件夹和文件的相对路径
-    :param dirname: 文件路径
+    :param filepath: 文件路径
     :return :返回该文件路径下的所有文件夹、文件的相对路径
     """
     all_dir_name = set()
     all_file_name = []
     # 获取上一级文件夹名称
-    back_dir = os.path.dirname(dirname)
-    for path, dir_list, file_list in os.walk(dirname):
+    back_dir = os.path.dirname(filepath)
+    for path, dir_list, file_list in os.walk(filepath):
         # 获取相对路径
         path = os.path.relpath(path, back_dir)
         all_dir_name.add(path)
@@ -170,8 +162,8 @@ def handle_ctrl_event():
     if platform_ == WINDOWS:
         from win32api import SetConsoleCtrlHandler
         SetConsoleCtrlHandler(lambda ctrl_type: os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
-                              if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
-                              else None, 1)
+        if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
+        else None, 1)
 
 
 def compress_log_files(base_dir, log_type, log):
