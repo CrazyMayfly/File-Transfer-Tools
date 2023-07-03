@@ -34,7 +34,7 @@ def get_net_io():
 
 
 def get_cpu_percent():
-    return f"{psutil.cpu_percent(interval=1)} %"
+    return f" {psutil.cpu_percent(interval=1)}%"
 
 
 def get_disk_io():
@@ -95,7 +95,7 @@ def get_sys_info():
         "cpu": {"count": psutil.cpu_count(logical=False), "logic_count": psutil.cpu_count(logical=True),
                 "percentage": cpu_percent, 'info': platform.processor(),
                 "manufacturer": platform.machine(),
-                "frequency": str(round(psutil.cpu_freq().current / 1000, 2)) + "Ghz"},
+                "frequency": f'{psutil.cpu_freq().current / 1000:.2f}Ghz'},
         "memory": {"used": used, "total": total, "percentage": memory_use_percent},
         "network": net_io,
         "disks": {'info': disks, 'io': disk_io}
