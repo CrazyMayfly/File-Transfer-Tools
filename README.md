@@ -1,5 +1,4 @@
-# File Transfer Widget
-
+# File Transfer Tools
 ## Introduction
 
 `File Transfer Tools` contains two components: `FTS (File Transfer Server)` and `FTC (File Transfer Client)`. Is a **lightweight**,  **fast**,  **secure**, **versatile** cross-device file transfer script.
