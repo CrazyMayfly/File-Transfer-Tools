@@ -160,7 +160,7 @@ class FTC:
             if data[0] == '04c8979a-a107-11ed-a8fc-0242ac120002':
                 server_ip = data[1]
                 use_ssl = data[2] == 'True'
-                if server_ip not in ip_list:
+                if server_ip not in ip_list.keys():
                     ip_list.update({server_ip: use_ssl})
             sk.settimeout(wait)
         sk.close()
@@ -186,14 +186,9 @@ class FTC:
 
     def log(self, msg, color='white', highlight=0):
         msg = get_log_msg(msg)
-        level = 'INFO'
-        if color == 'yellow':
-            level = 'WARNING'
-        if color == 'red':
-            level = 'ERROR'
         with self.__log_lock:
             print_color(msg=msg, color=color, highlight=highlight)
-            self.__log_file.write('[{}] {}\n'.format(level, msg))
+            self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
 
     def close_connection(self, send_close_info=True):
         if self.__thread_pool:
@@ -212,8 +207,7 @@ class FTC:
                 self.__log_file.close()
 
     def _send_dir(self, dirname):
-        filehead = struct.pack(fmt, dirname.encode('UTF-8'),
-                               SEND_DIR.encode(), 0)
+        filehead = struct.pack(fmt, dirname.encode('UTF-8'), SEND_DIR.encode(), 0)
         with self.__connections as conn:
             conn.send(filehead)
 

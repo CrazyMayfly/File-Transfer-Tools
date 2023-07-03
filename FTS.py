@@ -51,14 +51,9 @@ class FTS:
 
     def _log(self, msg, color='white', highlight=0):
         msg = get_log_msg(msg)
-        level = 'INFO'
-        if color == 'yellow':
-            level = 'WARNING'
-        if color == 'red':
-            level = 'ERROR'
         with self.__log_lock:
             print_color(msg=msg, color=color, highlight=highlight)
-            self.__log_file.write('[{}] {}\n'.format(level, msg))
+            self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
 
     def _deal_data(self, conn: socket.socket, addr):
         if self._before_working(conn):

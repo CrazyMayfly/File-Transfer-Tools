@@ -333,6 +333,11 @@ color_dict = {
     'blue': ';34',
     'white': ''
 }
+
+color_level_dict = {
+    'yellow': 'WARNING',
+    'red': 'ERROR'
+    }
 # 配置文件相关
 config_file = 'config.txt'
 
