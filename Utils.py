@@ -85,6 +85,7 @@ def get_clipboard(conn, log, filehead=None, FTC=True):
         content = receive_data(conn, filesize)
     log('获取对方剪切板的内容，大小为 {}'.format(get_size(len(content.strip(b"\00")))), color='blue')
     content = content.decode('UTF-8').strip('\00')
+    print(content)
     # 拷贝到剪切板
     pyperclip.copy(content)
 
