@@ -50,16 +50,16 @@ class Logger:
                 print_color(msg=msg, color=color, highlight=highlight)
             self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
 
-    def info(self, msg, highlight):
+    def info(self, msg, highlight=0):
         self.log(msg, 'blue', highlight)
 
-    def warning(self, msg, highlight):
+    def warning(self, msg, highlight=0):
         self.log(msg, 'yellow', highlight)
 
-    def error(self, msg, highlight):
+    def error(self, msg, highlight=0):
         self.log(msg, 'red', highlight)
 
-    def success(self, msg, highlight):
+    def success(self, msg, highlight=0):
         self.log(msg, 'green', highlight)
 
     def flush(self):
@@ -357,9 +357,11 @@ filename_fmt = '800s'
 utf8 = 'utf-8'
 fmt = f'>{filename_fmt}{len(BEFORE_WORKING)}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
 str_len_fmt = '>Q'
+file_details_fmt = 'ddd'
 filename_size = struct.calcsize(filename_fmt)
 fileinfo_size = struct.calcsize(fmt)
 str_len_size = struct.calcsize(str_len_fmt)
+file_details_size = struct.calcsize(file_details_fmt)
 unit = 1024 * 1024  # 1MB
 color_dict = {
     'black': ';30',
