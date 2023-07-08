@@ -13,16 +13,15 @@ class FTS:
     def __init__(self, base_dir, use_ssl, avoid, password=''):
         self.__password = password
         log_file_path = os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log')
-        self.__log_file = open(log_file_path, 'a', encoding=utf8)
-        self.__log_lock = threading.Lock()
         self.ip = ''
         self.base_dir = base_dir
         self.__use_ssl = use_ssl
         self.__avoid_file_duplicate = avoid
-        self._log('本次日志文件存放位置: ' + log_file_path)
-        self._log(f'本次服务器密码: {password if password else "无"}')
+        self.logger = Logger(log_file_path)
+        self.logger.log('本次日志文件存放位置: ' + log_file_path)
+        self.logger.log(f'本次服务器密码: {password if password else "无"}')
         # 进行日志归档
-        threading.Thread(target=compress_log_files, args=(config.log_dir, 'server', self._log)).start()
+        threading.Thread(target=compress_log_files, args=(config.log_dir, 'server', self.logger)).start()
 
     def avoid_filename_duplication(self, filename, filesize):
         """
@@ -49,16 +48,10 @@ class FTS:
         else:
             return filename, False
 
-    def _log(self, msg, color='white', highlight=0):
-        msg = get_log_msg(msg)
-        with self.__log_lock:
-            print_color(msg=msg, color=color, highlight=highlight)
-            self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
-
     def _deal_data(self, conn: socket.socket, addr):
         if self._before_working(conn):
             return
-        self._log(f'客户端连接 {addr[0]}:{addr[1]}', 'blue')
+        self.logger.info(f'客户端连接 {addr[0]}:{addr[1]}')
         while True:
             try:
                 filehead = receive_data(conn, fileinfo_size)
@@ -67,7 +60,7 @@ class FTS:
                 command = command.decode().strip('\00')
                 if command == CLOSE:
                     conn.close()
-                    self._log(f'终止与客户端 {addr[0]}:{addr[1]} 的连接', 'blue')
+                    self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
                     return
                 elif command == SEND_DIR:
                     self._makedir(filename)
@@ -82,16 +75,15 @@ class FTS:
                 elif command == SPEEDTEST:
                     self._speedtest(conn, filesize)
                 elif command == PULL_CLIPBOARD:
-                    send_clipboard(conn, self._log, FTC=False)
+                    send_clipboard(conn, self.logger, FTC=False)
                 elif command == PUSH_CLIPBOARD:
-                    get_clipboard(conn, self._log, filehead=filehead, FTC=False)
+                    get_clipboard(conn, self.logger, filehead=filehead, FTC=False)
             except ConnectionResetError as e:
-                self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
+                self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
                 return
             finally:
                 # 每执行完一个操作写入日志文件
-                with self.__log_lock:
-                    self.__log_file.flush()
+                self.logger.flush()
 
     def _makedir(self, dir_name):
         # 处理文件夹
@@ -99,23 +91,23 @@ class FTS:
         try:
             if not os.path.exists(cur_dir):
                 os.makedirs(cur_dir)
-                self._log('创建文件夹 {0}'.format(cur_dir))
+                self.logger.info('创建文件夹 {0}'.format(cur_dir))
         except FileNotFoundError:
-            self._log('文件夹路径太长，创建文件夹失败 {0}'.format(cur_dir), color='red', highlight=1)
+            self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(cur_dir), highlight=1)
 
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         sk.bind((self.ip, config.server_signal_port))
         content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode(utf8)
         addr = (self.ip[0:self.ip.rindex('.')] + '.255', config.client_signal_port)
-        self._log('广播主机信息服务已启动')
+        self.logger.log('广播主机信息服务已启动')
         # 广播
         sk.sendto(content, addr)
         while True:
             data = sk.recv(1024).decode(utf8).split('_')
             if data[0] == '53b997bc-a140-11ed-a8fc-0242ac120002':
                 target_ip = data[1]
-                self._log('收到来自 {0} 的探测请求'.format(target_ip))
+                self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
                 # 单播
                 sk.sendto(content, (target_ip, config.client_signal_port))
 
@@ -127,14 +119,13 @@ class FTS:
         s.bind(('0.0.0.0', config.server_port))
         s.listen(9999)
         if self.__use_ssl:
-            self._log('当前数据使用加密传输', color='green')
+            self.logger.success('当前数据使用加密传输')
         else:
-            self._log('当前数据未进行加密传输', color='yellow')
-        self._log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
-        self._log('当前默认文件存放位置：' + self.base_dir)
+            self.logger.warning('当前数据未进行加密传输')
+        self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
+        self.logger.log('当前默认文件存放位置：' + self.base_dir)
         threading.Thread(target=self._signal_online).start()
-        with self.__log_lock:
-            self.__log_file.flush()
+        self.logger.flush()
         if self.__use_ssl:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -148,7 +139,7 @@ class FTS:
                         t = threading.Thread(target=self._deal_data, args=(conn, addr))
                         t.start()
                     except ssl.SSLError as e:
-                        self._log(f'SSLError: {e.reason}', color='yellow')
+                        self.logger.warning(f'SSLError: {e.reason}')
 
         else:
             while True:
@@ -160,14 +151,13 @@ class FTS:
         new_filename, file_exist = self.avoid_filename_duplication(os.path.join(self.base_dir, filename),
                                                                    filesize)
         if file_exist and self.__avoid_file_duplicate:
-            self._log('{} 文件重复，取消接收'.format(os.path.join(self.base_dir, filename)), 'yellow')
+            self.logger.warning('{} 文件重复，取消接收'.format(os.path.join(self.base_dir, filename)))
             conn.send(CANCEL.encode(utf8))
         else:
             try:
                 fp = open(new_filename, 'wb')
             except FileNotFoundError as e:
-                self._log(f'文件路径太长，无法接收: {e.filename}', color='red',
-                          highlight=1)
+                self.logger.error(f'文件路径太长，无法接收: {e.filename}', highlight=1)
                 conn.send(TOOLONG.encode(utf8))
                 conn.close()
                 return
@@ -176,9 +166,9 @@ class FTS:
             command = receive_data(conn, 8).decode(utf8)
             if command == TOOLONG:
                 conn.close()
-                self._log('对方因文件路径太长无法发送文件 {}'.format(os.path.join(self.base_dir, filename)), 'yellow')
+                self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(os.path.join(self.base_dir, filename)))
             else:
-                self._log('准备接收文件 {0}， 大小约 {1}，{2}'.format(new_filename, unit_1, unit_2))
+                self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(new_filename, unit_1, unit_2))
                 md5 = hashlib.md5()
                 begin = time.time()
                 rest_size = filesize
@@ -192,24 +182,25 @@ class FTS:
                 recv_digest = receive_data(conn, 16)
                 digest = md5.digest()
                 if recv_digest == digest:
-                    color = 'green'
                     msg = 'Hash 比对一致'
-                    highlight = 0
                     filename_confirm = struct.pack(filename_fmt, filename.encode(utf8))
                 else:
-                    color = 'red'
                     msg = 'Hash 比对失败'
-                    highlight = 1
                     filename_confirm = struct.pack(filename_fmt, "fail to receive".encode(utf8))
                 conn.send(filename_confirm)
                 time_cost = time.time() - begin
-                time_cost = 0.00001 if time_cost == 0 else time_cost
-                self._log(
-                    f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {filesize / 1000000 / time_cost:.2f} MB/s\n'
-                    , color, highlight)
+                avg_speed = filesize / 1000000 / time_cost if time_cost != 0 else 0
+                if msg == 'Hash 比对一致':
+                    self.logger.success(
+                        f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s\n'
+                        , highlight=1)
+                else:
+                    self.logger.error(
+                        f'{new_filename} 接收失败，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s\n'
+                        , highlight=1)
 
     def _compare_dir(self, conn: socket.socket, dirname):
-        self._log(f"客户端请求对比文件夹：{dirname}")
+        self.logger.info(f"客户端请求对比文件夹：{dirname}")
         if os.path.exists(dirname):
             conn.send(DIRISCORRECT.encode())
             # 将数组拼接成字符串发送到客户端
@@ -221,7 +212,7 @@ class FTS:
             conn.send(relative_filename)
             is_continue = receive_data(conn, 8).decode() == CONTINUE
             if is_continue:
-                self._log("继续对比文件Hash")
+                self.logger.log("继续对比文件Hash")
                 str_len = receive_data(conn, str_len_size)
                 str_len = struct.unpack(str_len_fmt, str_len)[0]
                 filesize_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
@@ -231,14 +222,14 @@ class FTS:
                 data = json.dumps(results, ensure_ascii=True).encode()
                 conn.send(struct.pack(str_len_fmt, len(data)))
                 conn.send(data)
-                self._log("Hash 比对结束。")
+                self.logger.log("Hash 比对结束。")
             else:
-                self._log("不继续比对Hash")
+                self.logger.log("不继续比对Hash")
         else:
             conn.send(b'\00' * len(DIRISCORRECT))
 
     def _execute_command(self, conn: socket.socket, command):
-        self._log("执行命令：" + command)
+        self.logger.log("执行命令：" + command)
         result = os.popen(command)
         s = result.read(1)
         while s:
@@ -250,7 +241,7 @@ class FTS:
         conn.send(b'\00' * 8)
 
     def _compare_sysinfo(self, conn: socket.socket):
-        self._log("目标获取系统信息")
+        self.logger.log("目标获取系统信息")
         info = get_sys_info()
         data = json.dumps(info, ensure_ascii=True).encode()
         # 发送数据长度
@@ -260,14 +251,14 @@ class FTS:
         conn.send(data)
 
     def _speedtest(self, conn: socket.socket, data_size):
-        self._log(f"客户端请求速度测试，数据量: {get_size(data_size, factor=1000)}")
+        self.logger.log(f"客户端请求速度测试，数据量: {get_size(data_size, factor=1000)}")
         start = time.time()
         data_unit = 1000 * 1000
         for i in range(0, int(data_size / data_unit)):
             receive_data(conn, data_unit)
         time_cost = time.time() - start
-        self._log(f"速度测试完毕, 耗时 {time_cost:.2f}s, 平均速度{get_size(data_size / time_cost, factor=1000)}/s.",
-                  color='green')
+        self.logger.success(
+            f"速度测试完毕, 耗时 {time_cost:.2f}s, 平均速度{get_size(data_size / time_cost, factor=1000)}/s.")
 
     def _before_working(self, conn: socket.socket):
         """
@@ -282,7 +273,7 @@ class FTS:
             password, command, _ = struct.unpack(fmt, filehead)
         except struct.error:
             conn.close()
-            self._log(f'服务器遭遇不明连接 {peer_host}:{peer_port}', color='yellow')
+            self.logger.warning(f'服务器遭遇不明连接 {peer_host}:{peer_port}')
             return True
         password = password.decode(utf8).strip('\00')
         command = command.decode().strip('\00')
@@ -295,7 +286,7 @@ class FTS:
         conn.send(filehead)
         if password != self.__password:
             conn.close()
-            self._log(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接', color='yellow')
+            self.logger.warning(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接')
             return True
         return False
 

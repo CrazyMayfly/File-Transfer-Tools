@@ -37,6 +37,40 @@ class Configration:
     client_signal_port: int
 
 
+# 日志类，简化日志打印
+class Logger:
+    def __init__(self, log_file_path):
+        self.__log_file = open(log_file_path, 'a', encoding=utf8)
+        self.__log_lock = threading.Lock()
+
+    def log(self, msg, color='white', highlight=0, screen=True):
+        msg = get_log_msg(msg)
+        with self.__log_lock:
+            if screen:
+                print_color(msg=msg, color=color, highlight=highlight)
+            self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
+
+    def info(self, msg, highlight):
+        self.log(msg, 'blue', highlight)
+
+    def warning(self, msg, highlight):
+        self.log(msg, 'yellow', highlight)
+
+    def error(self, msg, highlight):
+        self.log(msg, 'red', highlight)
+
+    def success(self, msg, highlight):
+        self.log(msg, 'green', highlight)
+
+    def flush(self):
+        with self.__log_lock:
+            self.__log_file.flush()
+
+    def close(self):
+        with self.__log_lock:
+            self.__log_file.close()
+
+
 def receive_data(connection, size):
     # 避免粘包
     result = b''
@@ -47,7 +81,7 @@ def receive_data(connection, size):
     return result
 
 
-def send_clipboard(conn, log, FTC=True):
+def send_clipboard(conn, logger: Logger, FTC=True):
     # 读取并编码剪切板的内容
     content = pyperclip.paste().encode()
     # 没有内容则不发送
@@ -58,7 +92,7 @@ def send_clipboard(conn, log, FTC=True):
             conn.send(filehead)
         return
 
-    log(f'发送剪切板的内容，大小为 {get_size(content_length)}', color='blue')
+    logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
     # 需要发送的内容较小则一趟发送
     if content_length <= filename_size:
         filehead = struct.pack(fmt, content, PUSH_CLIPBOARD.encode(), 0)
@@ -70,7 +104,7 @@ def send_clipboard(conn, log, FTC=True):
         conn.send(content)
 
 
-def get_clipboard(conn, log, filehead=None, FTC=True):
+def get_clipboard(conn, logger: Logger, filehead=None, FTC=True):
     # 获取对方剪切板的内容
     if FTC:
         filehead = struct.pack(fmt, b'', PULL_CLIPBOARD.encode(), 0)
@@ -78,12 +112,12 @@ def get_clipboard(conn, log, filehead=None, FTC=True):
         filehead = receive_data(conn, fileinfo_size)
     content, command, filesize, = struct.unpack(fmt, filehead)
     if command.decode() != PUSH_CLIPBOARD:
-        log('对方剪切板为空', color='yellow')
+        logger.warning('对方剪切板为空')
         return
         # 对方发送的内容较多则继续接收
     if filesize != 0:
         content = receive_data(conn, filesize)
-    log('获取对方剪切板的内容，大小为 {}'.format(get_size(len(content.strip(b"\00")))), color='blue')
+    logger.info('获取对方剪切板的内容，大小为 {}'.format(get_size(len(content.strip(b"\00")))))
     content = content.decode(utf8).strip('\00')
     print(content)
     # 拷贝到剪切板
@@ -167,13 +201,13 @@ def handle_ctrl_event():
         else None, 1)
 
 
-def compress_log_files(base_dir, log_type, log):
+def compress_log_files(base_dir, log_type, logger: Logger):
     """
     压缩日志文件
 
     @param base_dir: 日志文件所在的目录
     @param log_type: 日志文件的类型：client 或 server
-    @param log: 打印日志方法
+    @param logger: 打印日志对象
     @return:
     """
     appendix = log_type + '.log'
@@ -199,8 +233,8 @@ def compress_log_files(base_dir, log_type, log):
         dates = [datetime.strptime(file[0:10], '%Y_%m_%d') for file in matching_files]
         max_date = max(dates).strftime('%Y%m%d')
         min_date = min(dates).strftime('%Y%m%d')
-        log(f'开始对 {min_date} - {max_date} 时间范围内的 {log_type.upper()} 日志进行归档, 总计大小: {get_size(total_size)}',
-            color='blue')
+        logger.info(
+            f'开始对 {min_date} - {max_date} 时间范围内的 {log_type.upper()} 日志进行归档, 总计大小: {get_size(total_size)}')
         # 压缩后的输出文件名
         output_file = f'{min_date}_{max_date}.{log_type}.tar.gz'
         output_file = os.path.join(base_dir, output_file).replace('/', os.path.sep)
@@ -215,11 +249,10 @@ def compress_log_files(base_dir, log_type, log):
                 try:
                     send2trash(os.path.join(base_dir, file_name).replace('/', os.path.sep))
                 except Exception as e:
-                    log(f'{file_name}送往回收站失败，执行删除{e}', color='yellow')
+                    logger.warning(f'{file_name}送往回收站失败，执行删除{e}')
                     os.remove(os.path.join(base_dir, file_name))
 
-        log(f'日志文件归档完成: {output_file}，压缩后的文件大小: {get_size(os.stat(output_file).st_size)}',
-            color='green')
+        logger.success(f'日志文件归档完成: {output_file}，压缩后的文件大小: {get_size(os.stat(output_file).st_size)}')
         # 不进行文件夹递归
         return
 
@@ -340,7 +373,7 @@ color_dict = {
 color_level_dict = {
     'yellow': 'WARNING',
     'red': 'ERROR'
-    }
+}
 # 配置文件相关
 config_file = 'config.txt'
 

@@ -36,17 +36,16 @@ class FTC:
         self.__pbar = None
         self.host = host
         self.threads = threads
-        self.__log_lock = threading.Lock()
         self.__connections = self.Connections()
         self.__base_dir = ''
         self.__process_lock = threading.Lock()
         self.__position = 0
         self.__first_connect = True
         log_file = os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log')
-        self.__log_file = open(log_file, 'a', encoding=utf8)
-        self.log('本次日志文件存放位置为: ' + log_file.replace('/', os.path.sep))
+        self.logger = Logger(log_file)
+        self.logger.log('本次日志文件存放位置为: ' + log_file.replace('/', os.path.sep))
         # 进行日志归档
-        threading.Thread(target=compress_log_files, args=(config.log_dir, 'client', self.log)).start()
+        threading.Thread(target=compress_log_files, args=(config.log_dir, 'client', self.logger)).start()
         self.__thread_pool = None
 
     class Connections:
@@ -111,7 +110,7 @@ class FTC:
                         # ss = context.wrap_socket(s, server_hostname='Server')
                         self.__connections.add(ss)
                     except ssl.SSLError as e:
-                        self.log('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), 'red', highlight=1)
+                        self.logger.error('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), highlight=1)
                         sys.exit(-1)
             else:
                 for i in range(0, additional_connections_nums):
@@ -122,16 +121,16 @@ class FTC:
                         self.validate_password(s)
                     self.__connections.add(s)
             if self.__first_connect:
-                self.log(f'成功连接至服务器 {self.host}:{config.server_port}', 'green')
+                self.logger.success(f'成功连接至服务器 {self.host}:{config.server_port}')
                 if self.__use_ssl:
-                    self.log('当前数据使用加密传输', 'green')
+                    self.logger.success('当前数据使用加密传输')
                 else:
-                    self.log('当前数据未进行加密传输', 'yellow')
+                    self.logger.warning('当前数据未进行加密传输')
                 self.__first_connect = False
             else:
-                self.log(f'将连接数扩充至: {nums}', color='blue')
+                self.logger.info(f'将连接数扩充至: {nums}')
         except socket.error as msg:
-            self.log(f'连接至 {self.host} 失败, {msg}', 'red')
+            self.logger.error(f'连接至 {self.host} 失败, {msg}')
             sys.exit(-1)
 
     def validate_password(self, conn):
@@ -148,14 +147,14 @@ class FTC:
             if len(splits) == 2:
                 config.server_port = int(splits[1])
                 self.host = splits[0]
-            self.log("目标主机: " + self.host + ", 目标端口: " + str(config.server_port))
+            self.logger.log(f"目标主机: {self.host}, 目标端口: {config.server_port}")
             return
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         local_host = socket.gethostname()
         ip = socket.gethostbyname(local_host)
         sk.bind((ip, config.client_signal_port))
         ip_list = {}
-        self.log('开始探测服务器信息，最短探测时长：{0}s.'.format(wait))
+        self.logger.log('开始探测服务器信息，最短探测时长：{0}s.'.format(wait))
         content = ('53b997bc-a140-11ed-a8fc-0242ac120002_' + ip).encode(utf8)
         addr = (ip[0:ip.rindex('.')] + '.255', config.server_signal_port)
         sk.sendto(content, addr)
@@ -192,18 +191,12 @@ class FTC:
             self.__use_ssl = ip_list.get(ip) if hostname in all_ip \
                 else input('开启 SSL(y/n)? ').lower() == 'y'
 
-    def log(self, msg, color='white', highlight=0):
-        msg = get_log_msg(msg)
-        with self.__log_lock:
-            print_color(msg=msg, color=color, highlight=highlight)
-            self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
-
     def close_connection(self, send_close_info=True):
         if self.__thread_pool:
-            self.log('关闭线程池', 'blue')
+            self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
         close_info = struct.pack(fmt, b'', CLOSE.encode(), 0)
-        self.log('断开与 {0}:{1} 的连接'.format(self.host, config.server_port), 'blue')
+        self.logger.info('断开与 {0}:{1} 的连接'.format(self.host, config.server_port))
         try:
             for conn in self.__connections.get_connections():
                 if send_close_info:
@@ -211,8 +204,7 @@ class FTC:
                 # time.sleep(random.randint(0, 50) / 100)
                 conn.close()
         finally:
-            with self.__log_lock:
-                self.__log_file.close()
+            self.logger.close()
 
     def _send_dir(self, dirname):
         filehead = struct.pack(fmt, dirname.encode(utf8), SEND_DIR.encode(), 0)
@@ -233,8 +225,7 @@ class FTC:
                 try:
                     fp = open(real_path, 'rb')
                 except FileNotFoundError as e:
-                    self.log(f'文件路径太长，无法接收: {e.filename}', color='red',
-                             highlight=1)
+                    self.logger.error(f'文件路径太长，无法接收: {e.filename}', highlight=1)
                     conn.send(TOOLONG.encode(utf8))
                     conn.close()
                     self.__connections.remove()
@@ -266,7 +257,7 @@ class FTC:
                     with self.__process_lock:
                         self.__pbar.update(file_size)
             elif command == TOOLONG:
-                self.log(f'对方因文件路径太长无法接收文件', color='red', highlight=1)
+                self.logger.error(f'对方因文件路径太长无法接收文件', highlight=1)
                 conn.close()
                 self.__connections.remove()
                 self.connect(self.threads)
@@ -274,7 +265,7 @@ class FTC:
         return filepath
 
     def main(self):
-        self.log('当前线程数：{}'.format(self.threads), 'blue')
+        self.logger.info('当前线程数：{}'.format(self.threads))
         self.__peer_platform = self._before_working()
         while True:
             tips = '请输入命令：'
@@ -297,7 +288,7 @@ class FTC:
                 elif command.startswith("compare"):
                     local_dir, dest_dir = split_dir(command)
                     if not dest_dir or not local_dir:
-                        self.log('本地文件夹且远程文件夹不能为空', color='yellow')
+                        self.logger.warning('本地文件夹且远程文件夹不能为空')
                         continue
                     self._compare_dir(local_dir, dest_dir)
                 elif command.startswith('clip '):
@@ -305,7 +296,7 @@ class FTC:
                 else:
                     self._execute_command(command)
             except ConnectionResetError as e:
-                self.log(e.strerror, color='red', highlight=1)
+                self.logger.error(e.strerror, highlight=1)
                 if packaging:
                     os.system('pause')
                 sys.exit(-1)
@@ -316,7 +307,7 @@ class FTC:
         self.__position = 0
         self.__base_dir = os.path.dirname(filepath)
         all_dir_name, all_file_name = get_dir_file_name(filepath)
-        self.log('开始发送 {} 路径下所有文件夹，文件夹个数为 {}\n'.format(filepath, len(all_dir_name)), 'blue')
+        self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}\n'.format(filepath, len(all_dir_name)))
         # start = time.time()
         if self.__thread_pool is None:
             self.__thread_pool = ThreadPool(self.threads)
@@ -324,15 +315,15 @@ class FTC:
         # 打乱列表以避免多个小文件聚簇在一起，影响效率
         random.shuffle(all_file_name)
         # 将待发送的文件打印到日志
-        self.__log_file.write('[INFO] ' + get_log_msg("本次待发送的文件列表为：\n"))
+        self.logger.log("本次待发送的文件列表为：\n", screen=False)
         total_size = 0
         for filename in all_file_name:
             real_path = os.path.join(self.__base_dir, filename)
             file_size = os.stat(real_path).st_size
             sz1, sz2 = calcu_size(file_size)
-            self.__log_file.write('[INFO] ' + get_log_msg(f"{real_path}, 约{sz1}, {sz2}\n"))
+            self.logger.log(f"{real_path}, 约{sz1}, {sz2}\n", screen=False)
             total_size += file_size
-        self.__log_file.flush()
+        self.logger.flush()
         # 初始化总进度条
         with self.__process_lock:
             self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
@@ -342,7 +333,7 @@ class FTC:
         for result in results:
             result.wait()
         # self.log('文件夹发送完毕，耗时 {} s'.format(round(time.time() - start, 2)), 'blue')
-        self.log('开始发送 {} 路径下所有文件，文件个数为 {}\n'.format(filepath, len(all_file_name)), 'blue')
+        self.logger.info('开始发送 {} 路径下所有文件，文件个数为 {}\n'.format(filepath, len(all_file_name)))
         # 异步发送文件并等待结果
         results = [self.__thread_pool.apply_async(self._send_file, (filename,)) for filename in all_file_name]
         # 比对发送成功或失败的文件
@@ -358,22 +349,22 @@ class FTC:
             self.__pbar = None
             fails = set(all_file_name) - set(success_recv)
             if fails:
-                self.log("发送失败的文件：", color="red", highlight=1)
+                self.logger.error("发送失败的文件：", highlight=1)
                 for fail in fails:
-                    self.log(fail, color='yellow')
+                    self.logger.warning(fail)
             else:
-                self.log("本次全部文件正常发送", color='green')
+                self.logger.success("本次全部文件正常发送")
 
     def _send_single_file(self, filepath):
-        self.__log_file.write("[INFO] 本次发送的文件: {}\n".format(filepath))
+        self.logger.log(f'本次发送的文件: {filepath}\n', screen=False)
         self.__base_dir = os.path.dirname(filepath)
         filepath = os.path.basename(filepath)
-        self.log("发送成功", color='green') if filepath == self._send_file(filepath) \
-            else self.log("发送失败", color='red')
+        self.logger.success("发送成功") if filepath == self._send_file(filepath) \
+            else self.logger.error("发送失败")
 
     def _compare_dir(self, local_dir, dest_dir):
         if not os.path.exists(local_dir):
-            self.log('本地文件夹不存在', color='yellow')
+            self.logger.warning('本地文件夹不存在')
             return
         filehead = struct.pack(fmt, dest_dir.encode(utf8), COMPARE_DIR.encode(), 0)
         with self.__connections as conn:
@@ -442,7 +433,7 @@ class FTC:
                 else:
                     conn.send(CANCEL.encode())
             else:
-                self.log(f"目标文件夹 {dest_dir} 不存在", color="yellow")
+                self.logger.warning(f"目标文件夹 {dest_dir} 不存在")
 
     def _execute_command(self, command):
         command = command.strip()
@@ -450,18 +441,17 @@ class FTC:
         if len(command) == 0:
             return
         if self.__peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
-            self.log('请不要将输入端交给服务器！', color='yellow')
+            self.logger.warning('请不要将输入端交给服务器！')
             return
         command = command.encode(utf8)
         if len(command) > filename_size:
-            self.log("指令过长", color='yellow')
+            self.logger.warning("指令过长")
             return
 
         with self.__connections as conn:
             filehead = struct.pack(fmt, command, COMMAND.encode(), len(command))
             conn.send(filehead)
-            with self.__log_lock:
-                self.__log_file.write('[INFO] ' + get_log_msg(f'下达指令: {command}\n'))
+            self.logger.log(f'下达指令: {command}\n', screen=False)
             # 接收返回结果
             result = receive_data(conn, 8)
             while result != b'\00' * 8:
@@ -502,11 +492,11 @@ class FTC:
         with self.__connections as conn:
             msg = self.validate_password(conn)
         if msg == FAIL:
-            self.log('连接至服务器的密码错误', color='red', highlight=1)
+            self.logger.error('连接至服务器的密码错误', highlight=1)
             self.close_connection(send_close_info=False)
             sys.exit(-1)
         else:
-            self.log('服务器所在平台: ' + msg, color='blue')
+            self.logger.info('服务器所在平台: ' + msg)
             return msg
 
     def __exchange_clipboard(self, command):
@@ -518,9 +508,9 @@ class FTC:
         """
         with self.__connections as conn:
             if command == SEND or command == PUSH:
-                send_clipboard(conn, self.log)
+                send_clipboard(conn, self.logger)
             elif command == GET or command == PULL:
-                get_clipboard(conn, self.log)
+                get_clipboard(conn, self.logger)
 
 
 if __name__ == '__main__':
