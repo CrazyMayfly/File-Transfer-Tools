@@ -84,7 +84,7 @@ def get_clipboard(conn, log, filehead=None, FTC=True):
     if filesize != 0:
         content = receive_data(conn, filesize)
     log('获取对方剪切板的内容，大小为 {}'.format(get_size(len(content.strip(b"\00")))), color='blue')
-    content = content.decode('UTF-8').strip('\00')
+    content = content.decode(utf8).strip('\00')
     print(content)
     # 拷贝到剪切板
     pyperclip.copy(content)
@@ -241,13 +241,13 @@ def generate_config():
     config.set(section_Port, option_server_port, '2023')
     config.set(section_Port, option_server_signal_port, '2021')
     config.set(section_Port, option_client_signal_port, '2022')
-    with open(config_file, 'w', encoding='UTF-8') as f:
+    with open(config_file, 'w', encoding=utf8) as f:
         config.write(f)
 
 
 def load_config():
     config = ConfigParser()
-    config.read(config_file, encoding='UTF-8')
+    config.read(config_file, encoding=utf8)
     try:
         default_path = config.get(section_Main, option_windows_default_path) if platform_ == WINDOWS else config.get(
             section_Main, option_linux_default_path)
@@ -318,8 +318,10 @@ GET = 'get'
 SEND = 'send'
 CONTINUE = 'continue'
 CANCEL = 'cancelTf'
+TOOLONG = 'FTooLong'
 DIRISCORRECT = "DirIsCorrect"
 filename_fmt = '800s'
+utf8 = 'utf-8'
 fmt = f'>{filename_fmt}{len(BEFORE_WORKING)}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
 str_len_fmt = '>Q'
 filename_size = struct.calcsize(filename_fmt)

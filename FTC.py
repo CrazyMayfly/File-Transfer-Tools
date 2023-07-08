@@ -43,7 +43,7 @@ class FTC:
         self.__position = 0
         self.__first_connect = True
         log_file = os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log')
-        self.__log_file = open(log_file, 'a', encoding='utf-8')
+        self.__log_file = open(log_file, 'a', encoding=utf8)
         self.log('本次日志文件存放位置为: ' + log_file.replace('/', os.path.sep))
         # 进行日志归档
         threading.Thread(target=compress_log_files, args=(config.log_dir, 'client', self.log)).start()
@@ -63,16 +63,24 @@ class FTC:
             return conn
 
         def get_connections(self):
-            return self.__conn_pool_ready + list(self.__conn_pool_working.values())
+            with self.__lock:
+                connections = self.__conn_pool_ready + list(self.__conn_pool_working.values())
+            return connections
 
         def add(self, conn):
-            self.__conn_pool_ready.append(conn)
+            with self.__lock:
+                self.__conn_pool_ready.append(conn)
+
+        def remove(self):
+            with self.__lock:
+                self.__conn_pool_working.pop(threading.current_thread().ident, None)
 
         def __exit__(self, exc_type, exc_val, exc_tb):
             # conn使用完毕，回收conn
             with self.__lock:
-                conn = self.__conn_pool_working.pop(threading.current_thread().ident)
-                self.__conn_pool_ready.append(conn)
+                conn = self.__conn_pool_working.pop(threading.current_thread().ident, None)
+                if conn:
+                    self.__conn_pool_ready.append(conn)
 
     def connect(self, nums=1):
         """
@@ -131,7 +139,7 @@ class FTC:
         conn.send(filehead)
         filehead = receive_data(conn, fileinfo_size)
         msg = struct.unpack(fmt, filehead)[0]
-        msg = msg.decode('UTF-8').strip('\00')
+        msg = msg.decode(utf8).strip('\00')
         return msg
 
     def probe_server(self, wait=1):
@@ -148,13 +156,13 @@ class FTC:
         sk.bind((ip, config.client_signal_port))
         ip_list = {}
         self.log('开始探测服务器信息，最短探测时长：{0}s.'.format(wait))
-        content = ('53b997bc-a140-11ed-a8fc-0242ac120002_' + ip).encode('UTF-8')
+        content = ('53b997bc-a140-11ed-a8fc-0242ac120002_' + ip).encode(utf8)
         addr = (ip[0:ip.rindex('.')] + '.255', config.server_signal_port)
         sk.sendto(content, addr)
         begin = time.time()
         while time.time() - begin < wait:
             try:
-                data = sk.recv(1024).decode('UTF-8').split('_')
+                data = sk.recv(1024).decode(utf8).split('_')
             except socket.timeout:
                 break
             if data[0] == '04c8979a-a107-11ed-a8fc-0242ac120002':
@@ -207,7 +215,7 @@ class FTC:
                 self.__log_file.close()
 
     def _send_dir(self, dirname):
-        filehead = struct.pack(fmt, dirname.encode('UTF-8'), SEND_DIR.encode(), 0)
+        filehead = struct.pack(fmt, dirname.encode(utf8), SEND_DIR.encode(), 0)
         with self.__connections as conn:
             conn.send(filehead)
 
@@ -215,37 +223,54 @@ class FTC:
         real_path = os.path.join(self.__base_dir, filepath)
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
-        filehead = struct.pack(fmt, filepath.encode('UTF-8'),
+        filehead = struct.pack(fmt, filepath.encode(utf8),
                                SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.send(filehead)
-            is_continue = receive_data(conn, 8).decode('UTF-8') == CONTINUE
-            if is_continue:
+            command = receive_data(conn, 8).decode(utf8)
+            if command == CONTINUE:
+                try:
+                    fp = open(real_path, 'rb')
+                except FileNotFoundError as e:
+                    self.log(f'文件路径太长，无法接收: {e.filename}', color='red',
+                             highlight=1)
+                    conn.send(TOOLONG.encode(utf8))
+                    conn.close()
+                    self.__connections.remove()
+                    self.connect(self.threads)
+                    return
+                conn.send(CONTINUE.encode(utf8))
                 md5 = hashlib.md5()
                 with self.__process_lock:
                     position = self.__position
                     self.__position += 1
-                with open(real_path, 'rb') as fp:
-                    # self.log('开始发送文件')
-                    with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
-                              position=position) as pbar:
+                # self.log('开始发送文件')
+                with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
+                          position=position) as pbar:
+                    data = fp.read(unit)
+                    while data:
+                        conn.send(data)
+                        md5.update(data)
+                        pbar.update(len(data))
+                        if self.__pbar:
+                            with self.__process_lock:
+                                self.__pbar.update(len(data))
                         data = fp.read(unit)
-                        while data:
-                            conn.send(data)
-                            md5.update(data)
-                            pbar.update(len(data))
-                            if self.__pbar:
-                                with self.__process_lock:
-                                    self.__pbar.update(len(data))
-                            data = fp.read(unit)
+                fp.close()
                 conn.send(md5.digest())
                 filepath = receive_data(conn, filename_size)
-                filepath = filepath.decode('UTF-8').strip('\00')
-            else:
+                filepath = filepath.decode(utf8).strip('\00')
+            elif command == CANCEL:
                 if self.__pbar:
                     with self.__process_lock:
                         self.__pbar.update(file_size)
+            elif command == TOOLONG:
+                self.log(f'对方因文件路径太长无法接收文件', color='red', highlight=1)
+                conn.close()
+                self.__connections.remove()
+                self.connect(self.threads)
+                return
         return filepath
 
     def main(self):
@@ -284,8 +309,6 @@ class FTC:
                 if packaging:
                     os.system('pause')
                 sys.exit(-1)
-            except FileNotFoundError as e:
-                self.log(f'文件路径太长(Windows限制文件绝对路径长度在250左右): {e.filename}', color='red', highlight=1)
 
     def _send_files_in_dir(self, filepath):
         self.connect(self.threads)
@@ -352,7 +375,7 @@ class FTC:
         if not os.path.exists(local_dir):
             self.log('本地文件夹不存在', color='yellow')
             return
-        filehead = struct.pack(fmt, dest_dir.encode("UTF-8"), COMPARE_DIR.encode(), 0)
+        filehead = struct.pack(fmt, dest_dir.encode(utf8), COMPARE_DIR.encode(), 0)
         with self.__connections as conn:
             conn.send(filehead)
             is_dir_correct = receive_data(conn, len(DIRISCORRECT))
@@ -398,7 +421,7 @@ class FTC:
                         # 发送继续请求
                         conn.send(CONTINUE.encode())
                         # 发送相同的文件名称大小
-                        data_to_send = "|".join(filesize_and_name_both_equal).encode("UTF-8")
+                        data_to_send = "|".join(filesize_and_name_both_equal).encode(utf8)
                         conn.send(struct.pack(str_len_fmt, len(data_to_send)))
                         # 发送字符串
                         conn.send(data_to_send)
@@ -429,7 +452,7 @@ class FTC:
         if self.__peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
             self.log('请不要将输入端交给服务器！', color='yellow')
             return
-        command = command.encode("UTF-8")
+        command = command.encode(utf8)
         if len(command) > filename_size:
             self.log("指令过长", color='yellow')
             return

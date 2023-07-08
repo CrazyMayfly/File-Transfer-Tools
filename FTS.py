@@ -13,7 +13,7 @@ class FTS:
     def __init__(self, base_dir, use_ssl, avoid, password=''):
         self.__password = password
         log_file_path = os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log')
-        self.__log_file = open(log_file_path, 'a', encoding='utf-8')
+        self.__log_file = open(log_file_path, 'a', encoding=utf8)
         self.__log_lock = threading.Lock()
         self.ip = ''
         self.base_dir = base_dir
@@ -63,18 +63,14 @@ class FTS:
             try:
                 filehead = receive_data(conn, fileinfo_size)
                 filename, command, filesize = struct.unpack(fmt, filehead)
-                filename = filename.decode('UTF-8').strip('\00')
+                filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
                 if command == CLOSE:
                     conn.close()
-                    self._log('终止与客户端 {0} 的连接'.format(addr), 'blue')
+                    self._log(f'终止与客户端 {addr[0]}:{addr[1]} 的连接', 'blue')
                     return
                 elif command == SEND_DIR:
-                    # 处理文件夹
-                    cur_dir = os.path.join(self.base_dir, filename)
-                    if not os.path.exists(cur_dir):
-                        os.makedirs(cur_dir)
-                        self._log('创建文件夹 {0}'.format(cur_dir))
+                    self._makedir(filename)
                 elif command == SEND_FILE:
                     self._recv_file(conn, filename, filesize)
                 elif command == COMPARE_DIR:
@@ -89,28 +85,34 @@ class FTS:
                     send_clipboard(conn, self._log, FTC=False)
                 elif command == PUSH_CLIPBOARD:
                     get_clipboard(conn, self._log, filehead=filehead, FTC=False)
-
             except ConnectionResetError as e:
                 self._log(f'{addr[0]}:{addr[1]} {e.strerror}', color='yellow')
-                return
-            except FileNotFoundError as e:
-                self._log(f'文件路径太长(Windows限制文件绝对路径长度在250左右): {e.filename}', color='red', highlight=1)
                 return
             finally:
                 # 每执行完一个操作写入日志文件
                 with self.__log_lock:
                     self.__log_file.flush()
 
+    def _makedir(self, dir_name):
+        # 处理文件夹
+        cur_dir = os.path.join(self.base_dir, dir_name)
+        try:
+            if not os.path.exists(cur_dir):
+                os.makedirs(cur_dir)
+                self._log('创建文件夹 {0}'.format(cur_dir))
+        except FileNotFoundError:
+            self._log('文件夹路径太长，创建文件夹失败 {0}'.format(cur_dir), color='red', highlight=1)
+
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         sk.bind((self.ip, config.server_signal_port))
-        content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode('UTF-8')
+        content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode(utf8)
         addr = (self.ip[0:self.ip.rindex('.')] + '.255', config.client_signal_port)
         self._log('广播主机信息服务已启动')
         # 广播
         sk.sendto(content, addr)
         while True:
-            data = sk.recv(1024).decode('UTF-8').split('_')
+            data = sk.recv(1024).decode(utf8).split('_')
             if data[0] == '53b997bc-a140-11ed-a8fc-0242ac120002':
                 target_ip = data[1]
                 self._log('收到来自 {0} 的探测请求'.format(target_ip))
@@ -159,40 +161,52 @@ class FTS:
                                                                    filesize)
         if file_exist and self.__avoid_file_duplicate:
             self._log('{} 文件重复，取消接收'.format(os.path.join(self.base_dir, filename)), 'yellow')
-            conn.send(CANCEL.encode('utf-8'))
+            conn.send(CANCEL.encode(utf8))
         else:
+            try:
+                fp = open(new_filename, 'wb')
+            except FileNotFoundError as e:
+                self._log(f'文件路径太长，无法接收: {e.filename}', color='red',
+                          highlight=1)
+                conn.send(TOOLONG.encode(utf8))
+                conn.close()
+                return
             unit_1, unit_2 = calcu_size(filesize)
-            conn.send(CONTINUE.encode('utf-8'))
-            self._log('准备接收文件 {0}， 大小约 {1}，{2}'.format(new_filename, unit_1, unit_2))
-            md5 = hashlib.md5()
-            begin = time.time()
-            fp = open(new_filename, 'wb')
-            rest_size = filesize
-            while rest_size > 0:
-                recv_window = min(unit, rest_size)
-                data = conn.recv(recv_window)
-                rest_size -= len(data)
-                md5.update(data)
-                fp.write(data)
-            fp.close()
-            recv_digest = receive_data(conn, 16)
-            digest = md5.digest()
-            if recv_digest == digest:
-                color = 'green'
-                msg = 'Hash 比对一致'
-                highlight = 0
-                filename_confirm = struct.pack(filename_fmt, filename.encode("UTF-8"))
+            conn.send(CONTINUE.encode(utf8))
+            command = receive_data(conn, 8).decode(utf8)
+            if command == TOOLONG:
+                conn.close()
+                self._log('对方因文件路径太长无法发送文件 {}'.format(os.path.join(self.base_dir, filename)), 'yellow')
             else:
-                color = 'red'
-                msg = 'Hash 比对失败'
-                highlight = 1
-                filename_confirm = struct.pack(filename_fmt, "fail to receive".encode("UTF-8"))
-            conn.send(filename_confirm)
-            time_cost = time.time() - begin
-            time_cost = 0.00001 if time_cost == 0 else time_cost
-            self._log(
-                f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {filesize / 1000000 / time_cost:.2f} MB/s\n'
-                , color, highlight)
+                self._log('准备接收文件 {0}， 大小约 {1}，{2}'.format(new_filename, unit_1, unit_2))
+                md5 = hashlib.md5()
+                begin = time.time()
+                rest_size = filesize
+                while rest_size > 0:
+                    recv_window = min(unit, rest_size)
+                    data = conn.recv(recv_window)
+                    rest_size -= len(data)
+                    md5.update(data)
+                    fp.write(data)
+                fp.close()
+                recv_digest = receive_data(conn, 16)
+                digest = md5.digest()
+                if recv_digest == digest:
+                    color = 'green'
+                    msg = 'Hash 比对一致'
+                    highlight = 0
+                    filename_confirm = struct.pack(filename_fmt, filename.encode(utf8))
+                else:
+                    color = 'red'
+                    msg = 'Hash 比对失败'
+                    highlight = 1
+                    filename_confirm = struct.pack(filename_fmt, "fail to receive".encode(utf8))
+                conn.send(filename_confirm)
+                time_cost = time.time() - begin
+                time_cost = 0.00001 if time_cost == 0 else time_cost
+                self._log(
+                    f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {filesize / 1000000 / time_cost:.2f} MB/s\n'
+                    , color, highlight)
 
     def _compare_dir(self, conn: socket.socket, dirname):
         self._log(f"客户端请求对比文件夹：{dirname}")
@@ -210,7 +224,7 @@ class FTS:
                 self._log("继续对比文件Hash")
                 str_len = receive_data(conn, str_len_size)
                 str_len = struct.unpack(str_len_fmt, str_len)[0]
-                filesize_and_name_both_equal = receive_data(conn, str_len).decode("UTF-8").split("|")
+                filesize_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
                 # 得到文件相对路径名: hash值字典
                 results = {filename: get_file_md5(os.path.join(dirname, filename)) for filename in
                            filesize_and_name_both_equal}
@@ -270,7 +284,7 @@ class FTS:
             conn.close()
             self._log(f'服务器遭遇不明连接 {peer_host}:{peer_port}', color='yellow')
             return True
-        password = password.decode('UTF-8').strip('\00')
+        password = password.decode(utf8).strip('\00')
         command = command.decode().strip('\00')
         if command != BEFORE_WORKING:
             conn.close()
