@@ -5,6 +5,7 @@ import pathlib
 import socket
 import ssl
 
+from FileTimeModifyTool import modifyFileTime
 from Utils import *
 from sys_info import *
 
@@ -63,7 +64,7 @@ class FTS:
                     self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
                     return
                 elif command == SEND_DIR:
-                    self._makedir(filename)
+                    self._makedir(conn, filename)
                 elif command == SEND_FILE:
                     self._recv_file(conn, filename, filesize)
                 elif command == COMPARE_DIR:
@@ -85,12 +86,14 @@ class FTS:
                 # 每执行完一个操作写入日志文件
                 self.logger.flush()
 
-    def _makedir(self, dir_name):
+    def _makedir(self, conn, dir_name):
         # 处理文件夹
         cur_dir = os.path.join(self.base_dir, dir_name)
+        create_timestamp, modify_timestamp, access_timestamp = struct.unpack(fmt, receive_data(conn, file_details_size))
         try:
             if not os.path.exists(cur_dir):
                 os.makedirs(cur_dir)
+                modifyFileTime(cur_dir, self.logger, create_timestamp, modify_timestamp, access_timestamp)
                 self.logger.info('创建文件夹 {0}'.format(cur_dir))
         except FileNotFoundError:
             self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(cur_dir), highlight=1)
@@ -169,6 +172,8 @@ class FTS:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(os.path.join(self.base_dir, filename)))
             else:
                 self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(new_filename, unit_1, unit_2))
+                create_timestamp, modify_timestamp, access_timestamp = struct.unpack(fmt, receive_data(conn,
+                                                                                                       file_details_size))
                 md5 = hashlib.md5()
                 begin = time.time()
                 rest_size = filesize
@@ -194,6 +199,7 @@ class FTS:
                     self.logger.success(
                         f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s\n'
                         , highlight=1)
+                    modifyFileTime(new_filename, self.logger, create_timestamp, modify_timestamp, access_timestamp)
                 else:
                     self.logger.error(
                         f'{new_filename} 接收失败，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s\n'

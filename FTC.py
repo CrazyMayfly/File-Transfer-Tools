@@ -5,9 +5,8 @@ import socket
 import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
-
 from tqdm import tqdm
-
+from FileTimeModifyTool import get_file_time_details
 from Utils import *
 from sys_info import *
 
@@ -134,10 +133,10 @@ class FTC:
             sys.exit(-1)
 
     def validate_password(self, conn):
-        filehead = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
-        conn.send(filehead)
-        filehead = receive_data(conn, fileinfo_size)
-        msg = struct.unpack(fmt, filehead)[0]
+        file_head = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
+        conn.send(file_head)
+        file_head = receive_data(conn, fileinfo_size)
+        msg = struct.unpack(fmt, file_head)[0]
         msg = msg.decode(utf8).strip('\00')
         return msg
 
@@ -206,20 +205,21 @@ class FTC:
         finally:
             self.logger.close()
 
-    def _send_dir(self, dirname):
-        filehead = struct.pack(fmt, dirname.encode(utf8), SEND_DIR.encode(), 0)
+    def _send_dir(self, dir_name):
+        file_head = struct.pack(fmt, dir_name.encode(utf8), SEND_DIR.encode(), 0)
         with self.__connections as conn:
-            conn.send(filehead)
+            conn.send(file_head)
+            conn.send(struct.pack(file_details_fmt, *get_file_time_details(os.path.join(self.__base_dir, dir_name))))
 
     def _send_file(self, filepath):
         real_path = os.path.join(self.__base_dir, filepath)
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
-        filehead = struct.pack(fmt, filepath.encode(utf8),
-                               SEND_FILE.encode(), file_size)
+        file_head = struct.pack(fmt, filepath.encode(utf8),
+                                SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
-            conn.send(filehead)
+            conn.send(file_head)
             command = receive_data(conn, 8).decode(utf8)
             if command == CONTINUE:
                 try:
@@ -232,6 +232,7 @@ class FTC:
                     self.connect(self.threads)
                     return
                 conn.send(CONTINUE.encode(utf8))
+                conn.send(struct.pack(file_details_fmt, *get_file_time_details(real_path)))
                 md5 = hashlib.md5()
                 with self.__process_lock:
                     position = self.__position
@@ -366,9 +367,9 @@ class FTC:
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
             return
-        filehead = struct.pack(fmt, dest_dir.encode(utf8), COMPARE_DIR.encode(), 0)
+        file_head = struct.pack(fmt, dest_dir.encode(utf8), COMPARE_DIR.encode(), 0)
         with self.__connections as conn:
-            conn.send(filehead)
+            conn.send(file_head)
             is_dir_correct = receive_data(conn, len(DIRISCORRECT))
             is_dir_correct = is_dir_correct.decode() == DIRISCORRECT
             if is_dir_correct:
@@ -449,8 +450,8 @@ class FTC:
             return
 
         with self.__connections as conn:
-            filehead = struct.pack(fmt, command, COMMAND.encode(), len(command))
-            conn.send(filehead)
+            file_head = struct.pack(fmt, command, COMMAND.encode(), len(command))
+            conn.send(file_head)
             self.logger.log(f'下达指令: {command}\n', screen=False)
             # 接收返回结果
             result = receive_data(conn, 8)
@@ -460,9 +461,9 @@ class FTC:
 
     def _compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
-        filehead = struct.pack(fmt, b'', SYSINFO.encode(), 0)
+        file_head = struct.pack(fmt, b'', SYSINFO.encode(), 0)
         with self.__connections as conn:
-            conn.send(filehead)
+            conn.send(file_head)
             # 异步获取自己的系统信息
             t = MyThread(get_sys_info, args=())
             t.start()
@@ -479,9 +480,9 @@ class FTC:
     def _speedtest(self, times):
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
-        filehead = struct.pack(fmt, b'', SPEEDTEST.encode(), data_size)
+        file_head = struct.pack(fmt, b'', SPEEDTEST.encode(), data_size)
         with self.__connections as conn:
-            conn.send(filehead)
+            conn.send(file_head)
             with tqdm(total=data_size, desc='speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
                 for i in range(0, times):
                     # 生产随机字节
