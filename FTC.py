@@ -209,7 +209,6 @@ class FTC:
         file_head = struct.pack(fmt, dir_name.encode(utf8), SEND_DIR.encode(), 0)
         with self.__connections as conn:
             conn.send(file_head)
-            conn.send(struct.pack(file_details_fmt, *get_file_time_details(os.path.join(self.__base_dir, dir_name))))
 
     def _send_file(self, filepath):
         real_path = os.path.join(self.__base_dir, filepath)
