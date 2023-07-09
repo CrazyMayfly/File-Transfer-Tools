@@ -134,7 +134,7 @@ class FTC:
 
     def validate_password(self, conn):
         file_head = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
-        conn.send(file_head)
+        conn.sendall(file_head)
         file_head = receive_data(conn, fileinfo_size)
         msg = struct.unpack(fmt, file_head)[0]
         msg = msg.decode(utf8).strip('\00')
@@ -199,7 +199,7 @@ class FTC:
         try:
             for conn in self.__connections.get_connections():
                 if send_close_info:
-                    conn.send(close_info)
+                    conn.sendall(close_info)
                 # time.sleep(random.randint(0, 50) / 100)
                 conn.close()
         finally:
@@ -208,7 +208,7 @@ class FTC:
     def _send_dir(self, dir_name):
         file_head = struct.pack(fmt, dir_name.encode(utf8), SEND_DIR.encode(), 0)
         with self.__connections as conn:
-            conn.send(file_head)
+            conn.sendall(file_head)
 
     def _send_file(self, filepath):
         real_path = os.path.join(self.__base_dir, filepath)
@@ -218,16 +218,16 @@ class FTC:
                                 SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
-            conn.send(file_head)
+            conn.sendall(file_head)
             command = receive_data(conn, 8).decode(utf8)
             if command == CONTINUE:
                 fp = openfile_with_retires(real_path, 'rb')
                 if not fp:
                     self.logger.error(f'文件路径太长，无法接收: {real_path}', highlight=1)
-                    conn.send(TOOLONG.encode(utf8))
+                    conn.sendall(TOOLONG.encode(utf8))
                     return
-                conn.send(CONTINUE.encode(utf8))
-                conn.send(struct.pack(file_details_fmt, *get_file_time_details(real_path)))
+                conn.sendall(CONTINUE.encode(utf8))
+                conn.sendall(struct.pack(file_details_fmt, *get_file_time_details(real_path)))
                 md5 = hashlib.md5()
                 with self.__process_lock:
                     position = self.__position
@@ -237,7 +237,7 @@ class FTC:
                           position=position) as pbar:
                     data = fp.read(unit)
                     while data:
-                        conn.send(data)
+                        conn.sendall(data)
                         md5.update(data)
                         pbar.update(len(data))
                         if self.__pbar:
@@ -245,7 +245,7 @@ class FTC:
                                 self.__pbar.update(len(data))
                         data = fp.read(unit)
                 fp.close()
-                conn.send(md5.digest())
+                conn.sendall(md5.digest())
                 filepath = receive_data(conn, filename_size)
                 filepath = filepath.decode(utf8).strip('\00')
             elif command == CANCEL:
@@ -361,7 +361,7 @@ class FTC:
             return
         file_head = struct.pack(fmt, dest_dir.encode(utf8), COMPARE_DIR.encode(), 0)
         with self.__connections as conn:
-            conn.send(file_head)
+            conn.sendall(file_head)
             is_dir_correct = receive_data(conn, len(DIRISCORRECT))
             is_dir_correct = is_dir_correct.decode() == DIRISCORRECT
             if is_dir_correct:
@@ -403,12 +403,12 @@ class FTC:
                     is_continue = input("Continue to compare hash for filename and size both equal set?(y/n): ") == 'y'
                     if is_continue:
                         # 发送继续请求
-                        conn.send(CONTINUE.encode())
+                        conn.sendall(CONTINUE.encode())
                         # 发送相同的文件名称大小
                         data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
-                        conn.send(struct.pack(str_len_fmt, len(data_to_send)))
+                        conn.sendall(struct.pack(str_len_fmt, len(data_to_send)))
                         # 发送字符串
-                        conn.send(data_to_send)
+                        conn.sendall(data_to_send)
                         results = {filename: get_file_md5(os.path.join(local_dir, filename)) for filename in
                                    file_size_and_name_both_equal}
                         # 获取本次字符串大小
@@ -422,9 +422,9 @@ class FTC:
                                              results[filename] != dest_dict[filename]]
                         print_filename_if_exits("hash not matching: ", hash_not_matching)
                     else:
-                        conn.send(CANCEL.encode())
+                        conn.sendall(CANCEL.encode())
                 else:
-                    conn.send(CANCEL.encode())
+                    conn.sendall(CANCEL.encode())
             else:
                 self.logger.warning(f"目标文件夹 {dest_dir} 不存在")
 
@@ -443,7 +443,7 @@ class FTC:
 
         with self.__connections as conn:
             file_head = struct.pack(fmt, command, COMMAND.encode(), len(command))
-            conn.send(file_head)
+            conn.sendall(file_head)
             self.logger.log(f'下达指令: {command}\n', screen=False)
             # 接收返回结果
             result = receive_data(conn, 8)
@@ -455,7 +455,7 @@ class FTC:
         # 发送比较系统信息的命令到FTS
         file_head = struct.pack(fmt, b'', SYSINFO.encode(), 0)
         with self.__connections as conn:
-            conn.send(file_head)
+            conn.sendall(file_head)
             # 异步获取自己的系统信息
             t = MyThread(get_sys_info, args=())
             t.start()
@@ -474,11 +474,11 @@ class FTC:
         data_size = times * data_unit
         file_head = struct.pack(fmt, b'', SPEEDTEST.encode(), data_size)
         with self.__connections as conn:
-            conn.send(file_head)
+            conn.sendall(file_head)
             with tqdm(total=data_size, desc='speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
                 for i in range(0, times):
                     # 生产随机字节
-                    conn.send(token_bytes(data_unit))
+                    conn.sendall(token_bytes(data_unit))
                     pbar.update(data_unit)
 
     def _before_working(self):
