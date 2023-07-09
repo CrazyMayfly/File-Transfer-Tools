@@ -221,14 +221,10 @@ class FTC:
             conn.send(file_head)
             command = receive_data(conn, 8).decode(utf8)
             if command == CONTINUE:
-                try:
-                    fp = open(real_path, 'rb')
-                except FileNotFoundError as e:
-                    self.logger.error(f'文件路径太长，无法接收: {e.filename}', highlight=1)
+                fp = openfile_with_retires(real_path, 'rb')
+                if not fp:
+                    self.logger.error(f'文件路径太长，无法接收: {real_path}', highlight=1)
                     conn.send(TOOLONG.encode(utf8))
-                    conn.close()
-                    self.__connections.remove()
-                    self.connect(self.threads)
                     return
                 conn.send(CONTINUE.encode(utf8))
                 conn.send(struct.pack(file_details_fmt, *get_file_time_details(real_path)))
@@ -258,9 +254,6 @@ class FTC:
                         self.__pbar.update(file_size)
             elif command == TOOLONG:
                 self.logger.error(f'对方因文件路径太长无法接收文件', highlight=1)
-                conn.close()
-                self.__connections.remove()
-                self.connect(self.threads)
                 return
         return filepath
 

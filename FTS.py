@@ -4,6 +4,7 @@ import os.path
 import pathlib
 import socket
 import ssl
+from typing import Optional, TextIO
 
 from FileTimeModifyTool import modifyFileTime
 from Utils import *
@@ -148,33 +149,31 @@ class FTS:
                 t = threading.Thread(target=self._deal_data, args=(conn, addr))
                 t.start()
 
-    def _recv_file(self, conn: socket.socket, filename, filesize):
+    def _recv_file(self, conn: socket.socket, filename, file_size):
         new_filename, file_exist = self.avoid_filename_duplication(os.path.join(self.base_dir, filename),
-                                                                   filesize)
+                                                                   file_size)
         if file_exist and self.__avoid_file_duplicate:
             self.logger.warning('{} 文件重复，取消接收'.format(os.path.join(self.base_dir, filename)))
             conn.send(CANCEL.encode(utf8))
         else:
-            try:
-                fp = open(new_filename, 'wb')
-            except FileNotFoundError as e:
-                self.logger.error(f'文件路径太长，无法接收: {e.filename}', highlight=1)
+            fp = openfile_with_retires(new_filename, 'wb')
+            if not fp:
+                self.logger.error(f'文件路径太长，无法接收: {new_filename}', highlight=1)
                 conn.send(TOOLONG.encode(utf8))
-                conn.close()
                 return
-            unit_1, unit_2 = calcu_size(filesize)
+            unit_1, unit_2 = calcu_size(file_size)
             conn.send(CONTINUE.encode(utf8))
             command = receive_data(conn, 8).decode(utf8)
             if command == TOOLONG:
-                conn.close()
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(os.path.join(self.base_dir, filename)))
             else:
                 self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(new_filename, unit_1, unit_2))
-                create_timestamp, modify_timestamp, access_timestamp = struct.unpack(file_details_fmt, receive_data(conn,
-                                                                                                       file_details_size))
+                create_timestamp, modify_timestamp, access_timestamp = struct.unpack(file_details_fmt,
+                                                                                     receive_data(conn,
+                                                                                                  file_details_size))
                 md5 = hashlib.md5()
                 begin = time.time()
-                rest_size = filesize
+                rest_size = file_size
                 while rest_size > 0:
                     recv_window = min(unit, rest_size)
                     data = conn.recv(recv_window)
@@ -192,7 +191,7 @@ class FTS:
                     filename_confirm = struct.pack(filename_fmt, "fail to receive".encode(utf8))
                 conn.send(filename_confirm)
                 time_cost = time.time() - begin
-                avg_speed = filesize / 1000000 / time_cost if time_cost != 0 else 0
+                avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
                 if msg == 'Hash 比对一致':
                     self.logger.success(
                         f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s\n'

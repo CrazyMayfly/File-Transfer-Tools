@@ -201,6 +201,24 @@ def handle_ctrl_event():
         else None, 1)
 
 
+def openfile_with_retires(filename: str, mode: str, max_retries: int = 10) -> Optional[TextIO]:
+    """
+    多次重试创建文件，用于解决文件路径过长时
+    Windows容易无法创建文件的问题
+
+    @param filename: 需要打开的文件的绝对路径
+    @param mode: 打开模式
+    @param max_retries: 最大重试数
+    @return: 文件指针
+    """
+    file, retries = None, 0
+    while not file and retries < max_retries:
+        try:
+            file = open(filename, mode)
+        except FileNotFoundError:
+            retries += 1
+    return file
+
 def compress_log_files(base_dir, log_type, logger: Logger):
     """
     压缩日志文件
