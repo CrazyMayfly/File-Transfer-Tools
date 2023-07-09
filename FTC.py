@@ -21,10 +21,10 @@ def print_filename_if_exits(prompt, filename_list):
 
 
 def split_dir(command):
-    dirnames = command[8:].split('"')
-    dirnames = dirnames[0].split(' ') if len(dirnames) == 1 else \
-        [dirname.strip() for dirname in dirnames if dirname.strip()]
-    return dirnames if len(dirnames) == 2 else (None, None)
+    dir_names = command[8:].split('"')
+    dir_names = dir_names[0].split(' ') if len(dir_names) == 1 else \
+        [dir_name.strip() for dir_name in dir_names if dir_name.strip()]
+    return dir_names if len(dir_names) == 2 else (None, None)
 
 
 class FTC:
@@ -304,7 +304,7 @@ class FTC:
         # start = time.time()
         if self.__thread_pool is None:
             self.__thread_pool = ThreadPool(self.threads)
-        results = [self.__thread_pool.apply_async(self._send_dir, (dirname,)) for dirname in all_dir_name]
+        results = [self.__thread_pool.apply_async(self._send_dir, (dir_name,)) for dir_name in all_dir_name]
         # 打乱列表以避免多个小文件聚簇在一起，影响效率
         random.shuffle(all_file_name)
         # 将待发送的文件打印到日志
@@ -380,13 +380,13 @@ class FTC:
                 # 求各种集合
                 file_in_local_smaller_than_dest = []
                 file_in_dest_smaller_than_local = []
-                filesize_and_name_both_equal = []
+                file_size_and_name_both_equal = []
                 for filename in local_filename:
                     size_diff = local_dict[filename] - dest_dict[filename]
                     if size_diff < 0:
                         file_in_local_smaller_than_dest.append(filename)
                     elif size_diff == 0:
-                        filesize_and_name_both_equal.append(filename)
+                        file_size_and_name_both_equal.append(filename)
                     else:
                         file_in_dest_smaller_than_local.append(filename)
 
@@ -396,21 +396,21 @@ class FTC:
                             ("file exits in local but not exits in dest: ", file_not_exits_in_dest),
                             ("file in local smaller than dest: ", file_in_local_smaller_than_dest),
                             ("file in dest smaller than local: ", file_in_dest_smaller_than_local),
-                            ("filename and size both equal in two sides: ", filesize_and_name_both_equal)]:
+                            ("file name and size both equal in two sides: ", file_size_and_name_both_equal)]:
                     print_filename_if_exits(*arg)
 
-                if filesize_and_name_both_equal:
+                if file_size_and_name_both_equal:
                     is_continue = input("Continue to compare hash for filename and size both equal set?(y/n): ") == 'y'
                     if is_continue:
                         # 发送继续请求
                         conn.send(CONTINUE.encode())
                         # 发送相同的文件名称大小
-                        data_to_send = "|".join(filesize_and_name_both_equal).encode(utf8)
+                        data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
                         conn.send(struct.pack(str_len_fmt, len(data_to_send)))
                         # 发送字符串
                         conn.send(data_to_send)
                         results = {filename: get_file_md5(os.path.join(local_dir, filename)) for filename in
-                                   filesize_and_name_both_equal}
+                                   file_size_and_name_both_equal}
                         # 获取本次字符串大小
                         data_size = receive_data(conn, str_len_size)
                         data_size = struct.unpack(str_len_fmt, data_size)[0]

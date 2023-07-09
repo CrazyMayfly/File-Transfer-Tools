@@ -7,11 +7,14 @@ import struct
 import sys
 import tarfile
 import threading
-import pyperclip
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional, TextIO
+
+import pyperclip
 from send2trash import send2trash
+
 from sys_info import get_size
 
 # 获取当前平台
@@ -110,13 +113,13 @@ def get_clipboard(conn, logger: Logger, filehead=None, FTC=True):
         filehead = struct.pack(fmt, b'', PULL_CLIPBOARD.encode(), 0)
         conn.send(filehead)
         filehead = receive_data(conn, fileinfo_size)
-    content, command, filesize, = struct.unpack(fmt, filehead)
+    content, command, file_size, = struct.unpack(fmt, filehead)
     if command.decode() != PUSH_CLIPBOARD:
         logger.warning('对方剪切板为空')
         return
         # 对方发送的内容较多则继续接收
-    if filesize != 0:
-        content = receive_data(conn, filesize)
+    if file_size != 0:
+        content = receive_data(conn, file_size)
     logger.info('获取对方剪切板的内容，大小为 {}'.format(get_size(len(content.strip(b"\00")))))
     content = content.decode(utf8).strip('\00')
     print(content)
@@ -196,9 +199,10 @@ def handle_ctrl_event():
     # determine platform, to fix ^c doesn't work on Windows
     if platform_ == WINDOWS:
         from win32api import SetConsoleCtrlHandler
-        SetConsoleCtrlHandler(lambda ctrl_type: os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
-        if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
-        else None, 1)
+        SetConsoleCtrlHandler(
+            lambda ctrl_type: os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+            if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
+            else None, 1)
 
 
 def openfile_with_retires(filename: str, mode: str, max_retries: int = 10) -> Optional[TextIO]:
@@ -218,6 +222,7 @@ def openfile_with_retires(filename: str, mode: str, max_retries: int = 10) -> Op
         except FileNotFoundError:
             retries += 1
     return file
+
 
 def compress_log_files(base_dir, log_type, logger: Logger):
     """

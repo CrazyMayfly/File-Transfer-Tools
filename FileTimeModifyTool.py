@@ -50,4 +50,3 @@ def get_file_time_details(filePath: str) -> tuple[float, float, float]:
     获取并返回一个文件(夹)的创建、修改、访问时间的时间戳
     """
     return os.path.getctime(filePath), os.path.getmtime(filePath), os.path.getatime(filePath)
-

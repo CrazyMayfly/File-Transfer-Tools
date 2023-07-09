@@ -4,7 +4,6 @@ import os.path
 import pathlib
 import socket
 import ssl
-from typing import Optional, TextIO
 
 from FileTimeModifyTool import modifyFileTime
 from Utils import *
@@ -25,17 +24,17 @@ class FTS:
         # 进行日志归档
         threading.Thread(target=compress_log_files, args=(config.log_dir, 'server', self.logger)).start()
 
-    def avoid_filename_duplication(self, filename, filesize):
+    def avoid_filename_duplication(self, filename, file_size):
         """
         避免文件名重复，以及是否重复接收
 
         @param filename: 文件名
-        @param filesize: 对方的文件大小
+        @param file_size: 对方的文件大小
         @return: 返回True表示文件的完整副本已经存在于本地，
         """
         if os.path.exists(filename):
             if self.__avoid_file_duplicate:
-                return filename, os.stat(filename).st_size == filesize
+                return filename, os.stat(filename).st_size == file_size
             i = 1
             while os.path.exists(filename):
                 path_split = os.path.splitext(filename)
@@ -57,7 +56,7 @@ class FTS:
         while True:
             try:
                 filehead = receive_data(conn, fileinfo_size)
-                filename, command, filesize = struct.unpack(fmt, filehead)
+                filename, command, file_size = struct.unpack(fmt, filehead)
                 filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
                 if command == CLOSE:
@@ -67,7 +66,7 @@ class FTS:
                 elif command == SEND_DIR:
                     self._makedir(filename)
                 elif command == SEND_FILE:
-                    self._recv_file(conn, filename, filesize)
+                    self._recv_file(conn, filename, file_size)
                 elif command == COMPARE_DIR:
                     self._compare_dir(conn, filename)
                 elif command == COMMAND:
@@ -75,7 +74,7 @@ class FTS:
                 elif command == SYSINFO:
                     self._compare_sysinfo(conn)
                 elif command == SPEEDTEST:
-                    self._speedtest(conn, filesize)
+                    self._speedtest(conn, file_size)
                 elif command == PULL_CLIPBOARD:
                     send_clipboard(conn, self.logger, FTC=False)
                 elif command == PUSH_CLIPBOARD:
@@ -150,8 +149,7 @@ class FTS:
                 t.start()
 
     def _recv_file(self, conn: socket.socket, filename, file_size):
-        new_filename, file_exist = self.avoid_filename_duplication(os.path.join(self.base_dir, filename),
-                                                                   file_size)
+        new_filename, file_exist = self.avoid_filename_duplication(os.path.join(self.base_dir, filename), file_size)
         if file_exist and self.__avoid_file_duplicate:
             self.logger.warning('{} 文件重复，取消接收'.format(os.path.join(self.base_dir, filename)))
             conn.send(CANCEL.encode(utf8))
@@ -168,9 +166,7 @@ class FTS:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(os.path.join(self.base_dir, filename)))
             else:
                 self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(new_filename, unit_1, unit_2))
-                create_timestamp, modify_timestamp, access_timestamp = struct.unpack(file_details_fmt,
-                                                                                     receive_data(conn,
-                                                                                                  file_details_size))
+                timestamps = struct.unpack(file_details_fmt, receive_data(conn, file_details_size))
                 md5 = hashlib.md5()
                 begin = time.time()
                 rest_size = file_size
@@ -194,20 +190,20 @@ class FTS:
                 avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
                 if msg == 'Hash 比对一致':
                     self.logger.success(
-                        f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s\n'
-                        , highlight=1)
-                    modifyFileTime(new_filename, self.logger, create_timestamp, modify_timestamp, access_timestamp)
+                        f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，'
+                        f'平均速度 {avg_speed :.2f} MB/s\n', highlight=1)
+                    modifyFileTime(new_filename, self.logger, *timestamps)
                 else:
                     self.logger.error(
-                        f'{new_filename} 接收失败，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s\n'
-                        , highlight=1)
+                        f'{new_filename} 接收失败，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，'
+                        f'平均速度 {avg_speed :.2f} MB/s\n', highlight=1)
 
-    def _compare_dir(self, conn: socket.socket, dirname):
-        self.logger.info(f"客户端请求对比文件夹：{dirname}")
-        if os.path.exists(dirname):
+    def _compare_dir(self, conn: socket.socket, dir_name):
+        self.logger.info(f"客户端请求对比文件夹：{dir_name}")
+        if os.path.exists(dir_name):
             conn.send(DIRISCORRECT.encode())
             # 将数组拼接成字符串发送到客户端
-            relative_filename = json.dumps(get_relative_filename_from_basedir(dirname), ensure_ascii=True).encode()
+            relative_filename = json.dumps(get_relative_filename_from_basedir(dir_name), ensure_ascii=True).encode()
             # 先发送字符串的大小
             str_len_head = struct.pack(str_len_fmt, len(relative_filename))
             conn.send(str_len_head)
@@ -218,10 +214,10 @@ class FTS:
                 self.logger.log("继续对比文件Hash")
                 str_len = receive_data(conn, str_len_size)
                 str_len = struct.unpack(str_len_fmt, str_len)[0]
-                filesize_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
+                file_size_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
                 # 得到文件相对路径名: hash值字典
-                results = {filename: get_file_md5(os.path.join(dirname, filename)) for filename in
-                           filesize_and_name_both_equal}
+                results = {filename: get_file_md5(os.path.join(dir_name, filename)) for filename in
+                           file_size_and_name_both_equal}
                 data = json.dumps(results, ensure_ascii=True).encode()
                 conn.send(struct.pack(str_len_fmt, len(data)))
                 conn.send(data)
@@ -271,6 +267,7 @@ class FTS:
         @return: True表示断开连接
         """
         filehead = receive_data(conn, fileinfo_size)
+        conn.settimeout()
         peer_host, peer_port = conn.getpeername()
         try:
             password, command, _ = struct.unpack(fmt, filehead)
