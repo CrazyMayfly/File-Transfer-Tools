@@ -266,15 +266,20 @@ class FTS:
         @param conn: 当前连接
         @return: True表示断开连接
         """
-        filehead = receive_data(conn, fileinfo_size)
-        conn.settimeout()
         peer_host, peer_port = conn.getpeername()
+        conn.settimeout(2)
         try:
+            filehead = receive_data(conn, fileinfo_size)
             password, command, _ = struct.unpack(fmt, filehead)
-        except struct.error:
+        except (socket.timeout, struct.error) as exception:
             conn.close()
-            self.logger.warning(f'服务器遭遇不明连接 {peer_host}:{peer_port}')
+            if isinstance(exception, socket.timeout):
+                message = f'客户端 {peer_host}:{peer_port} 未及时校验密码，连接断开'
+            else:
+                message = f'服务器遭遇不明连接 {peer_host}:{peer_port}'
+            self.logger.warning(message)
             return True
+        conn.settimeout(None)
         password = password.decode(utf8).strip('\00')
         command = command.decode().strip('\00')
         if command != BEFORE_WORKING:
