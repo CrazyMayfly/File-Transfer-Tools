@@ -98,7 +98,11 @@ class FTS:
 
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-        sk.bind((self.ip, config.server_signal_port))
+        try:
+            sk.bind(('0.0.0.0', config.server_signal_port))
+        except OSError as e:
+            self.logger.error(f'广播主机信息服务启动失败，{e.strerror}')
+            return
         content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode(utf8)
         addr = (self.ip[0:self.ip.rindex('.')] + '.255', config.client_signal_port)
         self.logger.log('广播主机信息服务已启动')
