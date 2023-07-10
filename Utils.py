@@ -18,10 +18,10 @@ from send2trash import send2trash
 from sys_info import get_size
 
 # 获取当前平台
-platform_ = platform.system()
-WINDOWS = 'Windows'
-LINUX = 'Linux'
-MACOS = 'Macos'
+platform_: Final[str] = platform.system()
+WINDOWS: Final[str] = 'Windows'
+LINUX: Final[str] = 'Linux'
+MACOS: Final[str] = 'Macos'
 # 解决win10的cmd中直接使用转义序列失效问题
 if platform_ == WINDOWS:
     os.system("")
