@@ -352,7 +352,7 @@ def load_config():
 # 打包控制变量，用于将程序打包为exe后防止直接退出控制台
 # Packaging control variable,
 # used to prevent the console from exiting directly after the program is packaged as exe
-packaging = False
+packaging = getattr(sys, 'frozen', False)
 
 # 命令类型
 SEND_FILE: Final[str] = "send_file"
