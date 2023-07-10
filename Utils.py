@@ -10,7 +10,7 @@ import threading
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, TextIO
+from typing import Optional, TextIO, Final
 
 import pyperclip
 from send2trash import send2trash
@@ -355,38 +355,39 @@ def load_config():
 packaging = False
 
 # 命令类型
-SEND_FILE = "send_file"
-SEND_DIR = "send_dir"
-COMPARE_DIR = "compare_dir"
-COMMAND = 'command'
-SYSINFO = 'sysinfo'
-SPEEDTEST = 'speedtest'
-BEFORE_WORKING = 'before_working'
-CLOSE = 'close'
-PUSH_CLIPBOARD = 'push_clipboard'
-PULL_CLIPBOARD = 'pull_clipboard'
+SEND_FILE: Final[str] = "send_file"
+SEND_DIR: Final[str] = "send_dir"
+COMPARE_DIR: Final[str] = "compare_dir"
+COMMAND: Final[str] = 'command'
+SYSINFO: Final[str] = 'sysinfo'
+SPEEDTEST: Final[str] = 'speedtest'
+BEFORE_WORKING: Final[str] = 'before_working'
+CLOSE: Final[str] = 'close'
+PUSH_CLIPBOARD: Final[str] = 'push_clipboard'
+PULL_CLIPBOARD: Final[str] = 'pull_clipboard'
 
 # 其他常量
-FAIL = 'fail'
-PUSH = 'push'
-PULL = 'pull'
-GET = 'get'
-SEND = 'send'
-CONTINUE = 'continue'
-CANCEL = 'cancelTf'
-TOOLONG = 'FTooLong'
-DIRISCORRECT = "DirIsCorrect"
-filename_fmt = '800s'
-utf8 = 'utf-8'
-fmt = f'>{filename_fmt}{len(BEFORE_WORKING)}sQ'  # 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
-str_len_fmt = '>Q'
-file_details_fmt = 'ddd'
-filename_size = struct.calcsize(filename_fmt)
-fileinfo_size = struct.calcsize(fmt)
-str_len_size = struct.calcsize(str_len_fmt)
-file_details_size = struct.calcsize(file_details_fmt)
-unit = 1024 * 1024  # 1MB
-color_dict = {
+FAIL: Final[str] = 'fail'
+PUSH: Final[str] = 'push'
+PULL: Final[str] = 'pull'
+GET: Final[str] = 'get'
+SEND: Final[str] = 'send'
+CONTINUE: Final[str] = 'continue'
+CANCEL: Final[str] = 'cancelTf'
+TOOLONG: Final[str] = 'FTooLong'
+DIRISCORRECT: Final[str] = "DirIsCorrect"
+filename_fmt: Final[str] = '800s'
+utf8: Final[str] = 'utf-8'
+# 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
+fmt: Final[str] = f'>{filename_fmt}{len(BEFORE_WORKING)}sQ'
+str_len_fmt: Final[str] = '>Q'
+file_details_fmt: Final[str] = 'ddd'
+filename_size: Final[int] = struct.calcsize(filename_fmt)
+fileinfo_size: Final[int] = struct.calcsize(fmt)
+str_len_size: Final[int] = struct.calcsize(str_len_fmt)
+file_details_size: Final[int] = struct.calcsize(file_details_fmt)
+unit: Final[int] = 1024 * 1024  # 1MB
+color_dict: Final[dict] = {
     'black': ';30',
     'red': ';31',
     'green': ';32',
@@ -395,27 +396,27 @@ color_dict = {
     'white': ''
 }
 
-color_level_dict = {
+color_level_dict: Final[dict] = {
     'yellow': 'WARNING',
     'red': 'ERROR'
 }
 # 配置文件相关
-config_file = 'config.txt'
+config_file: Final[str] = 'config.txt'
 
-section_Main = 'Main'
-section_Log = 'Log'
-section_Port = 'Port'
+section_Main: Final[str] = 'Main'
+section_Log: Final[str] = 'Log'
+section_Port: Final[str] = 'Port'
 
-option_windows_default_path = 'windows_default_path'
-option_linux_default_path = 'linux_default_path'
-option_cert_dir = 'cert_dir'
-option_windows_log_dir = 'windows_log_dir'
-option_linux_log_dir = 'linux_log_dir'
-option_log_file_archive_count = 'log_file_archive_count'
-option_log_file_archive_size = 'log_file_archive_size'
-option_server_port = 'server_port'
-option_server_signal_port = 'server_signal_port'
-option_client_signal_port = 'client_signal_port'
+option_windows_default_path: Final[str] = 'windows_default_path'
+option_linux_default_path: Final[str] = 'linux_default_path'
+option_cert_dir: Final[str] = 'cert_dir'
+option_windows_log_dir: Final[str] = 'windows_log_dir'
+option_linux_log_dir: Final[str] = 'linux_log_dir'
+option_log_file_archive_count: Final[str] = 'log_file_archive_count'
+option_log_file_archive_size: Final[str] = 'log_file_archive_size'
+option_server_port: Final[str] = 'server_port'
+option_server_signal_port: Final[str] = 'server_signal_port'
+option_client_signal_port: Final[str] = 'client_signal_port'
 
 if not os.path.exists(config_file):
     print_color(
@@ -425,7 +426,7 @@ if not os.path.exists(config_file):
     generate_config()
 
 # 加载配置
-config = load_config()
+config: Final[Configration] = load_config()
 
 if __name__ == '__main__':
     print(get_relative_filename_from_basedir(input('>>> ')))
