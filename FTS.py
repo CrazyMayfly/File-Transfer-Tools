@@ -327,10 +327,8 @@ if __name__ == '__main__':
 
     fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, avoid=args.avoid, password=args.password)
     handle_ctrl_event()
-    if not packaging:
+    try:
         fts.main()
-    else:
-        try:
-            fts.main()
-        finally:
+    finally:
+        if packaging:
             os.system('pause')

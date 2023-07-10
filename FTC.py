@@ -523,12 +523,9 @@ if __name__ == '__main__':
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
     ftc.probe_server()
-    if not packaging:
+    try:
         ftc.connect()
         ftc.main()
-    else:
-        try:
-            ftc.connect()
-            ftc.main()
-        finally:
+    finally:
+        if packaging:
             os.system('pause')
