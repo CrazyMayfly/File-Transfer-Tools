@@ -5,7 +5,10 @@ import socket
 import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
+
+import readline
 from tqdm import tqdm
+
 from FileTimeModifyTool import get_file_time_details
 from Utils import *
 from sys_info import *
@@ -18,6 +21,18 @@ def print_filename_if_exits(prompt, filename_list):
             print('\t' + filename)
     else:
         print('\tNone')
+
+
+def print_history(nums=10):
+    current_history_length = readline.get_current_history_length()
+    start_index = current_history_length - nums + 1 if current_history_length > nums else 1
+    for i in range(start_index, current_history_length + 1):
+        print(readline.get_history_item(i))
+
+
+def completer(text, state):
+    options = [i for i in commands if i.startswith(text)]
+    return options[state] if state < len(options) else None
 
 
 def split_dir(command):
@@ -263,6 +278,7 @@ class FTC:
         while True:
             tips = '请输入命令：'
             command = input(tips)
+            readline.add_history(command)
             try:
                 if command in ['q', 'quit', 'exit']:
                     self.close_connection()
@@ -278,14 +294,19 @@ class FTC:
                     while not (times.isdigit() and int(times) > 0):
                         times = input("请重新输入数据量（单位MB）：")
                     self._speedtest(times=int(times))
-                elif command.startswith("compare"):
+                elif command.startswith(COMPARE):
                     local_dir, dest_dir = split_dir(command)
                     if not dest_dir or not local_dir:
                         self.logger.warning('本地文件夹且远程文件夹不能为空')
                         continue
                     self._compare_dir(local_dir, dest_dir)
-                elif command.startswith('clip '):
+                elif command.startswith(CLIP + ' '):
                     self.__exchange_clipboard(command.split()[1])
+                elif command.startswith(HISTORY):
+                    if len(command.split()) > 1 and command.split()[1].isdigit():
+                        print_history(int(command.split()[1]))
+                    else:
+                        print_history()
                 else:
                     self._execute_command(command)
             except ConnectionResetError as e:
@@ -520,6 +541,12 @@ if __name__ == '__main__':
                         help='Use plaintext transfer (default: use ssl)')
     args = parser.parse_args()
     handle_ctrl_event()
+    # 自动补全设置
+    readline.set_completer(completer)
+    readline.set_history_length(1000)
+    readline.parse_and_bind('tab: complete')
+    history_file = os.path.join(config.log_dir, 'history.txt')
+    readline.read_history_file(history_file)
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
     ftc.probe_server()
@@ -527,5 +554,6 @@ if __name__ == '__main__':
         ftc.connect()
         ftc.main()
     finally:
+        readline.write_history_file(history_file)
         if packaging:
             os.system('pause')

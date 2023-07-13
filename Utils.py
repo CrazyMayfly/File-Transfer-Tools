@@ -363,6 +363,9 @@ SYSINFO: Final[str] = 'sysinfo'
 SPEEDTEST: Final[str] = 'speedtest'
 BEFORE_WORKING: Final[str] = 'before_working'
 CLOSE: Final[str] = 'close'
+CLIP: Final[str] = 'clip'
+HISTORY: Final[str] = 'history'
+COMPARE: Final[str] = "compare"
 PUSH_CLIPBOARD: Final[str] = 'push_clipboard'
 PULL_CLIPBOARD: Final[str] = 'pull_clipboard'
 
@@ -387,6 +390,8 @@ fileinfo_size: Final[int] = struct.calcsize(fmt)
 str_len_size: Final[int] = struct.calcsize(str_len_fmt)
 file_details_size: Final[int] = struct.calcsize(file_details_fmt)
 unit: Final[int] = 1024 * 1024  # 1MB
+commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
+
 color_dict: Final[dict] = {
     'black': ';30',
     'red': ';31',
