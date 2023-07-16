@@ -156,15 +156,15 @@ class FTS:
         new_filename, file_exist = self.avoid_filename_duplication(os.path.join(self.base_dir, filename), file_size)
         if file_exist and self.__avoid_file_duplicate:
             self.logger.warning('{} 文件重复，取消接收'.format(os.path.join(self.base_dir, filename)))
-            conn.send(CANCEL.encode(utf8))
+            conn.sendall(CANCEL.encode(utf8))
         else:
             fp = openfile_with_retires(new_filename, 'wb')
             if not fp:
                 self.logger.error(f'文件路径太长，无法接收: {new_filename}', highlight=1)
-                conn.send(TOOLONG.encode(utf8))
+                conn.sendall(TOOLONG.encode(utf8))
                 return
             unit_1, unit_2 = calcu_size(file_size)
-            conn.send(CONTINUE.encode(utf8))
+            conn.sendall(CONTINUE.encode(utf8))
             command = receive_data(conn, 8).decode(utf8)
             if command == TOOLONG:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(os.path.join(self.base_dir, filename)))
@@ -189,7 +189,7 @@ class FTS:
                 else:
                     msg = 'Hash 比对失败'
                     filename_confirm = struct.pack(filename_fmt, "fail to receive".encode(utf8))
-                conn.send(filename_confirm)
+                conn.sendall(filename_confirm)
                 time_cost = time.time() - begin
                 avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
                 if msg == 'Hash 比对一致':
@@ -205,14 +205,14 @@ class FTS:
     def _compare_dir(self, conn: socket.socket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
         if os.path.exists(dir_name):
-            conn.send(DIRISCORRECT.encode())
+            conn.sendall(DIRISCORRECT.encode())
             # 将数组拼接成字符串发送到客户端
             relative_filename = json.dumps(get_relative_filename_from_basedir(dir_name), ensure_ascii=True).encode()
             # 先发送字符串的大小
             str_len_head = struct.pack(str_len_fmt, len(relative_filename))
-            conn.send(str_len_head)
+            conn.sendall(str_len_head)
             # 再发送字符串
-            conn.send(relative_filename)
+            conn.sendall(relative_filename)
             is_continue = receive_data(conn, 8).decode() == CONTINUE
             if is_continue:
                 self.logger.log("继续对比文件Hash")
@@ -223,13 +223,13 @@ class FTS:
                 results = {filename: get_file_md5(os.path.join(dir_name, filename)) for filename in
                            file_size_and_name_both_equal}
                 data = json.dumps(results, ensure_ascii=True).encode()
-                conn.send(struct.pack(str_len_fmt, len(data)))
-                conn.send(data)
+                conn.sendall(struct.pack(str_len_fmt, len(data)))
+                conn.sendall(data)
                 self.logger.log("Hash 比对结束。")
             else:
                 self.logger.log("不继续比对Hash")
         else:
-            conn.send(b'\00' * len(DIRISCORRECT))
+            conn.sendall(b'\00' * len(DIRISCORRECT))
 
     def _execute_command(self, conn: socket.socket, command):
         self.logger.log("执行命令：" + command)
@@ -237,11 +237,11 @@ class FTS:
         s = result.read(1)
         while s:
             # UTF-32 为定宽字符编码
-            conn.send(s.encode("UTF-32"))
+            conn.sendall(s.encode("UTF-32"))
             print(s, end='')
             s = result.read(1)
         # 命令执行结束
-        conn.send(b'\00' * 8)
+        conn.sendall(b'\00' * 8)
 
     def _compare_sysinfo(self, conn: socket.socket):
         self.logger.log("目标获取系统信息")
@@ -249,9 +249,9 @@ class FTS:
         data = json.dumps(info, ensure_ascii=True).encode()
         # 发送数据长度
         str_len = struct.pack(str_len_fmt, len(data))
-        conn.send(str_len)
+        conn.sendall(str_len)
         # 发送数据
-        conn.send(data)
+        conn.sendall(data)
 
     def _speedtest(self, conn: socket.socket, data_size):
         self.logger.log(f"客户端请求速度测试，数据量: {get_size(data_size, factor=1000)}")
@@ -292,7 +292,7 @@ class FTS:
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
         filehead = struct.pack(fmt, msg.encode(), BEFORE_WORKING.encode(), 0)
-        conn.send(filehead)
+        conn.sendall(filehead)
         if password != self.__password:
             conn.close()
             self.logger.warning(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接')
