@@ -244,21 +244,25 @@ class FTC:
                 conn.sendall(CONTINUE.encode(utf8))
                 conn.sendall(struct.pack(file_details_fmt, *get_file_time_details(real_path)))
                 md5 = hashlib.md5()
-                with self.__process_lock:
-                    position = self.__position
-                    self.__position += 1
-                # self.log('开始发送文件')
-                with tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
-                          position=position) as pbar:
-                    data = fp.read(unit)
-                    while data:
-                        conn.sendall(data)
-                        md5.update(data)
+                big_file = file_size > 1024 * 1024
+                if big_file:  # 小文件不画进度条
+                    with self.__process_lock:
+                        position = self.__position
+                        self.__position += 1
+                    pbar = tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
+                                position=position)
+                data = fp.read(unit)
+                while data:
+                    conn.sendall(data)
+                    md5.update(data)
+                    if big_file:
                         pbar.update(len(data))
-                        if self.__pbar:
-                            with self.__process_lock:
-                                self.__pbar.update(len(data))
-                        data = fp.read(unit)
+                    if self.__pbar:
+                        with self.__process_lock:
+                            self.__pbar.update(len(data))
+                    data = fp.read(unit)
+                if big_file:
+                    pbar.close()
                 fp.close()
                 conn.sendall(md5.digest())
                 filepath = receive_data(conn, filename_size)
