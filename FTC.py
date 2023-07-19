@@ -341,7 +341,6 @@ class FTC:
             sz1, sz2 = calcu_size(file_size)
             self.logger.log(f"{real_path}, 约{sz1}, {sz2}\n", screen=False)
             total_size += file_size
-        self.logger.flush()
         # 初始化总进度条
         with self.__process_lock:
             self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',

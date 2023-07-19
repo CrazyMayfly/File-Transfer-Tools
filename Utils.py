@@ -7,6 +7,7 @@ import struct
 import sys
 import tarfile
 import threading
+import time
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
@@ -42,16 +43,27 @@ class Configration:
 
 # 日志类，简化日志打印
 class Logger:
-    def __init__(self, log_file_path):
+    def __init__(self, log_file_path, interval=1):
         self.__log_file = open(log_file_path, 'a', encoding=utf8)
         self.__log_lock = threading.Lock()
+        self.log_list: list[str] = []
+        flush_thread = threading.Thread(target=self.auto_flush, args=(interval,))
+        flush_thread.setDaemon(True)
+        flush_thread.start()
+
+    def auto_flush(self, interval):
+        while True:
+            self.flush()
+            time.sleep(interval)
 
     def log(self, msg, color='white', highlight=0, screen=True):
         msg = get_log_msg(msg)
+        writing_msg = '[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg)
         with self.__log_lock:
             if screen:
                 print_color(msg=msg, color=color, highlight=highlight)
-            self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
+            self.log_list.append(writing_msg) # O(1)
+        # self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
 
     def info(self, msg, highlight=0):
         self.log(msg, 'blue', highlight)
@@ -66,12 +78,18 @@ class Logger:
         self.log(msg, 'green', highlight)
 
     def flush(self):
-        with self.__log_lock:
+        if self.log_list:
+            with self.__log_lock:
+                msgs, self.log_list = self.log_list, []
+            self.__log_file.writelines(msgs)
             self.__log_file.flush()
 
     def close(self):
-        with self.__log_lock:
-            self.__log_file.close()
+        if self.log_list:
+            with self.__log_lock:
+                msgs, self.log_list = self.log_list, []
+            self.__log_file.writelines(msgs)
+        self.__log_file.close()
 
 
 def receive_data(connection, size):

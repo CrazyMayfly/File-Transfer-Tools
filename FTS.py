@@ -82,9 +82,6 @@ class FTS:
             except ConnectionResetError as e:
                 self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
                 return
-            finally:
-                # 每执行完一个操作写入日志文件
-                self.logger.flush()
 
     def _makedir(self, dir_name):
         # 处理文件夹
@@ -129,8 +126,10 @@ class FTS:
             self.logger.warning('当前数据未进行加密传输')
         self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
         self.logger.log('当前默认文件存放位置：' + self.base_dir)
-        threading.Thread(target=self._signal_online).start()
-        self.logger.flush()
+        t = threading.Thread(target=self._signal_online)
+        t.setName('SignThread')
+        t.setDaemon(True)
+        t.start()
         if self.__use_ssl:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -195,12 +194,12 @@ class FTS:
                 if msg == 'Hash 比对一致':
                     self.logger.success(
                         f'{new_filename} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，'
-                        f'平均速度 {avg_speed :.2f} MB/s\n', highlight=1)
+                        f'平均速度 {avg_speed :.2f} MB/s', highlight=1)
                     modifyFileTime(new_filename, self.logger, *timestamps)
                 else:
                     self.logger.error(
                         f'{new_filename} 接收失败，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，'
-                        f'平均速度 {avg_speed :.2f} MB/s\n', highlight=1)
+                        f'平均速度 {avg_speed :.2f} MB/s', highlight=1)
 
     def _compare_dir(self, conn: socket.socket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
