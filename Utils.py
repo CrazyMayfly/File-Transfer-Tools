@@ -3,6 +3,7 @@ import os
 import platform
 import re
 import signal
+import socket
 import struct
 import sys
 import tarfile
@@ -105,11 +106,11 @@ class Logger:
         self.__log_file.close()
 
 
-def receive_data(connection, size):
+def receive_data(connection: socket.socket, size: int):
     # 避免粘包
     result = b''
     while size > 0:
-        data = connection.recv(min(size, unit))
+        data: bytes = connection.recv(min(size, unit))
         size -= len(data)
         result += data
     return result
@@ -122,29 +123,29 @@ def send_clipboard(conn, logger: Logger, FTC=True):
     content_length = len(content)
     if content_length == 0:
         if not FTC:
-            filehead = struct.pack(fmt, b'', b'', 0)
-            conn.send(filehead)
+            file_head = struct.pack(fmt, b'', b'', 0)
+            conn.send(file_head)
         return
 
     logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
     # 需要发送的内容较小则一趟发送
     if content_length <= filename_size:
-        filehead = struct.pack(fmt, content, PUSH_CLIPBOARD.encode(), 0)
-        conn.send(filehead)
+        file_head = struct.pack(fmt, content, PUSH_CLIPBOARD.encode(), 0)
+        conn.send(file_head)
     else:
         # 较大则多趟发送
-        filehead = struct.pack(fmt, b'', PUSH_CLIPBOARD.encode(), content_length)
-        conn.send(filehead)
+        file_head = struct.pack(fmt, b'', PUSH_CLIPBOARD.encode(), content_length)
+        conn.send(file_head)
         conn.send(content)
 
 
-def get_clipboard(conn, logger: Logger, filehead=None, FTC=True):
+def get_clipboard(conn, logger: Logger, file_head=None, FTC=True):
     # 获取对方剪切板的内容
     if FTC:
-        filehead = struct.pack(fmt, b'', PULL_CLIPBOARD.encode(), 0)
-        conn.send(filehead)
-        filehead = receive_data(conn, fileinfo_size)
-    content, command, file_size, = struct.unpack(fmt, filehead)
+        file_head = struct.pack(fmt, b'', PULL_CLIPBOARD.encode(), 0)
+        conn.send(file_head)
+        file_head = receive_data(conn, fileinfo_size)
+    content, command, file_size, = struct.unpack(fmt, file_head)
     if command.decode() != PUSH_CLIPBOARD:
         logger.warning('对方剪切板为空')
         return
@@ -353,8 +354,6 @@ str_len_size: Final[int] = struct.calcsize(str_len_fmt)
 file_details_size: Final[int] = struct.calcsize(file_details_fmt)
 unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
-
-
 
 
 # 配置文件相关

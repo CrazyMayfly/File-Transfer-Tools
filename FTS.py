@@ -55,8 +55,8 @@ class FTS:
         self.logger.info(f'客户端连接 {addr[0]}:{addr[1]}')
         while True:
             try:
-                filehead = receive_data(conn, fileinfo_size)
-                filename, command, file_size = struct.unpack(fmt, filehead)
+                file_head = receive_data(conn, fileinfo_size)
+                filename, command, file_size = struct.unpack(fmt, file_head)
                 filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
                 if command == CLOSE:
@@ -78,7 +78,7 @@ class FTS:
                 elif command == PULL_CLIPBOARD:
                     send_clipboard(conn, self.logger, FTC=False)
                 elif command == PUSH_CLIPBOARD:
-                    get_clipboard(conn, self.logger, filehead=filehead, FTC=False)
+                    get_clipboard(conn, self.logger, file_head=file_head, FTC=False)
             except ConnectionResetError as e:
                 self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
                 return
@@ -272,8 +272,8 @@ class FTS:
         peer_host, peer_port = conn.getpeername()
         conn.settimeout(2)
         try:
-            filehead = receive_data(conn, fileinfo_size)
-            password, command, _ = struct.unpack(fmt, filehead)
+            file_head = receive_data(conn, fileinfo_size)
+            password, command, _ = struct.unpack(fmt, file_head)
         except (socket.timeout, struct.error) as exception:
             conn.close()
             if isinstance(exception, socket.timeout):
@@ -290,8 +290,8 @@ class FTS:
             return True
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
-        filehead = struct.pack(fmt, msg.encode(), BEFORE_WORKING.encode(), 0)
-        conn.sendall(filehead)
+        file_head = struct.pack(fmt, msg.encode(), BEFORE_WORKING.encode(), 0)
+        conn.sendall(file_head)
         if password != self.__password:
             conn.close()
             self.logger.warning(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接')

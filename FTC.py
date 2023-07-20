@@ -299,11 +299,11 @@ class FTC:
                         times = input("请重新输入数据量（单位MB）：")
                     self._speedtest(times=int(times))
                 elif command.startswith(COMPARE):
-                    local_dir, dest_dir = split_dir(command)
-                    if not dest_dir or not local_dir:
+                    local_dir, destination_dir = split_dir(command)
+                    if not destination_dir or not local_dir:
                         self.logger.warning('本地文件夹且远程文件夹不能为空')
                         continue
-                    self._compare_dir(local_dir, dest_dir)
+                    self._compare_dir(local_dir, destination_dir)
                 elif command.startswith(CLIP + ' '):
                     self.__exchange_clipboard(command.split()[1])
                 elif command.startswith(HISTORY):
@@ -379,11 +379,11 @@ class FTC:
         self.logger.success("发送成功") if filepath == self._send_file(filepath) \
             else self.logger.error("发送失败")
 
-    def _compare_dir(self, local_dir, dest_dir):
+    def _compare_dir(self, local_dir, peer_dir):
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
             return
-        file_head = struct.pack(fmt, dest_dir.encode(utf8), COMPARE_DIR.encode(), 0)
+        file_head = struct.pack(fmt, peer_dir.encode(utf8), COMPARE_DIR.encode(), 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             is_dir_correct = receive_data(conn, len(DIRISCORRECT))
@@ -391,35 +391,35 @@ class FTC:
             if is_dir_correct:
                 local_dict = get_relative_filename_from_basedir(local_dir)
                 # 获取本地的文件名
-                local_filename = local_dict.keys()
+                local_filenames = local_dict.keys()
                 # 获取本次字符串大小
                 data_size = receive_data(conn, str_len_size)
                 data_size = struct.unpack(str_len_fmt, data_size)[0]
                 # 接收字符串
                 data = receive_data(conn, data_size).decode()
                 # 将字符串转化为dict
-                dest_dict = json.loads(data)
-                dest_filename = dest_dict.keys()
+                peer_dict = json.loads(data)
+                peer_filenames = peer_dict.keys()
 
                 # 求各种集合
-                file_in_local_smaller_than_dest = []
-                file_in_dest_smaller_than_local = []
+                file_in_local_smaller_than_peer = []
+                file_in_peer_smaller_than_local = []
                 file_size_and_name_both_equal = []
-                for filename in local_filename:
-                    size_diff = local_dict[filename] - dest_dict[filename]
+                for filename in local_filenames:
+                    size_diff = local_dict[filename] - peer_dict[filename]
                     if size_diff < 0:
-                        file_in_local_smaller_than_dest.append(filename)
+                        file_in_local_smaller_than_peer.append(filename)
                     elif size_diff == 0:
                         file_size_and_name_both_equal.append(filename)
                     else:
-                        file_in_dest_smaller_than_local.append(filename)
+                        file_in_peer_smaller_than_local.append(filename)
 
-                file_not_exits_in_local = [filename for filename in dest_filename if filename not in local_filename]
-                file_not_exits_in_dest = [filename for filename in local_filename if filename not in dest_dict]
-                for arg in [("file exits in dest but not exits in local: ", file_not_exits_in_local),
-                            ("file exits in local but not exits in dest: ", file_not_exits_in_dest),
-                            ("file in local smaller than dest: ", file_in_local_smaller_than_dest),
-                            ("file in dest smaller than local: ", file_in_dest_smaller_than_local),
+                file_not_exits_in_local = [filename for filename in peer_filenames if filename not in local_filenames]
+                file_not_exits_in_peer = [filename for filename in local_filenames if filename not in peer_dict]
+                for arg in [("file exits in peer but not exits in local: ", file_not_exits_in_local),
+                            ("file exits in local but not exits in peer: ", file_not_exits_in_peer),
+                            ("file in local smaller than peer: ", file_in_local_smaller_than_peer),
+                            ("file in peer smaller than local: ", file_in_peer_smaller_than_local),
                             ("file name and size both equal in two sides: ", file_size_and_name_both_equal)]:
                     print_filename_if_exits(*arg)
 
@@ -441,16 +441,16 @@ class FTC:
                         # 接收字符串
                         data = receive_data(conn, data_size).decode()
                         # 将字符串转化为dict
-                        dest_dict = json.loads(data)
+                        peer_dict = json.loads(data)
                         hash_not_matching = [filename for filename in results.keys() if
-                                             results[filename] != dest_dict[filename]]
+                                             results[filename] != peer_dict[filename]]
                         print_filename_if_exits("hash not matching: ", hash_not_matching)
                     else:
                         conn.sendall(CANCEL.encode())
                 else:
                     conn.sendall(CANCEL.encode())
             else:
-                self.logger.warning(f"目标文件夹 {dest_dir} 不存在")
+                self.logger.warning(f"目标文件夹 {peer_dir} 不存在")
 
     def _execute_command(self, command):
         command = command.strip()
@@ -486,8 +486,8 @@ class FTC:
             # 接收对方的系统信息
             data_length = struct.unpack(str_len_fmt, receive_data(conn, str_len_size))[0]
             data = receive_data(conn, data_length).decode()
-        dest_sysinfo = json.loads(data)
-        print_sysinfo(dest_sysinfo)
+        peer_sysinfo = json.loads(data)
+        print_sysinfo(peer_sysinfo)
         # 等待本机系统信息获取完成
         t.join()
         local_sysinfo = t.get_result()
