@@ -43,11 +43,14 @@ class Configration:
 
 
 class LEVEL(Enum):
-    LOG: Final[str] = 'LOG'
-    INFO: Final[str] = 'INFO'
-    WARNING: Final[str] = 'WARNING'
-    SUCCESS: Final[str] = 'SUCCESS'
-    ERROR: Final[str] = 'ERROR'
+    """
+    日志打印等级的枚举类，值为等级对应的颜色代码
+    """
+    LOG = ''
+    INFO = ';34'
+    WARNING = ';33'
+    SUCCESS = ';32'
+    ERROR = ';31'
 
 
 # 日志类，简化日志打印
@@ -68,7 +71,7 @@ class Logger:
 
     def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0, screen=True):
         msg = get_log_msg(msg)
-        writing_msg = '[{}] {}\n'.format(level.value.ljust(7), msg)
+        writing_msg = '[{}] {}\n'.format(level.name.ljust(7), msg)
         if screen:
             with self.__log_lock:
                 print_color(msg=msg, level=level, highlight=highlight)
@@ -170,7 +173,7 @@ def calcu_size(bytes, factor=1024):
 
 
 def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
-    print("\033[{}{}m{}\033[0m".format(highlight, level_color_dict[level], msg))
+    print("\033[{}{}m{}\033[0m".format(highlight, level.value, msg))
 
 
 def get_log_msg(msg):
@@ -351,13 +354,7 @@ file_details_size: Final[int] = struct.calcsize(file_details_fmt)
 unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
 
-level_color_dict: Final[dict] = {
-    LEVEL.LOG: '',
-    LEVEL.INFO: ';34',
-    LEVEL.WARNING: ';33',
-    LEVEL.SUCCESS: ';32',
-    LEVEL.ERROR: ';31'
-}
+
 
 
 # 配置文件相关
