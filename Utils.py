@@ -356,6 +356,26 @@ unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
 
 
+class ConfigOption(Enum):
+    """
+    配置文件的Option的枚举类
+    name为配置项名称，value为配置的默认值
+    """
+    windows_default_path = '~/Desktop'
+    linux_default_path = '~/FileTransferTool/FileRecv'
+    cert_dir = './cert'
+    windows_log_dir = 'C:/ProgramData/logs'
+    linux_log_dir = '~/FileTransferTool/logs'
+    log_file_archive_count = '10'
+    log_file_archive_size = '52428800'
+    server_port = '2023'
+    client_signal_port = '2022'
+    server_signal_port = '2021'
+
+    def optionAndValue(self):
+        return self.name, self.value
+
+
 # 配置文件相关
 class Config:
     config_file: Final[str] = 'config.txt'
@@ -364,35 +384,24 @@ class Config:
     section_Log: Final[str] = 'Log'
     section_Port: Final[str] = 'Port'
 
-    option_windows_default_path: Final[str] = 'windows_default_path'
-    option_linux_default_path: Final[str] = 'linux_default_path'
-    option_cert_dir: Final[str] = 'cert_dir'
-    option_windows_log_dir: Final[str] = 'windows_log_dir'
-    option_linux_log_dir: Final[str] = 'linux_log_dir'
-    option_log_file_archive_count: Final[str] = 'log_file_archive_count'
-    option_log_file_archive_size: Final[str] = 'log_file_archive_size'
-    option_server_port: Final[str] = 'server_port'
-    option_server_signal_port: Final[str] = 'server_signal_port'
-    option_client_signal_port: Final[str] = 'client_signal_port'
-
     @staticmethod
     def generate_config():
         config = ConfigParser()
         config.add_section(Config.section_Main)
         if platform_ == WINDOWS:
-            config.set(Config.section_Main, Config.option_windows_default_path, '~/Desktop')
+            config.set(Config.section_Main, *ConfigOption.windows_default_path.optionAndValue())
         elif platform_ == LINUX:
-            config.set(Config.section_Main, Config.option_linux_default_path, '~/FileTransferTool/FileRecv')
-        config.set(Config.section_Main, Config.option_cert_dir, './cert')
+            config.set(Config.section_Main, *ConfigOption.linux_default_path.optionAndValue())
+        config.set(Config.section_Main, *ConfigOption.cert_dir.optionAndValue())
         config.add_section(Config.section_Log)
-        config.set(Config.section_Log, Config.option_windows_log_dir, 'C:/ProgramData/logs')
-        config.set(Config.section_Log, Config.option_linux_log_dir, '~/FileTransferTool/logs')
-        config.set(Config.section_Log, Config.option_log_file_archive_count, '10')
-        config.set(Config.section_Log, Config.option_log_file_archive_size, '52428800')
+        config.set(Config.section_Log, *ConfigOption.windows_log_dir.optionAndValue())
+        config.set(Config.section_Log, *ConfigOption.linux_log_dir.optionAndValue())
+        config.set(Config.section_Log, *ConfigOption.log_file_archive_count.optionAndValue())
+        config.set(Config.section_Log, *ConfigOption.log_file_archive_size.optionAndValue())
         config.add_section(Config.section_Port)
-        config.set(Config.section_Port, Config.option_server_port, '2023')
-        config.set(Config.section_Port, Config.option_server_signal_port, '2021')
-        config.set(Config.section_Port, Config.option_client_signal_port, '2022')
+        config.set(Config.section_Port, *ConfigOption.server_port.optionAndValue())
+        config.set(Config.section_Port, *ConfigOption.server_signal_port.optionAndValue())
+        config.set(Config.section_Port, *ConfigOption.client_signal_port.optionAndValue())
         with open(Config.config_file, 'w', encoding=utf8) as f:
             config.write(f)
 
@@ -402,9 +411,9 @@ class Config:
         config.read(Config.config_file, encoding=utf8)
         try:
             default_path = config.get(Config.section_Main,
-                                      Config.option_windows_default_path) if platform_ == WINDOWS else config.get(
-                Config.section_Main, Config.option_linux_default_path)
-            cert_dir = config.get(Config.section_Main, Config.option_cert_dir)
+                                      ConfigOption.windows_default_path.name) if platform_ == WINDOWS else config.get(
+                Config.section_Main, ConfigOption.linux_default_path.name)
+            cert_dir = config.get(Config.section_Main, ConfigOption.cert_dir.name)
             if not os.path.exists(cert_dir):
                 cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
 
@@ -418,10 +427,10 @@ class Config:
                 sys.exit(-2)
 
             # 默认为Windows平台
-            log_dir = os.path.expanduser(config.get(Config.section_Log, Config.option_windows_log_dir))
+            log_dir = os.path.expanduser(config.get(Config.section_Log, ConfigOption.windows_log_dir.name))
             # Linux 的日志存放位置
             if platform_ == LINUX:
-                log_dir = os.path.expanduser(config.get(Config.section_Log, Config.option_linux_log_dir))
+                log_dir = os.path.expanduser(config.get(Config.section_Log, ConfigOption.linux_log_dir.name))
             if not os.path.exists(log_dir):
                 try:
                     os.makedirs(log_dir)
@@ -429,11 +438,11 @@ class Config:
                     print_color(f'日志文件夹 "{log_dir}" 创建失败 {e}', level=LEVEL.ERROR, highlight=1)
                     sys.exit(-1)
 
-            log_file_archive_count = config.getint(Config.section_Log, Config.option_log_file_archive_count)
-            log_file_archive_size = config.getint(Config.section_Log, Config.option_log_file_archive_size)
-            server_port = config.getint(Config.section_Port, Config.option_server_port)
-            server_signal_port = config.getint(Config.section_Port, Config.option_server_signal_port)
-            client_signal_port = config.getint(Config.section_Port, Config.option_client_signal_port)
+            log_file_archive_count = config.getint(Config.section_Log, ConfigOption.log_file_archive_count.name)
+            log_file_archive_size = config.getint(Config.section_Log, ConfigOption.log_file_archive_size.name)
+            server_port = config.getint(Config.section_Port, ConfigOption.server_port.name)
+            server_signal_port = config.getint(Config.section_Port, ConfigOption.server_signal_port.name)
+            client_signal_port = config.getint(Config.section_Port, ConfigOption.client_signal_port.name)
         except (NoOptionError, NoSectionError) as e:
             print_color(f'{e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
