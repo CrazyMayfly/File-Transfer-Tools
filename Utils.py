@@ -11,6 +11,7 @@ import time
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Optional, TextIO, Final
 
 import pyperclip
@@ -41,12 +42,21 @@ class Configration:
     client_signal_port: int
 
 
+class LEVEL(Enum):
+    LOG: Final[str] = 'LOG'
+    INFO: Final[str] = 'INFO'
+    WARNING: Final[str] = 'WARNING'
+    SUCCESS: Final[str] = 'SUCCESS'
+    ERROR: Final[str] = 'ERROR'
+
+
 # 日志类，简化日志打印
 class Logger:
     def __init__(self, log_file_path, interval=1):
         self.__log_file = open(log_file_path, 'a', encoding=utf8)
         self.__log_lock = threading.Lock()
-        self.log_list: list[str] = []
+        self.__writing_lock = threading.Lock()
+        self.__writing_buffer: list[str] = []
         flush_thread = threading.Thread(target=self.auto_flush, args=(interval,))
         flush_thread.setDaemon(True)
         flush_thread.start()
@@ -56,38 +66,38 @@ class Logger:
             self.flush()
             time.sleep(interval)
 
-    def log(self, msg, color='white', highlight=0, screen=True):
+    def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0, screen=True):
         msg = get_log_msg(msg)
-        writing_msg = '[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg)
-        with self.__log_lock:
-            if screen:
-                print_color(msg=msg, color=color, highlight=highlight)
-            self.log_list.append(writing_msg) # O(1)
-        # self.__log_file.write('[{}] {}\n'.format(color_level_dict.get(color, 'INFO'), msg))
+        writing_msg = '[{}] {}\n'.format(level.value.ljust(7), msg)
+        if screen:
+            with self.__log_lock:
+                print_color(msg=msg, level=level, highlight=highlight)
+        with self.__writing_lock:
+            self.__writing_buffer.append(writing_msg)  # O(1)
 
     def info(self, msg, highlight=0):
-        self.log(msg, 'blue', highlight)
+        self.log(msg, LEVEL.INFO, highlight)
 
     def warning(self, msg, highlight=0):
-        self.log(msg, 'yellow', highlight)
+        self.log(msg, LEVEL.WARNING, highlight)
 
     def error(self, msg, highlight=0):
-        self.log(msg, 'red', highlight)
+        self.log(msg, LEVEL.ERROR, highlight)
 
     def success(self, msg, highlight=0):
-        self.log(msg, 'green', highlight)
+        self.log(msg, LEVEL.SUCCESS, highlight)
 
     def flush(self):
-        if self.log_list:
-            with self.__log_lock:
-                msgs, self.log_list = self.log_list, []
+        if self.__writing_buffer:
+            with self.__writing_lock:
+                msgs, self.__writing_buffer = self.__writing_buffer, []
             self.__log_file.writelines(msgs)
             self.__log_file.flush()
 
     def close(self):
-        if self.log_list:
-            with self.__log_lock:
-                msgs, self.log_list = self.log_list, []
+        if self.__writing_buffer:
+            with self.__writing_lock:
+                msgs, self.__writing_buffer = self.__writing_buffer, []
             self.__log_file.writelines(msgs)
         self.__log_file.close()
 
@@ -159,8 +169,8 @@ def calcu_size(bytes, factor=1024):
         bytes /= factor
 
 
-def print_color(msg, color='white', highlight=0):
-    print("\033[{}{}m{}\033[0m".format(highlight, color_dict[color], msg))
+def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
+    print("\033[{}{}m{}\033[0m".format(highlight, level_color_dict[level], msg))
 
 
 def get_log_msg(msg):
@@ -298,75 +308,6 @@ def compress_log_files(base_dir, log_type, logger: Logger):
         return
 
 
-def generate_config():
-    config = ConfigParser()
-    config.add_section(section_Main)
-    if platform_ == WINDOWS:
-        config.set(section_Main, option_windows_default_path, '~/Desktop')
-    elif platform_ == LINUX:
-        config.set(section_Main, option_linux_default_path, '~/FileTransferTool/FileRecv')
-    config.set(section_Main, option_cert_dir, './cert')
-    config.add_section(section_Log)
-    config.set(section_Log, option_windows_log_dir, 'C:/ProgramData/logs')
-    config.set(section_Log, option_linux_log_dir, '~/FileTransferTool/logs')
-    config.set(section_Log, option_log_file_archive_count, '10')
-    config.set(section_Log, option_log_file_archive_size, '52428800')
-    config.add_section(section_Port)
-    config.set(section_Port, option_server_port, '2023')
-    config.set(section_Port, option_server_signal_port, '2021')
-    config.set(section_Port, option_client_signal_port, '2022')
-    with open(config_file, 'w', encoding=utf8) as f:
-        config.write(f)
-
-
-def load_config():
-    config = ConfigParser()
-    config.read(config_file, encoding=utf8)
-    try:
-        default_path = config.get(section_Main, option_windows_default_path) if platform_ == WINDOWS else config.get(
-            section_Main, option_linux_default_path)
-        cert_dir = config.get(section_Main, option_cert_dir)
-        if not os.path.exists(cert_dir):
-            cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
-
-        if not os.path.exists(cert_dir):
-            print_color(
-                '未找到证书文件，默认位置为"./cert"文件夹中。\n'
-                'The certificate file was not found, the default location is in the "./cert" folder.\n',
-                color='red', highlight=1)
-            if packaging:
-                os.system('pause')
-            sys.exit(-2)
-
-        # 默认为Windows平台
-        log_dir = os.path.expanduser(config.get(section_Log, option_windows_log_dir))
-        # Linux 的日志存放位置
-        if platform_ == LINUX:
-            log_dir = os.path.expanduser(config.get(section_Log, option_linux_log_dir))
-        if not os.path.exists(log_dir):
-            try:
-                os.makedirs(log_dir)
-            except Exception as e:
-                print_color(f'日志文件夹 "{log_dir}" 创建失败 {e}', color='red', highlight=1)
-                sys.exit(-1)
-
-        log_file_archive_count = config.getint(section_Log, option_log_file_archive_count)
-        log_file_archive_size = config.getint(section_Log, option_log_file_archive_size)
-        server_port = config.getint(section_Port, option_server_port)
-        server_signal_port = config.getint(section_Port, option_server_signal_port)
-        client_signal_port = config.getint(section_Port, option_client_signal_port)
-    except (NoOptionError, NoSectionError) as e:
-        print_color(f'{e}', color='red', highlight=1)
-        sys.exit(-1)
-    except ValueError as e:
-        print_color(f'配置错误 {e}', color='red', highlight=1)
-        sys.exit(-1)
-    return Configration(default_path=default_path, cert_dir=cert_dir, log_dir=log_dir,
-                        log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,
-                        server_port=server_port, server_signal_port=server_signal_port,
-                        client_signal_port=client_signal_port)
-
-
 # 打包控制变量，用于将程序打包为exe后防止直接退出控制台
 # Packaging control variable,
 # used to prevent the console from exiting directly after the program is packaged as exe
@@ -410,46 +351,114 @@ file_details_size: Final[int] = struct.calcsize(file_details_fmt)
 unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
 
-color_dict: Final[dict] = {
-    'black': ';30',
-    'red': ';31',
-    'green': ';32',
-    'yellow': ';33',
-    'blue': ';34',
-    'white': ''
+level_color_dict: Final[dict] = {
+    LEVEL.LOG: '',
+    LEVEL.INFO: ';34',
+    LEVEL.WARNING: ';33',
+    LEVEL.SUCCESS: ';32',
+    LEVEL.ERROR: ';31'
 }
 
-color_level_dict: Final[dict] = {
-    'yellow': 'WARNING',
-    'red': 'ERROR'
-}
+
 # 配置文件相关
-config_file: Final[str] = 'config.txt'
+class Config:
+    config_file: Final[str] = 'config.txt'
 
-section_Main: Final[str] = 'Main'
-section_Log: Final[str] = 'Log'
-section_Port: Final[str] = 'Port'
+    section_Main: Final[str] = 'Main'
+    section_Log: Final[str] = 'Log'
+    section_Port: Final[str] = 'Port'
 
-option_windows_default_path: Final[str] = 'windows_default_path'
-option_linux_default_path: Final[str] = 'linux_default_path'
-option_cert_dir: Final[str] = 'cert_dir'
-option_windows_log_dir: Final[str] = 'windows_log_dir'
-option_linux_log_dir: Final[str] = 'linux_log_dir'
-option_log_file_archive_count: Final[str] = 'log_file_archive_count'
-option_log_file_archive_size: Final[str] = 'log_file_archive_size'
-option_server_port: Final[str] = 'server_port'
-option_server_signal_port: Final[str] = 'server_signal_port'
-option_client_signal_port: Final[str] = 'client_signal_port'
+    option_windows_default_path: Final[str] = 'windows_default_path'
+    option_linux_default_path: Final[str] = 'linux_default_path'
+    option_cert_dir: Final[str] = 'cert_dir'
+    option_windows_log_dir: Final[str] = 'windows_log_dir'
+    option_linux_log_dir: Final[str] = 'linux_log_dir'
+    option_log_file_archive_count: Final[str] = 'log_file_archive_count'
+    option_log_file_archive_size: Final[str] = 'log_file_archive_size'
+    option_server_port: Final[str] = 'server_port'
+    option_server_signal_port: Final[str] = 'server_signal_port'
+    option_client_signal_port: Final[str] = 'client_signal_port'
 
-if not os.path.exists(config_file):
+    @staticmethod
+    def generate_config():
+        config = ConfigParser()
+        config.add_section(Config.section_Main)
+        if platform_ == WINDOWS:
+            config.set(Config.section_Main, Config.option_windows_default_path, '~/Desktop')
+        elif platform_ == LINUX:
+            config.set(Config.section_Main, Config.option_linux_default_path, '~/FileTransferTool/FileRecv')
+        config.set(Config.section_Main, Config.option_cert_dir, './cert')
+        config.add_section(Config.section_Log)
+        config.set(Config.section_Log, Config.option_windows_log_dir, 'C:/ProgramData/logs')
+        config.set(Config.section_Log, Config.option_linux_log_dir, '~/FileTransferTool/logs')
+        config.set(Config.section_Log, Config.option_log_file_archive_count, '10')
+        config.set(Config.section_Log, Config.option_log_file_archive_size, '52428800')
+        config.add_section(Config.section_Port)
+        config.set(Config.section_Port, Config.option_server_port, '2023')
+        config.set(Config.section_Port, Config.option_server_signal_port, '2021')
+        config.set(Config.section_Port, Config.option_client_signal_port, '2022')
+        with open(Config.config_file, 'w', encoding=utf8) as f:
+            config.write(f)
+
+    @staticmethod
+    def load_config():
+        config = ConfigParser()
+        config.read(Config.config_file, encoding=utf8)
+        try:
+            default_path = config.get(Config.section_Main,
+                                      Config.option_windows_default_path) if platform_ == WINDOWS else config.get(
+                Config.section_Main, Config.option_linux_default_path)
+            cert_dir = config.get(Config.section_Main, Config.option_cert_dir)
+            if not os.path.exists(cert_dir):
+                cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
+
+            if not os.path.exists(cert_dir):
+                print_color(
+                    '未找到证书文件，默认位置为"./cert"文件夹中。\n'
+                    'The certificate file was not found, the default location is in the "./cert" folder.\n',
+                    level=LEVEL.ERROR, highlight=1)
+                if packaging:
+                    os.system('pause')
+                sys.exit(-2)
+
+            # 默认为Windows平台
+            log_dir = os.path.expanduser(config.get(Config.section_Log, Config.option_windows_log_dir))
+            # Linux 的日志存放位置
+            if platform_ == LINUX:
+                log_dir = os.path.expanduser(config.get(Config.section_Log, Config.option_linux_log_dir))
+            if not os.path.exists(log_dir):
+                try:
+                    os.makedirs(log_dir)
+                except Exception as e:
+                    print_color(f'日志文件夹 "{log_dir}" 创建失败 {e}', level=LEVEL.ERROR, highlight=1)
+                    sys.exit(-1)
+
+            log_file_archive_count = config.getint(Config.section_Log, Config.option_log_file_archive_count)
+            log_file_archive_size = config.getint(Config.section_Log, Config.option_log_file_archive_size)
+            server_port = config.getint(Config.section_Port, Config.option_server_port)
+            server_signal_port = config.getint(Config.section_Port, Config.option_server_signal_port)
+            client_signal_port = config.getint(Config.section_Port, Config.option_client_signal_port)
+        except (NoOptionError, NoSectionError) as e:
+            print_color(f'{e}', level=LEVEL.ERROR, highlight=1)
+            sys.exit(-1)
+        except ValueError as e:
+            print_color(f'配置错误 {e}', level=LEVEL.ERROR, highlight=1)
+            sys.exit(-1)
+        return Configration(default_path=default_path, cert_dir=cert_dir, log_dir=log_dir,
+                            log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,
+                            server_port=server_port, server_signal_port=server_signal_port,
+                            client_signal_port=client_signal_port)
+
+
+if not os.path.exists(Config.config_file):
     print_color(
         '未找到配置文件，采用默认配置\nThe configuration file was not found, using the default configuration.\n',
-        color='yellow', highlight=1)
+        level=LEVEL.WARNING, highlight=1)
     # 生成配置文件
-    generate_config()
+    Config.generate_config()
 
 # 加载配置
-config: Final[Configration] = load_config()
+config: Final[Configration] = Config.load_config()
 
 if __name__ == '__main__':
     print(get_relative_filename_from_basedir(input('>>> ')))

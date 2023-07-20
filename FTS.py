@@ -319,10 +319,10 @@ if __name__ == '__main__':
     if not os.path.exists(base_dir):
         try:
             os.makedirs(base_dir)
-        except OSError as e:
-            print_color(f'无法创建 {base_dir}, {e}', color='red', highlight=1)
+        except OSError as error:
+            print_color(f'无法创建 {base_dir}, {error}', level=LEVEL.ERROR, highlight=1)
             sys.exit(1)
-        print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), color='blue')
+        print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), level=LEVEL.INFO)
 
     fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, avoid=args.avoid, password=args.password)
     handle_ctrl_event()
