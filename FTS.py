@@ -2,10 +2,7 @@ import argparse
 import json
 import os.path
 import pathlib
-import socket
 import ssl
-
-from FileTimeModifyTool import modifyFileTime
 from Utils import *
 from sys_info import *
 
