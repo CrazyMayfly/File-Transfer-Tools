@@ -336,7 +336,7 @@ class FTC:
             real_path = os.path.join(self.__base_dir, filename)
             file_size = os.stat(real_path).st_size
             sz1, sz2 = calcu_size(file_size)
-            self.logger.log(f"{real_path}, 约{sz1}, {sz2}\n", screen=False)
+            self.logger.log(f"{real_path}, 约{sz1}, {sz2}", screen=False)
             total_size += file_size
         # 初始化总进度条
         with self.__process_lock:
