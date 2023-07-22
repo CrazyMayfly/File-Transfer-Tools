@@ -228,8 +228,7 @@ class FTC:
         real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
-        file_head = struct.pack(fmt, filepath.encode(utf8),
-                                SEND_FILE.encode(), file_size)
+        file_head = struct.pack(fmt, filepath.encode(utf8), SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.sendall(file_head)
@@ -254,7 +253,6 @@ class FTC:
                     file_size = file_size - size
                 conn.sendall(struct.pack('Q', Control.CONTINUE.value))
                 conn.sendall(struct.pack(file_details_fmt, *get_file_time_details(real_path)))
-                md5 = hashlib.md5()
                 big_file = file_size > 1024 * 1024
                 if big_file:  # 小文件不画进度条
                     with self.__process_lock:
@@ -265,7 +263,6 @@ class FTC:
                 data = fp.read(unit)
                 while data:
                     conn.sendall(data)
-                    md5.update(data)
                     if big_file:
                         pbar.update(len(data))
                     if self.__pbar:
@@ -277,9 +274,6 @@ class FTC:
                 if big_file:
                     pbar.close()
                 fp.close()
-                conn.sendall(md5.digest())
-                filepath = receive_data(conn, filename_size)
-                filepath = filepath.decode(utf8).strip('\00')
         return filepath
 
     def main(self):

@@ -79,13 +79,12 @@ class FTS:
     def _makedir(self, dir_name):
         # 处理文件夹
         cur_dir = os.path.join(self.base_dir, dir_name)
-        rel_dir_name = '...' + os.path.sep + dir_name
         try:
             if not os.path.exists(cur_dir):
                 os.makedirs(cur_dir)
-                self.logger.info('创建文件夹 {0}'.format(rel_dir_name))
+                self.logger.info('创建文件夹 {0}'.format(dir_name))
         except FileNotFoundError:
-            self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(rel_dir_name), highlight=1)
+            self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
 
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
@@ -176,44 +175,27 @@ class FTS:
             if command == Control.TOOLONG:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
             else:
-                relpath = '...' + os.path.sep + os.path.relpath(original_file, self.base_dir)
+                relpath = os.path.relpath(original_file, self.base_dir)
                 if size == 0:
                     self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(relpath, *calcu_size(file_size)))
                 else:
                     self.logger.info('断点续传文件 {0}， 还需接收的大小约 {1}，{2}'.format(relpath,
                                                                                          *calcu_size(file_size - size)))
                 timestamps = struct.unpack(file_details_fmt, receive_data(conn, file_details_size))
-                md5 = hashlib.md5()
                 begin = time.time()
                 rest_size = file_size - size
                 while rest_size > 0:
                     recv_window = min(unit, rest_size)
                     data = conn.recv(recv_window)
                     rest_size -= len(data)
-                    md5.update(data)
                     fp.write(data)
                 fp.close()
-                recv_digest = receive_data(conn, 16)
-                digest = md5.digest()
-                if recv_digest == digest:
-                    msg = 'Hash 比对一致'
-                    filename_confirm = struct.pack(filename_fmt, filename.encode(utf8))
-                else:
-                    msg = 'Hash 比对失败'
-                    filename_confirm = struct.pack(filename_fmt, "fail to receive".encode(utf8))
-                conn.sendall(filename_confirm)
                 time_cost = time.time() - begin
                 avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
-                if msg == 'Hash 比对一致':
-                    self.logger.success(
-                        f'{relpath} 接收成功，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，'
-                        f'平均速度 {avg_speed :.2f} MB/s', highlight=1)
-                    os.rename(cur_download_file, original_file)
-                    modifyFileTime(original_file, self.logger, *timestamps)
-                else:
-                    self.logger.error(
-                        f'{relpath} 接收失败，MD5：{digest.hex()}，{msg}，耗时：{time_cost:.2f} s，'
-                        f'平均速度 {avg_speed :.2f} MB/s', highlight=1)
+                self.logger.success(
+                    f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
+                os.rename(cur_download_file, original_file)
+                modifyFileTime(original_file, self.logger, *timestamps)
 
     def _compare_dir(self, conn: socket.socket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
