@@ -1,5 +1,6 @@
 import argparse
 import json
+import os.path
 import random
 import ssl
 from multiprocessing.pool import ThreadPool
@@ -7,6 +8,7 @@ from secrets import token_bytes
 
 import readline
 from tqdm import tqdm
+
 from Utils import *
 from sys_info import *
 
@@ -52,9 +54,9 @@ class FTC:
         self.__process_lock = threading.Lock()
         self.__position = 0
         self.__first_connect = True
-        log_file = os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log')
+        log_file = os.path.normcase(os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log'))
         self.logger = Logger(log_file)
-        self.logger.log('本次日志文件存放位置为: ' + log_file.replace('/', os.path.sep))
+        self.logger.log('本次日志文件存放位置为: ' + log_file)
         # 进行日志归档
         threading.Thread(target=compress_log_files, args=(config.log_dir, 'client', self.logger)).start()
         self.__thread_pool = None
@@ -223,7 +225,7 @@ class FTC:
             conn.sendall(file_head)
 
     def _send_file(self, filepath):
-        real_path = os.path.join(self.__base_dir, filepath)
+        real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
         file_head = struct.pack(fmt, filepath.encode(utf8),
@@ -231,14 +233,26 @@ class FTC:
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.sendall(file_head)
-            command = receive_data(conn, 8).decode(utf8)
-            if command == CONTINUE:
+            flag = struct.unpack('Q', receive_data(conn, 8))[0]
+            if flag == Control.CANCEL:
+                if self.__pbar:
+                    with self.__process_lock:
+                        self.__pbar.update(file_size)
+            elif flag == Control.TOOLONG:
+                self.logger.error(f'对方因文件路径太长无法接收文件', highlight=1)
+                return
+            else:
                 fp = openfile_with_retires(real_path, 'rb')
                 if not fp:
                     self.logger.error(f'文件路径太长，无法接收: {real_path}', highlight=1)
-                    conn.sendall(TOOLONG.encode(utf8))
+                    conn.sendall(struct.pack('Q', Control.TOOLONG.value))
                     return
-                conn.sendall(CONTINUE.encode(utf8))
+                size = flag
+                if size > 4:
+                    size -= 4
+                    fp.seek(size, 0)
+                    file_size = file_size - size
+                conn.sendall(struct.pack('Q', Control.CONTINUE.value))
                 conn.sendall(struct.pack(file_details_fmt, *get_file_time_details(real_path)))
                 md5 = hashlib.md5()
                 big_file = file_size > 1024 * 1024
@@ -246,8 +260,8 @@ class FTC:
                     with self.__process_lock:
                         position = self.__position
                         self.__position += 1
-                    pbar = tqdm(total=file_size, desc=filepath, unit='bytes', unit_scale=True, mininterval=1,
-                                position=position)
+                    pbar = tqdm(total=file_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
+                                mininterval=1, position=position)
                 data = fp.read(unit)
                 while data:
                     conn.sendall(data)
@@ -258,19 +272,14 @@ class FTC:
                         with self.__process_lock:
                             self.__pbar.update(len(data))
                     data = fp.read(unit)
+                with self.__process_lock:
+                    self.__pbar.update(size)
                 if big_file:
                     pbar.close()
                 fp.close()
                 conn.sendall(md5.digest())
                 filepath = receive_data(conn, filename_size)
                 filepath = filepath.decode(utf8).strip('\00')
-            elif command == CANCEL:
-                if self.__pbar:
-                    with self.__process_lock:
-                        self.__pbar.update(file_size)
-            elif command == TOOLONG:
-                self.logger.error(f'对方因文件路径太长无法接收文件', highlight=1)
-                return
         return filepath
 
     def main(self):
@@ -424,7 +433,7 @@ class FTC:
                     is_continue = input("Continue to compare hash for filename and size both equal set?(y/n): ") == 'y'
                     if is_continue:
                         # 发送继续请求
-                        conn.sendall(CONTINUE.encode())
+                        conn.sendall(struct.pack('Q', Control.CONTINUE.value))
                         # 发送相同的文件名称大小
                         data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
                         conn.sendall(struct.pack(str_len_fmt, len(data_to_send)))
@@ -443,9 +452,9 @@ class FTC:
                                              results[filename] != peer_dict[filename]]
                         print_filename_if_exits("hash not matching: ", hash_not_matching)
                     else:
-                        conn.sendall(CANCEL.encode())
+                        conn.sendall(struct.pack('Q', Control.CANCEL.value))
                 else:
-                    conn.sendall(CANCEL.encode())
+                    conn.sendall(struct.pack('Q', Control.CANCEL.value))
             else:
                 self.logger.warning(f"目标文件夹 {peer_dir} 不存在")
 

@@ -13,7 +13,7 @@ import time
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import Enum, IntFlag
 from typing import Optional, TextIO, Final
 
 import pyperclip
@@ -242,7 +242,7 @@ def get_relative_filename_from_basedir(base_dir):
     for path, dir_list, file_list in os.walk(base_dir):
         for file in file_list:
             # 将文件路径风格统一至Linux
-            real_path = os.path.join(path, file).replace(os.path.sep, '/')
+            real_path = os.path.normcase(os.path.join(path, file)).replace(os.path.sep, '/')
             results.update({real_path[basedir_length:]: os.stat(real_path).st_size})
     return results
 
@@ -259,11 +259,11 @@ def get_dir_file_name(filepath):
     back_dir = os.path.dirname(filepath)
     for path, dir_list, file_list in os.walk(filepath):
         # 获取相对路径
-        path = os.path.relpath(path, back_dir)
+        path = os.path.normcase(os.path.relpath(path, back_dir))
         all_dir_name.add(path)
         # 去除重复的路径，防止多次创建，降低效率
         all_dir_name.discard(os.path.dirname(path))
-        all_file_name += [os.path.join(path, file) for file in file_list]
+        all_file_name += [os.path.normcase(os.path.join(path, file)) for file in file_list]
     return all_dir_name, all_file_name
 
 
@@ -365,6 +365,30 @@ def compress_log_files(base_dir, log_type, logger: Logger):
         return
 
 
+def shorten_path(path: str, max_width):
+    def shorten_string(string: str, width):
+        if width <= 0:
+            return '...'
+        if len(string) - width <= 0:
+            return string
+        margin = int(width / 2)
+        return '...' if margin == 0 else string[0:margin] + '..' + string[-margin:]
+
+    if len(path) <= max_width:
+        return path
+    path_sep = '...' + os.path.sep
+    parts: list = path.split(os.path.sep)
+    base = parts.pop()
+    if len(base) - 4 >= max_width:
+        return path_sep + shorten_string(base, len(base) - 4)
+    avg_width = int((max_width - len(base)) / len(parts))
+    if avg_width < 2:
+        return shorten_string(os.path.sep.join(parts), max_width - len(base)) + os.path.sep + base
+    shortened_parts = [shorten_string(part, avg_width) for part in parts]
+    shortened_parts.append(base)
+    return os.path.sep.join(shortened_parts)
+
+
 # 打包控制变量，用于将程序打包为exe后防止直接退出控制台
 # Packaging control variable,
 # used to prevent the console from exiting directly after the program is packaged as exe
@@ -391,9 +415,6 @@ PUSH: Final[str] = 'push'
 PULL: Final[str] = 'pull'
 GET: Final[str] = 'get'
 SEND: Final[str] = 'send'
-CONTINUE: Final[str] = 'continue'
-CANCEL: Final[str] = 'cancelTf'
-TOOLONG: Final[str] = 'FTooLong'
 DIRISCORRECT: Final[str] = "DirIsCorrect"
 filename_fmt: Final[str] = '800s'
 utf8: Final[str] = 'utf-8'
@@ -405,8 +426,15 @@ filename_size: Final[int] = struct.calcsize(filename_fmt)
 fileinfo_size: Final[int] = struct.calcsize(fmt)
 str_len_size: Final[int] = struct.calcsize(str_len_fmt)
 file_details_size: Final[int] = struct.calcsize(file_details_fmt)
+pbar_width: Final[int] = 30
 unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
+
+
+class Control(IntFlag):
+    CONTINUE = 0
+    CANCEL = 1
+    TOOLONG = 2
 
 
 class ConfigOption(Enum):
