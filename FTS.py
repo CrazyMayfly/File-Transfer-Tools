@@ -48,8 +48,8 @@ class FTS:
         self.logger.info(f'客户端连接 {addr[0]}:{addr[1]}')
         while True:
             try:
-                file_head = receive_data(conn, fileinfo_size)
-                filename, command, file_size = struct.unpack(fmt, file_head)
+                file_head = receive_data(conn, FMT.head_fmt.size)
+                filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
                 filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
                 if command == CLOSE:
@@ -151,8 +151,8 @@ class FTS:
     def _recv_file(self, conn: socket.socket, filename, file_size):
         file_path = os.path.normcase(os.path.join(self.base_dir, filename))
         if self.__avoid_file_duplicate and os.path.exists(file_path):
-            self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
-            conn.sendall(struct.pack('Q', Control.CANCEL.value))
+            # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
+            conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL))
         else:
             original_file = self.avoid_filename_duplication(file_path)
             cur_download_file = original_file + '.ftsdownload'
@@ -164,14 +164,14 @@ class FTS:
                 fp = openfile_with_retires(cur_download_file, 'wb')
             if not fp:
                 self.logger.error(f'文件路径太长，无法接收: {original_file}', highlight=1)
-                conn.sendall(struct.pack('Q', Control.TOOLONG.value))
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
                 return
             if size == 0:
-                conn.sendall(struct.pack('Q', Control.CONTINUE.value))
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
             else:
                 # 此处+4是为了与控制标志的值分开
-                conn.sendall(struct.pack('Q', size + 4))
-            command = struct.unpack('Q', receive_data(conn, 8))
+                conn.sendall(struct.pack(FMT.size_fmt.value, size + 4))
+            command = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))
             if command == Control.TOOLONG:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
             else:
@@ -181,7 +181,7 @@ class FTS:
                 else:
                     self.logger.info('断点续传文件 {0}， 还需接收的大小约 {1}，{2}'.format(relpath,
                                                                                          *calcu_size(file_size - size)))
-                timestamps = struct.unpack(file_details_fmt, receive_data(conn, file_details_size))
+                timestamps = struct.unpack(FMT.file_details_fmt.value, receive_data(conn, FMT.file_details_fmt.size))
                 begin = time.time()
                 rest_size = file_size - size
                 while rest_size > 0:
@@ -204,21 +204,21 @@ class FTS:
             # 将数组拼接成字符串发送到客户端
             relative_filename = json.dumps(get_relative_filename_from_basedir(dir_name), ensure_ascii=True).encode()
             # 先发送字符串的大小
-            str_len_head = struct.pack(str_len_fmt, len(relative_filename))
+            str_len_head = struct.pack(FMT.size_fmt.value, len(relative_filename))
             conn.sendall(str_len_head)
             # 再发送字符串
             conn.sendall(relative_filename)
             is_continue = receive_data(conn, 8)[0] == Control.CONTINUE
             if is_continue:
                 self.logger.log("继续对比文件Hash")
-                str_len = receive_data(conn, str_len_size)
-                str_len = struct.unpack(str_len_fmt, str_len)[0]
+                str_len = receive_data(conn, FMT.size_fmt.size)
+                str_len = struct.unpack(FMT.size_fmt.value, str_len)[0]
                 file_size_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
                 # 得到文件相对路径名: hash值字典
                 results = {filename: get_file_md5(os.path.join(dir_name, filename)) for filename in
                            file_size_and_name_both_equal}
                 data = json.dumps(results, ensure_ascii=True).encode()
-                conn.sendall(struct.pack(str_len_fmt, len(data)))
+                conn.sendall(struct.pack(FMT.size_fmt.value, len(data)))
                 conn.sendall(data)
                 self.logger.log("Hash 比对结束。")
             else:
@@ -243,7 +243,7 @@ class FTS:
         info = get_sys_info()
         data = json.dumps(info, ensure_ascii=True).encode()
         # 发送数据长度
-        str_len = struct.pack(str_len_fmt, len(data))
+        str_len = struct.pack(FMT.size_fmt.value, len(data))
         conn.sendall(str_len)
         # 发送数据
         conn.sendall(data)
@@ -268,8 +268,8 @@ class FTS:
         peer_host, peer_port = conn.getpeername()
         conn.settimeout(2)
         try:
-            file_head = receive_data(conn, fileinfo_size)
-            password, command, _ = struct.unpack(fmt, file_head)
+            file_head = receive_data(conn, FMT.head_fmt.size)
+            password, command, _ = struct.unpack(FMT.head_fmt.value, file_head)
         except (socket.timeout, struct.error) as exception:
             conn.close()
             if isinstance(exception, socket.timeout):
@@ -286,7 +286,7 @@ class FTS:
             return True
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
-        file_head = struct.pack(fmt, msg.encode(), BEFORE_WORKING.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt.value, msg.encode(), BEFORE_WORKING.encode(), 0)
         conn.sendall(file_head)
         if password != self.__password:
             conn.close()

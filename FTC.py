@@ -147,10 +147,10 @@ class FTC:
             sys.exit(-1)
 
     def validate_password(self, conn):
-        file_head = struct.pack(fmt, self.__password.encode(), BEFORE_WORKING.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt.value, self.__password.encode(), BEFORE_WORKING.encode(), 0)
         conn.sendall(file_head)
-        file_head = receive_data(conn, fileinfo_size)
-        msg = struct.unpack(fmt, file_head)[0]
+        file_head = receive_data(conn, FMT.head_fmt.size)
+        msg = struct.unpack(FMT.head_fmt.value, file_head)[0]
         msg = msg.decode(utf8).strip('\00')
         return msg
 
@@ -208,7 +208,7 @@ class FTC:
         if self.__thread_pool:
             self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
-        close_info = struct.pack(fmt, b'', CLOSE.encode(), 0)
+        close_info = struct.pack(FMT.head_fmt.value, b'', CLOSE.encode(), 0)
         self.logger.info('断开与 {0}:{1} 的连接'.format(self.host, config.server_port))
         try:
             for conn in self.__connections.get_connections():
@@ -220,7 +220,7 @@ class FTC:
             self.logger.close()
 
     def _send_dir(self, dir_name):
-        file_head = struct.pack(fmt, dir_name.encode(utf8), SEND_DIR.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt.value, dir_name.encode(utf8), SEND_DIR.encode(), 0)
         with self.__connections as conn:
             conn.sendall(file_head)
 
@@ -228,11 +228,11 @@ class FTC:
         real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
-        file_head = struct.pack(fmt, filepath.encode(utf8), SEND_FILE.encode(), file_size)
+        file_head = struct.pack(FMT.head_fmt.value, filepath.encode(utf8), SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.sendall(file_head)
-            flag = struct.unpack('Q', receive_data(conn, 8))[0]
+            flag = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == Control.CANCEL:
                 if self.__pbar:
                     with self.__process_lock:
@@ -244,15 +244,15 @@ class FTC:
                 fp = openfile_with_retires(real_path, 'rb')
                 if not fp:
                     self.logger.error(f'文件路径太长，无法接收: {real_path}', highlight=1)
-                    conn.sendall(struct.pack('Q', Control.TOOLONG.value))
+                    conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
                     return
                 size = flag
                 if size > 4:
                     size -= 4
                     fp.seek(size, 0)
                     file_size = file_size - size
-                conn.sendall(struct.pack('Q', Control.CONTINUE.value))
-                conn.sendall(struct.pack(file_details_fmt, *get_file_time_details(real_path)))
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
+                conn.sendall(struct.pack(FMT.file_details_fmt.value, *get_file_time_details(real_path)))
                 big_file = file_size > 1024 * 1024
                 if big_file:  # 小文件不画进度条
                     with self.__process_lock:
@@ -359,8 +359,6 @@ class FTC:
             for result in results:
                 result.wait()
                 success_recv.append(result.get())
-        except Exception as e:
-            print(e)
         finally:
             self.__pbar.close()
             self.__pbar = None
@@ -383,7 +381,7 @@ class FTC:
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
             return
-        file_head = struct.pack(fmt, peer_dir.encode(utf8), COMPARE_DIR.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt.value, peer_dir.encode(utf8), COMPARE_DIR.encode(), 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             is_dir_correct = receive_data(conn, len(DIRISCORRECT))
@@ -393,8 +391,8 @@ class FTC:
                 # 获取本地的文件名
                 local_filenames = local_dict.keys()
                 # 获取本次字符串大小
-                data_size = receive_data(conn, str_len_size)
-                data_size = struct.unpack(str_len_fmt, data_size)[0]
+                data_size = receive_data(conn, FMT.size_fmt.size)
+                data_size = struct.unpack(FMT.size_fmt.value, data_size)[0]
                 # 接收字符串
                 data = receive_data(conn, data_size).decode()
                 # 将字符串转化为dict
@@ -427,17 +425,17 @@ class FTC:
                     is_continue = input("Continue to compare hash for filename and size both equal set?(y/n): ") == 'y'
                     if is_continue:
                         # 发送继续请求
-                        conn.sendall(struct.pack('Q', Control.CONTINUE.value))
+                        conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE.value))
                         # 发送相同的文件名称大小
                         data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
-                        conn.sendall(struct.pack(str_len_fmt, len(data_to_send)))
+                        conn.sendall(struct.pack(FMT.size_fmt.value, len(data_to_send)))
                         # 发送字符串
                         conn.sendall(data_to_send)
                         results = {filename: get_file_md5(os.path.join(local_dir, filename)) for filename in
                                    file_size_and_name_both_equal}
                         # 获取本次字符串大小
-                        data_size = receive_data(conn, str_len_size)
-                        data_size = struct.unpack(str_len_fmt, data_size)[0]
+                        data_size = receive_data(conn, FMT.size_fmt.size)
+                        data_size = struct.unpack(FMT.size_fmt.value, data_size)[0]
                         # 接收字符串
                         data = receive_data(conn, data_size).decode()
                         # 将字符串转化为dict
@@ -446,9 +444,9 @@ class FTC:
                                              results[filename] != peer_dict[filename]]
                         print_filename_if_exits("hash not matching: ", hash_not_matching)
                     else:
-                        conn.sendall(struct.pack('Q', Control.CANCEL.value))
+                        conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL.value))
                 else:
-                    conn.sendall(struct.pack('Q', Control.CANCEL.value))
+                    conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL.value))
             else:
                 self.logger.warning(f"目标文件夹 {peer_dir} 不存在")
 
@@ -461,12 +459,12 @@ class FTC:
             self.logger.warning('请不要将输入端交给服务器！')
             return
         command = command.encode(utf8)
-        if len(command) > filename_size:
+        if len(command) > FMT.filename_fmt.size:
             self.logger.warning("指令过长")
             return
 
         with self.__connections as conn:
-            file_head = struct.pack(fmt, command, COMMAND.encode(), len(command))
+            file_head = struct.pack(FMT.head_fmt.value, command, COMMAND.encode(), len(command))
             conn.sendall(file_head)
             self.logger.log(f'下达指令: {command}\n', screen=False)
             # 接收返回结果
@@ -477,14 +475,14 @@ class FTC:
 
     def _compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
-        file_head = struct.pack(fmt, b'', SYSINFO.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt.value, b'', SYSINFO.encode(), 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             # 异步获取自己的系统信息
             t = MyThread(get_sys_info, args=())
             t.start()
             # 接收对方的系统信息
-            data_length = struct.unpack(str_len_fmt, receive_data(conn, str_len_size))[0]
+            data_length = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             data = receive_data(conn, data_length).decode()
         peer_sysinfo = json.loads(data)
         print_sysinfo(peer_sysinfo)
@@ -496,7 +494,7 @@ class FTC:
     def _speedtest(self, times):
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
-        file_head = struct.pack(fmt, b'', SPEEDTEST.encode(), data_size)
+        file_head = struct.pack(FMT.head_fmt.value, b'', SPEEDTEST.encode(), data_size)
         with self.__connections as conn:
             conn.sendall(file_head)
             with tqdm(total=data_size, desc='speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:

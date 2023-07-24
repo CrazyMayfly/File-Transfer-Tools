@@ -176,18 +176,18 @@ def send_clipboard(conn, logger: Logger, FTC=True):
     content_length = len(content)
     if content_length == 0:
         if not FTC:
-            file_head = struct.pack(fmt, b'', b'', 0)
+            file_head = struct.pack(FMT.head_fmt.value, b'', b'', 0)
             conn.send(file_head)
         return
 
     logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
     # 需要发送的内容较小则一趟发送
-    if content_length <= filename_size:
-        file_head = struct.pack(fmt, content, PUSH_CLIPBOARD.encode(), 0)
+    if content_length <= FMT.filename_fmt.size:
+        file_head = struct.pack(FMT.head_fmt.value, content, PUSH_CLIPBOARD.encode(), 0)
         conn.send(file_head)
     else:
         # 较大则多趟发送
-        file_head = struct.pack(fmt, b'', PUSH_CLIPBOARD.encode(), content_length)
+        file_head = struct.pack(FMT.head_fmt.value, b'', PUSH_CLIPBOARD.encode(), content_length)
         conn.send(file_head)
         conn.send(content)
 
@@ -195,10 +195,10 @@ def send_clipboard(conn, logger: Logger, FTC=True):
 def get_clipboard(conn, logger: Logger, file_head=None, FTC=True):
     # 获取对方剪切板的内容
     if FTC:
-        file_head = struct.pack(fmt, b'', PULL_CLIPBOARD.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt.value, b'', PULL_CLIPBOARD.encode(), 0)
         conn.send(file_head)
-        file_head = receive_data(conn, fileinfo_size)
-    content, command, file_size, = struct.unpack(fmt, file_head)
+        file_head = receive_data(conn, FMT.head_fmt.size)
+    content, command, file_size, = struct.unpack(FMT.head_fmt.value, file_head)
     if command.decode() != PUSH_CLIPBOARD:
         logger.warning('对方剪切板为空')
         return
@@ -416,19 +416,21 @@ PULL: Final[str] = 'pull'
 GET: Final[str] = 'get'
 SEND: Final[str] = 'send'
 DIRISCORRECT: Final[str] = "DirIsCorrect"
-filename_fmt: Final[str] = '800s'
 utf8: Final[str] = 'utf-8'
-# 大端对齐，800位文件（夹）名，11位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
-fmt: Final[str] = f'>{filename_fmt}{len(BEFORE_WORKING)}sQ'
-str_len_fmt: Final[str] = '>Q'
-file_details_fmt: Final[str] = 'ddd'
-filename_size: Final[int] = struct.calcsize(filename_fmt)
-fileinfo_size: Final[int] = struct.calcsize(fmt)
-str_len_size: Final[int] = struct.calcsize(str_len_fmt)
-file_details_size: Final[int] = struct.calcsize(file_details_fmt)
 pbar_width: Final[int] = 30
 unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
+
+
+class FMT(Enum):
+    filename_fmt = '800s'
+    head_fmt = f'>{filename_fmt}14sQ'  # 大端对齐，800位文件（夹）名，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
+    size_fmt = 'Q'
+    file_details_fmt = 'ddd'
+
+    @property
+    def size(self):
+        return struct.calcsize(self.value)
 
 
 class Control(IntFlag):
