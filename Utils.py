@@ -101,9 +101,7 @@ class Logger:
 
     def close(self):
         if self.__writing_buffer:
-            with self.__writing_lock:
-                msgs, self.__writing_buffer = self.__writing_buffer, []
-            self.__log_file.writelines(msgs)
+            self.__log_file.writelines(self.__writing_buffer)
         self.__log_file.close()
 
 
