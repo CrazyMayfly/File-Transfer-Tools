@@ -5,6 +5,7 @@ import random
 import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
+from ssl import SSLContext
 
 import readline
 from tqdm import tqdm
@@ -74,7 +75,8 @@ class FTC:
                 self.__conn_pool_working.update({threading.current_thread().ident: conn})
             return conn
 
-        def get_connections(self):
+        @property
+        def connections(self):
             with self.__lock:
                 connections = self.__conn_pool_ready + list(self.__conn_pool_working.values())
             return connections
@@ -101,38 +103,32 @@ class FTC:
         @param nums: 需要扩充到的连接数
         @return:
         """
-        additional_connections_nums = nums - len(self.__connections.get_connections())
+        additional_connections_nums = nums - len(self.__connections.connections)
         if additional_connections_nums <= 0:
             return
         try:
+            context = None
             if self.__use_ssl:
                 # 生成SSL上下文
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 # 加载信任根证书
                 context.load_verify_locations(os.path.join(config.cert_dir, 'ca.crt'))
-                for i in range(0, additional_connections_nums):
-                    try:
-                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        # 连接至服务器
-                        s.connect((self.host, config.server_port))
-                        # 将socket包装为securitySocket
-                        ss = context.wrap_socket(s, server_hostname='FTS')
-                        # 验证密码
-                        if not self.__first_connect:
-                            self.validate_password(ss)
-                        # ss = context.wrap_socket(s, server_hostname='Server')
-                        self.__connections.add(ss)
-                    except ssl.SSLError as e:
-                        self.logger.error('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), highlight=1)
-                        sys.exit(-1)
-            else:
-                for i in range(0, additional_connections_nums):
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    s.connect((self.host, config.server_port))
+            for i in range(0, additional_connections_nums):
+                try:
+                    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    # 连接至服务器
+                    client_socket.connect((self.host, config.server_port))
+                    # 将socket包装为securitySocket
+                    if self.__use_ssl:
+                        client_socket = context.wrap_socket(client_socket, server_hostname='FTS')
                     # 验证密码
                     if not self.__first_connect:
-                        self.validate_password(s)
-                    self.__connections.add(s)
+                        self.validate_password(client_socket)
+                    # client_socket = context.wrap_socket(s, server_hostname='Server')
+                    self.__connections.add(client_socket)
+                except ssl.SSLError as e:
+                    self.logger.error('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), highlight=1)
+                    sys.exit(-1)
             if self.__first_connect:
                 self.logger.success(f'成功连接至服务器 {self.host}:{config.server_port}')
                 if self.__use_ssl:
@@ -211,7 +207,7 @@ class FTC:
         close_info = struct.pack(FMT.head_fmt.value, b'', CLOSE.encode(), 0)
         self.logger.info('断开与 {0}:{1} 的连接'.format(self.host, config.server_port))
         try:
-            for conn in self.__connections.get_connections():
+            for conn in self.__connections.connections:
                 if send_close_info:
                     conn.sendall(close_info)
                 # time.sleep(random.randint(0, 50) / 100)

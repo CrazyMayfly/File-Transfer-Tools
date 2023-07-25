@@ -8,6 +8,26 @@ from Utils import *
 from sys_info import *
 
 
+def avoid_filename_duplication(filename: str):
+    """
+    当文件重复时另取新的文件名
+
+    @param filename: 原文件名
+    @return: 新文件名
+    """
+    i = 1
+    while os.path.exists(filename):
+        path_split = os.path.splitext(filename)
+        if i == 1:
+            filename = path_split[0] + ' (1)' + path_split[1]
+        else:
+            tmp = list(path_split[0])
+            tmp[-2] = str(i)
+            filename = ''.join(tmp) + path_split[1]
+        i += 1
+    return filename
+
+
 class FTS:
     def __init__(self, base_dir, use_ssl, avoid, password=''):
         self.__password = password
@@ -22,25 +42,6 @@ class FTS:
         self.logger.log(f'本次服务器密码: {password if password else "无"}')
         # 进行日志归档
         threading.Thread(target=compress_log_files, args=(config.log_dir, 'server', self.logger)).start()
-
-    def avoid_filename_duplication(self, filename: str):
-        """
-        当文件重复时另取新的文件名
-
-        @param filename: 原文件名
-        @return: 新文件名
-        """
-        i = 1
-        while os.path.exists(filename):
-            path_split = os.path.splitext(filename)
-            if i == 1:
-                filename = path_split[0] + ' (1)' + path_split[1]
-            else:
-                tmp = list(path_split[0])
-                tmp[-2] = str(i)
-                filename = ''.join(tmp) + path_split[1]
-            i += 1
-        return filename
 
     def _deal_data(self, conn: socket.socket, addr):
         if self._before_working(conn):
@@ -113,10 +114,10 @@ class FTS:
     def main(self):
         host = socket.gethostname()
         self.ip = socket.gethostbyname(host)
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(('0.0.0.0', config.server_port))
-        s.listen(9999)
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind(('0.0.0.0', config.server_port))
+        server_socket.listen(9999)
         if self.__use_ssl:
             self.logger.success('当前数据使用加密传输')
         else:
@@ -133,20 +134,14 @@ class FTS:
             # 加载服务器所用证书和私钥
             context.load_cert_chain(os.path.join(config.cert_dir, 'server.crt'),
                                     os.path.join(config.cert_dir, 'server_rsa_private.pem'))
-            with context.wrap_socket(s, server_side=True) as ss:
-                while True:
-                    try:
-                        conn, addr = ss.accept()
-                        t = threading.Thread(target=self._deal_data, args=(conn, addr))
-                        t.start()
-                    except ssl.SSLError as e:
-                        self.logger.warning(f'SSLError: {e.reason}')
-
-        else:
-            while True:
-                conn, addr = s.accept()
+            server_socket = context.wrap_socket(server_socket, server_side=True)
+        while True:
+            try:
+                conn, addr = server_socket.accept()
                 t = threading.Thread(target=self._deal_data, args=(conn, addr))
                 t.start()
+            except ssl.SSLError as e:
+                self.logger.warning(f'SSLError: {e.reason}')
 
     def _recv_file(self, conn: socket.socket, filename, file_size):
         file_path = os.path.normcase(os.path.join(self.base_dir, filename))
@@ -154,7 +149,7 @@ class FTS:
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
             conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL))
         else:
-            original_file = self.avoid_filename_duplication(file_path)
+            original_file = avoid_filename_duplication(file_path)
             cur_download_file = original_file + '.ftsdownload'
             size = 0
             if os.path.exists(cur_download_file):
@@ -179,8 +174,8 @@ class FTS:
                 if size == 0:
                     self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(relpath, *calcu_size(file_size)))
                 else:
-                    self.logger.info('断点续传文件 {0}， 还需接收的大小约 {1}，{2}'.format(relpath,
-                                                                                         *calcu_size(file_size - size)))
+                    self.logger.info(
+                        '断点续传文件 {0}， 还需接收的大小约 {1}，{2}'.format(relpath, *calcu_size(file_size - size)))
                 timestamps = struct.unpack(FMT.file_details_fmt.value, receive_data(conn, FMT.file_details_fmt.size))
                 begin = time.time()
                 rest_size = file_size - size
