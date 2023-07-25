@@ -452,7 +452,8 @@ class ConfigOption(Enum):
     server_port = '2023'
     client_signal_port = '2022'
     server_signal_port = '2021'
-
+    
+    @property
     def optionAndValue(self):
         return self.name, self.value
 
@@ -470,19 +471,19 @@ class Config:
         config = ConfigParser()
         config.add_section(Config.section_Main)
         if platform_ == WINDOWS:
-            config.set(Config.section_Main, *ConfigOption.windows_default_path.optionAndValue())
+            config.set(Config.section_Main, *ConfigOption.windows_default_path.optionAndValue)
         elif platform_ == LINUX:
-            config.set(Config.section_Main, *ConfigOption.linux_default_path.optionAndValue())
-        config.set(Config.section_Main, *ConfigOption.cert_dir.optionAndValue())
+            config.set(Config.section_Main, *ConfigOption.linux_default_path.optionAndValue)
+        config.set(Config.section_Main, *ConfigOption.cert_dir.optionAndValue)
         config.add_section(Config.section_Log)
-        config.set(Config.section_Log, *ConfigOption.windows_log_dir.optionAndValue())
-        config.set(Config.section_Log, *ConfigOption.linux_log_dir.optionAndValue())
-        config.set(Config.section_Log, *ConfigOption.log_file_archive_count.optionAndValue())
-        config.set(Config.section_Log, *ConfigOption.log_file_archive_size.optionAndValue())
+        config.set(Config.section_Log, *ConfigOption.windows_log_dir.optionAndValue)
+        config.set(Config.section_Log, *ConfigOption.linux_log_dir.optionAndValue)
+        config.set(Config.section_Log, *ConfigOption.log_file_archive_count.optionAndValue)
+        config.set(Config.section_Log, *ConfigOption.log_file_archive_size.optionAndValue)
         config.add_section(Config.section_Port)
-        config.set(Config.section_Port, *ConfigOption.server_port.optionAndValue())
-        config.set(Config.section_Port, *ConfigOption.server_signal_port.optionAndValue())
-        config.set(Config.section_Port, *ConfigOption.client_signal_port.optionAndValue())
+        config.set(Config.section_Port, *ConfigOption.server_port.optionAndValue)
+        config.set(Config.section_Port, *ConfigOption.server_signal_port.optionAndValue)
+        config.set(Config.section_Port, *ConfigOption.client_signal_port.optionAndValue)
         with open(Config.config_file, 'w', encoding=utf8) as f:
             config.write(f)
 
