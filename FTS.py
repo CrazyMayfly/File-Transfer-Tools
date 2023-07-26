@@ -83,9 +83,9 @@ class FTS:
         try:
             if not os.path.exists(cur_dir):
                 os.makedirs(cur_dir)
-                self.logger.info('创建文件夹 {0}'.format(os.path.normcase(dir_name)))
+                self.logger.info('创建文件夹 {0}'.format(dir_name))
         except FileNotFoundError:
-            self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(os.path.normcase(dir_name)), highlight=1)
+            self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
 
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
@@ -158,7 +158,7 @@ class FTS:
             else:
                 fp = openfile_with_retires(cur_download_file, 'wb')
             if not fp:
-                self.logger.error(f'文件路径太长，无法接收: {os.path.normcase(original_file)}', highlight=1)
+                self.logger.error(f'文件路径太长，无法接收: {original_file}', highlight=1)
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
                 return
             if size == 0:
@@ -168,9 +168,9 @@ class FTS:
                 conn.sendall(struct.pack(FMT.size_fmt.value, size + 4))
             command = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))
             if command == Control.TOOLONG:
-                self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(os.path.normcase(original_file)))
+                self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
             else:
-                relpath = os.path.normcase(os.path.relpath(original_file, self.base_dir))
+                relpath = oos.path.relpath(original_file, self.base_dir)
                 if size == 0:
                     self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(relpath, *calcu_size(file_size)))
                 else:
