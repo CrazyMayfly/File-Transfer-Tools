@@ -5,7 +5,6 @@ import random
 import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
-from ssl import SSLContext
 
 import readline
 from tqdm import tqdm
@@ -265,8 +264,9 @@ class FTC:
                         with self.__process_lock:
                             self.__pbar.update(len(data))
                     data = fp.read(unit)
-                with self.__process_lock:
-                    self.__pbar.update(size)
+                if self.__pbar:
+                    with self.__process_lock:
+                        self.__pbar.update(size)
                 if big_file:
                     pbar.close()
                 fp.close()

@@ -257,11 +257,11 @@ def get_dir_file_name(filepath):
     back_dir = os.path.dirname(filepath)
     for path, dir_list, file_list in os.walk(filepath):
         # 获取相对路径
-        path = os.path.normcase(os.path.relpath(path, back_dir))
+        path = os.path.relpath(path, back_dir)
         all_dir_name.add(path)
         # 去除重复的路径，防止多次创建，降低效率
         all_dir_name.discard(os.path.dirname(path))
-        all_file_name += [os.path.normcase(os.path.join(path, file)) for file in file_list]
+        all_file_name += [os.path.join(path, file) for file in file_list]
     return all_dir_name, all_file_name
 
 
