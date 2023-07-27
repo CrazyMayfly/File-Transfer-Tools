@@ -63,37 +63,29 @@ class FTC:
 
     class Connections:
         def __init__(self):
-            self.__conn_pool_ready = []
-            self.__conn_pool_working = {}
+            self.__conn_pool = []
+            self.__thread_conn_map = {}
             self.__lock = threading.Lock()
 
         def __enter__(self):
             # 从空闲的conn中取出一个使用
-            with self.__lock:
-                conn = self.__conn_pool_ready.pop()
-                self.__conn_pool_working.update({threading.current_thread().ident: conn})
+            conn = self.__thread_conn_map.get(threading.current_thread().name, None)
+            if not conn:
+                with self.__lock:
+                    conn = self.__conn_pool.pop() if len(
+                        self.__conn_pool) > 0 else self.__thread_conn_map.get('MainThread')
+                    self.__thread_conn_map[threading.current_thread().name] = conn
             return conn
 
         @property
         def connections(self):
-            with self.__lock:
-                connections = self.__conn_pool_ready + list(self.__conn_pool_working.values())
-            return connections
+            return set(self.__thread_conn_map.values())
 
         def add(self, conn):
-            with self.__lock:
-                self.__conn_pool_ready.append(conn)
-
-        def remove(self):
-            with self.__lock:
-                self.__conn_pool_working.pop(threading.current_thread().ident, None)
+            self.__conn_pool.append(conn)
 
         def __exit__(self, exc_type, exc_val, exc_tb):
-            # conn使用完毕，回收conn
-            with self.__lock:
-                conn = self.__conn_pool_working.pop(threading.current_thread().ident, None)
-                if conn:
-                    self.__conn_pool_ready.append(conn)
+            pass
 
     def connect(self, nums=1):
         """

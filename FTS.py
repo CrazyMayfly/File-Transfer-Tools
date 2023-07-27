@@ -170,7 +170,7 @@ class FTS:
             if command == Control.TOOLONG:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
             else:
-                relpath = oos.path.relpath(original_file, self.base_dir)
+                relpath = os.path.relpath(original_file, self.base_dir)
                 if size == 0:
                     self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(relpath, *calcu_size(file_size)))
                 else:
