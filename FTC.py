@@ -122,10 +122,8 @@ class FTC:
                     sys.exit(-1)
             if self.__first_connect:
                 self.logger.success(f'成功连接至服务器 {self.host}:{config.server_port}')
-                if self.__use_ssl:
-                    self.logger.success('当前数据使用加密传输')
-                else:
-                    self.logger.warning('当前数据未进行加密传输')
+                self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning(
+                    '当前数据未进行加密传输')
                 self.__first_connect = False
             else:
                 self.logger.info(f'将连接数扩充至: {nums}')
@@ -295,10 +293,8 @@ class FTC:
                 elif command.startswith(CLIP + ' '):
                     self.__exchange_clipboard(command.split()[1])
                 elif command.startswith(HISTORY):
-                    if len(command.split()) > 1 and command.split()[1].isdigit():
-                        print_history(int(command.split()[1]))
-                    else:
-                        print_history()
+                    print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
+                        1].isdigit() else print_history()
                 else:
                     self._execute_command(command)
             except ConnectionResetError as e:

@@ -77,14 +77,18 @@ class FTS:
                 self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
                 return
 
-    def _makedir(self, dir_name):
+    def _makedir(self, dir_name, max_retries=10):
         # 处理文件夹
+        retries = 0
         cur_dir = os.path.join(self.base_dir, dir_name)
-        try:
-            if not os.path.exists(cur_dir):
+        while not os.path.exists(cur_dir) and retries < max_retries:
+            try:
                 os.makedirs(cur_dir)
+            except FileNotFoundError:
+                retries += 1
+            else:
                 self.logger.info('创建文件夹 {0}'.format(dir_name))
-        except FileNotFoundError:
+        if retries == max_retries:
             self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
 
     def _signal_online(self):
@@ -97,19 +101,17 @@ class FTS:
         content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode(utf8)
         addr = (self.ip[0:self.ip.rindex('.')] + '.255', config.client_signal_port)
         self.logger.log('广播主机信息服务已启动')
-        # 广播
-        sk.sendto(content, addr)
+        sk.sendto(content, addr)  # 广播
         while True:
             try:
                 data = sk.recv(1024).decode(utf8).split('_')
             except ConnectionResetError:
-                pass
+                return
             else:
                 if data[0] == '53b997bc-a140-11ed-a8fc-0242ac120002':
                     target_ip = data[1]
                     self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
-                    # 单播
-                    sk.sendto(content, (target_ip, config.client_signal_port))
+                    sk.sendto(content, (target_ip, config.client_signal_port))  # 单播
 
     def main(self):
         host = socket.gethostname()
@@ -118,10 +120,7 @@ class FTS:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(('0.0.0.0', config.server_port))
         server_socket.listen(9999)
-        if self.__use_ssl:
-            self.logger.success('当前数据使用加密传输')
-        else:
-            self.logger.warning('当前数据未进行加密传输')
+        self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning('当前数据未进行加密传输')
         self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
         self.logger.log('当前默认文件存放位置：' + self.base_dir)
         t = threading.Thread(target=self._signal_online)
@@ -161,27 +160,21 @@ class FTS:
                 self.logger.error(f'文件路径太长，无法接收: {original_file}', highlight=1)
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
                 return
-            if size == 0:
-                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
-            else:
-                # 此处+4是为了与控制标志的值分开
-                conn.sendall(struct.pack(FMT.size_fmt.value, size + 4))
+            # 此处+4是为了与控制标志的值分开
+            conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE if size == 0 else size + 4))
             command = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))
             if command == Control.TOOLONG:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
             else:
                 relpath = os.path.relpath(original_file, self.base_dir)
-                if size == 0:
-                    self.logger.info('准备接收文件 {0}， 大小约 {1}，{2}'.format(relpath, *calcu_size(file_size)))
-                else:
-                    self.logger.info(
-                        '断点续传文件 {0}， 还需接收的大小约 {1}，{2}'.format(relpath, *calcu_size(file_size - size)))
+                rest_size = file_size - size
+                self.logger.info(
+                    ('准备接收文件 {0}， 大小约 {1}，{2}' if size == 0 else '断点续传文件 {0}， 还需接收的大小约 {1}，{2}').
+                    format(relpath, *calcu_size(rest_size)))
                 timestamps = struct.unpack(FMT.file_details_fmt.value, receive_data(conn, FMT.file_details_fmt.size))
                 begin = time.time()
-                rest_size = file_size - size
                 while rest_size > 0:
-                    recv_window = min(unit, rest_size)
-                    data = conn.recv(recv_window)
+                    data = conn.recv(min(unit, rest_size))
                     rest_size -= len(data)
                     fp.write(data)
                 fp.close()
@@ -267,11 +260,8 @@ class FTS:
             password, command, _ = struct.unpack(FMT.head_fmt.value, file_head)
         except (socket.timeout, struct.error) as exception:
             conn.close()
-            if isinstance(exception, socket.timeout):
-                message = f'客户端 {peer_host}:{peer_port} 未及时校验密码，连接断开'
-            else:
-                message = f'服务器遭遇不明连接 {peer_host}:{peer_port}'
-            self.logger.warning(message)
+            self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(exception, socket.timeout)
+                                 else '服务器遭遇不明连接 {}:{}').format(peer_host, peer_port))
             return True
         conn.settimeout(None)
         password = password.decode(utf8).strip('\00')

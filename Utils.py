@@ -145,10 +145,8 @@ def modifyFileTime(file_path: str, logger: Logger, create_timestamp: float,
                 SetFileTime(fileHandler, createTime, accessTime, modifyTime)
                 CloseHandle(fileHandler)
             except error as e:
-                if e.funcname == 'CreateFile':
-                    logger.error('文件权限不足，请检查文件是否只读')
-                else:
-                    logger.error(f'{file_path}修改失败')
+                logger.error('文件权限不足，请检查文件是否只读'
+                             if e.funcname == 'CreateFile' else f'{file_path}修改失败')
         elif platform_ == LINUX:
             os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
     except (OverflowError, Exception) as e:
@@ -266,9 +264,6 @@ def get_dir_file_name(filepath):
 
 
 def get_file_md5(filename):
-    if not os.path.exists(filename):
-        print(f"{filename} 不存在")
-        return None
     md5 = hashlib.md5()
     with open(filename, 'rb') as fp:
         data = fp.read(unit)
@@ -452,7 +447,7 @@ class ConfigOption(Enum):
     server_port = '2023'
     client_signal_port = '2022'
     server_signal_port = '2021'
-    
+
     @property
     def optionAndValue(self):
         return self.name, self.value
