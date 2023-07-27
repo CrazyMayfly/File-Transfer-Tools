@@ -367,10 +367,10 @@ def shorten_path(path: str, max_width):
         margin = int(width / 2)
         return '...' if margin == 0 else string[0:margin] + '..' + string[-margin:]
 
-    if len(path) <= max_width:
-        return path
-    path_sep = '...' + os.path.sep
     parts: list = path.split(os.path.sep)
+    if len(path) <= max_width or len(parts) == 1:
+        return shorten_string(path, max_width)
+    path_sep = '...' + os.path.sep
     base = parts.pop()
     if len(base) - 4 >= max_width:
         return path_sep + shorten_string(base, len(base) - 4)
