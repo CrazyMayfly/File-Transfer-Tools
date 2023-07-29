@@ -58,8 +58,9 @@ class FTC:
         self.logger = Logger(log_file)
         self.logger.log('本次日志文件存放位置为: ' + log_file)
         # 进行日志归档
-        threading.Thread(target=compress_log_files, args=(config.log_dir, 'client', self.logger)).start()
         self.__thread_pool = None
+        threading.Thread(name='ArchThread', target=compress_log_files,
+                         args=(config.log_dir, 'client', self.logger)).start()
 
     class Connections:
         def __init__(self):

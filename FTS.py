@@ -41,7 +41,8 @@ class FTS:
         self.logger.log('本次日志文件存放位置: ' + log_file_path)
         self.logger.log(f'本次服务器密码: {password if password else "无"}')
         # 进行日志归档
-        threading.Thread(target=compress_log_files, args=(config.log_dir, 'server', self.logger)).start()
+        threading.Thread(name='ArchThread', target=compress_log_files,
+                         args=(config.log_dir, 'server', self.logger)).start()
 
     def _deal_data(self, conn: socket.socket, addr):
         if self._before_working(conn):
@@ -123,10 +124,7 @@ class FTS:
         self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning('当前数据未进行加密传输')
         self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
         self.logger.log('当前默认文件存放位置：' + self.base_dir)
-        t = threading.Thread(target=self._signal_online)
-        t.setName('SignThread')
-        t.setDaemon(True)
-        t.start()
+        threading.Thread(name='SignThread', target=self._signal_online).start()
         if self.__use_ssl:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -137,8 +135,7 @@ class FTS:
         while True:
             try:
                 conn, addr = server_socket.accept()
-                t = threading.Thread(target=self._deal_data, args=(conn, addr))
-                t.start()
+                threading.Thread(target=self._deal_data, args=(conn, addr)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
 
@@ -168,9 +165,8 @@ class FTS:
             else:
                 relpath = os.path.relpath(original_file, self.base_dir)
                 rest_size = file_size - size
-                self.logger.info(
-                    ('准备接收文件 {0}， 大小约 {1}，{2}' if size == 0 else '断点续传文件 {0}， 还需接收的大小约 {1}，{2}').
-                    format(relpath, *calcu_size(rest_size)))
+                self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
+                                  '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath, *calcu_size(rest_size)))
                 timestamps = struct.unpack(FMT.file_details_fmt.value, receive_data(conn, FMT.file_details_fmt.size))
                 begin = time.time()
                 while rest_size > 0:
