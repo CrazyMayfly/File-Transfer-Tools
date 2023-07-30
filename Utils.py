@@ -16,7 +16,6 @@ from datetime import datetime
 from enum import Enum, IntFlag
 from typing import Optional, TextIO, Final
 
-import pyperclip
 from send2trash import send2trash
 
 from sys_info import get_size
@@ -29,9 +28,13 @@ MACOS: Final[str] = 'Macos'
 # 解决win10的cmd中直接使用转义序列失效问题
 if platform_ == WINDOWS:
     os.system("")
-
+    import pyperclip
+else:
+    import readline
 
 # 配置实体类
+
+
 @dataclass
 class Configration:
     default_path: str
