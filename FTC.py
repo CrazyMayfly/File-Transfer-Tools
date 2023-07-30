@@ -7,7 +7,7 @@ from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 
 from tqdm import tqdm
-
+import readline
 from Utils import *
 from sys_info import *
 

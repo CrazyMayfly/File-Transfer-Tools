@@ -29,8 +29,7 @@ MACOS: Final[str] = 'Macos'
 if platform_ == WINDOWS:
     os.system("")
     import pyperclip
-else:
-    import readline
+
 
 # 配置实体类
 
