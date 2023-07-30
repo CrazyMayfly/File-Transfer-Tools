@@ -6,7 +6,6 @@ import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 
-import readline
 from tqdm import tqdm
 
 from Utils import *
@@ -532,7 +531,8 @@ if __name__ == '__main__':
     readline.set_history_length(1000)
     readline.parse_and_bind('tab: complete')
     history_file = os.path.join(config.log_dir, 'history.txt')
-    readline.read_history_file(history_file)
+    if os.path.exists(history_file):
+        readline.read_history_file(history_file)
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
     ftc.probe_server()
