@@ -280,7 +280,7 @@ class FTC:
                 elif command == SYSINFO:
                     self._compare_sysinfo()
                 elif command.startswith(SPEEDTEST):
-                    times = command[10:]
+                    times = '1000' if command[10:].isspace() or not command[10:] else command[10:]
                     while not (times.isdigit() and int(times) > 0):
                         times = input("请重新输入数据量（单位MB）：")
                     self._speedtest(times=int(times))
@@ -475,7 +475,7 @@ class FTC:
         local_sysinfo = t.get_result()
         print_sysinfo(local_sysinfo)
 
-    def _speedtest(self, times):
+    def _speedtest(self, times=1000):
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
         file_head = struct.pack(FMT.head_fmt.value, b'', SPEEDTEST.encode(), data_size)

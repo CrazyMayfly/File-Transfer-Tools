@@ -3,7 +3,6 @@ import json
 import os.path
 import pathlib
 import ssl
-import string
 
 from Utils import *
 from sys_info import *
@@ -140,8 +139,8 @@ class FTS:
         self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning('当前数据未进行加密传输')
         self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
         self.logger.log('当前默认文件存放位置：' + self.base_dir)
-        threading.Thread(name='SignThread', target=self._signal_online).start()
-        threading.Thread(name='CBDThread ', target=self._change_base_dir).start()
+        threading.Thread(name='SignThread', daemon=True, target=self._signal_online).start()
+        threading.Thread(name='CBDThread ', daemon=True, target=self._change_base_dir).start()
         if self.__use_ssl:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
