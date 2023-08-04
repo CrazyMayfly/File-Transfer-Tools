@@ -223,12 +223,12 @@ class FTC:
                     with self.__process_lock:
                         self.__pbar.update(file_size)
             elif flag == Control.TOOLONG:
-                self.logger.error(f'对方因文件路径太长无法接收文件', highlight=1)
+                self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
             else:
                 fp = openfile_with_retires(real_path, 'rb')
                 if not fp:
-                    self.logger.error(f'文件路径太长，无法接收: {real_path}', highlight=1)
+                    self.logger.error(f'文件路径太长，无法发送: {real_path}', highlight=1)
                     conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
                     return
                 size = flag

@@ -3,6 +3,7 @@ import json
 import os.path
 import pathlib
 import ssl
+import string
 
 from Utils import *
 from sys_info import *
@@ -114,6 +115,21 @@ class FTS:
                     self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
                     sk.sendto(content, (target_ip, config.client_signal_port))  # 单播
 
+    def _change_base_dir(self):
+        while True:
+            base_dir = input('>>> ')
+            if not base_dir or base_dir.isspace():
+                continue
+            if not os.path.exists(base_dir):
+                try:
+                    os.makedirs(base_dir)
+                except OSError as error:
+                    self.logger.error(f'无法创建 {base_dir}, {error}')
+                    continue
+                self.logger.info('已创建文件夹 {}'.format(base_dir))
+            self.base_dir = os.path.normcase(base_dir)
+            self.logger.success(f'已将文件保存位置更改为: {self.base_dir}')
+
     def main(self):
         host = socket.gethostname()
         self.ip = socket.gethostbyname(host)
@@ -125,6 +141,7 @@ class FTS:
         self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
         self.logger.log('当前默认文件存放位置：' + self.base_dir)
         threading.Thread(name='SignThread', target=self._signal_online).start()
+        threading.Thread(name='CBDThread ', target=self._change_base_dir).start()
         if self.__use_ssl:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -154,7 +171,7 @@ class FTS:
             else:
                 fp = openfile_with_retires(cur_download_file, 'wb')
             if not fp:
-                self.logger.error(f'文件路径太长，无法接收: {original_file}', highlight=1)
+                self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
                 return
             # 此处+4是为了与控制标志的值分开
