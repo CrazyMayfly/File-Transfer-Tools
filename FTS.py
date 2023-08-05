@@ -3,6 +3,8 @@ import json
 import os.path
 import pathlib
 import ssl
+import threading
+import uuid
 
 from Utils import *
 from sys_info import *
@@ -36,6 +38,8 @@ class FTS:
         self.ip = ''
         self.base_dir = base_dir
         self.__use_ssl = use_ssl
+        self.__sessions_lock = threading.Lock()
+        self.__sessions: dict[int:set[socket.socket]] = {}
         self.__avoid_file_duplicate = avoid
         self.logger = Logger(log_file_path)
         self.logger.log('本次日志文件存放位置: ' + log_file_path)
@@ -44,44 +48,21 @@ class FTS:
         threading.Thread(name='ArchThread', target=compress_log_files,
                          args=(config.log_dir, 'server', self.logger)).start()
 
-    def _deal_data(self, conn: socket.socket, addr):
-        if self._before_working(conn):
+    def _route(self, conn: socket.socket, addr):
+        session_id = self._before_working(conn)
+        if not session_id:
             return
-        self.logger.info(f'客户端连接 {addr[0]}:{addr[1]}')
-        while True:
-            try:
-                file_head = receive_data(conn, FMT.head_fmt.size)
-                filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
-                filename = filename.decode(utf8).strip('\00')
-                command = command.decode().strip('\00')
-                if command == CLOSE:
-                    conn.close()
-                    self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
-                    return
-                elif command == SEND_DIR:
-                    self._makedir(filename)
-                elif command == SEND_FILE:
-                    self._recv_file(conn, filename, file_size)
-                elif command == COMPARE_DIR:
-                    self._compare_dir(conn, filename)
-                elif command == COMMAND:
-                    self._execute_command(conn, filename)
-                elif command == SYSINFO:
-                    self._compare_sysinfo(conn)
-                elif command == SPEEDTEST:
-                    self._speedtest(conn, file_size)
-                elif command == PULL_CLIPBOARD:
-                    send_clipboard(conn, self.logger, FTC=False)
-                elif command == PUSH_CLIPBOARD:
-                    get_clipboard(conn, self.logger, file_head=file_head, FTC=False)
-            except ConnectionResetError as e:
-                self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
-                return
+        if session_id not in self.__sessions.keys():
+            with self.__sessions_lock:
+                self.__sessions[session_id] = {conn}
+            self._master_work(conn, addr, session_id)
+        else:
+            self._slave_work(conn, self.base_dir, session_id)
 
-    def _makedir(self, dir_name, max_retries=10):
+    def _makedir(self, base_dir, dir_name, max_retries=10):
         # 处理文件夹
         retries = 0
-        cur_dir = os.path.join(self.base_dir, dir_name)
+        cur_dir = os.path.join(base_dir, dir_name)
         while not os.path.exists(cur_dir) and retries < max_retries:
             try:
                 os.makedirs(cur_dir)
@@ -129,7 +110,73 @@ class FTS:
             self.base_dir = os.path.normcase(base_dir)
             self.logger.success(f'已将文件保存位置更改为: {self.base_dir}')
 
-    def main(self):
+    def _master_work(self, conn, addr, session_id):
+        self.logger.info(f'客户端连接 {addr[0]}:{addr[1]}')
+        try:
+            while True:
+                file_head = receive_data(conn, FMT.head_fmt.size)
+                filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
+                filename = filename.decode(utf8).strip('\00')
+                command = command.decode().strip('\00')
+                base_dir = self.base_dir
+                if command == SEND_FILES_IN_DIR:
+                    self.__recv_files_in_dir(session_id, base_dir)
+                elif command == SEND_FILE:
+                    self._recv_single_file(conn, filename, file_size, base_dir)
+                elif command == COMPARE_DIR:
+                    self._compare_dir(conn, filename)
+                elif command == COMMAND:
+                    self._execute_command(conn, filename)
+                elif command == SYSINFO:
+                    self._compare_sysinfo(conn)
+                elif command == SPEEDTEST:
+                    self._speedtest(conn, file_size)
+                elif command == PULL_CLIPBOARD:
+                    send_clipboard(conn, self.logger, FTC=False)
+                elif command == PUSH_CLIPBOARD:
+                    get_clipboard(conn, self.logger, file_head=file_head, FTC=False)
+                elif command == CLOSE:
+                    for conn in self.__sessions[session_id]:
+                        conn.close()
+                    self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
+                    break
+        except ConnectionResetError as e:
+            self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
+        finally:
+            with self.__sessions_lock:
+                self.__sessions.pop(session_id)
+
+    def _slave_work(self, conn, base_dir, session_id):
+        try:
+            while True:
+                file_head = receive_data(conn, FMT.head_fmt.size)
+                filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
+                filename = filename.decode(utf8).strip('\00')
+                command = command.decode().strip('\00')
+                if command == SEND_FILE:
+                    self._recv_single_file(conn, filename, file_size, base_dir)
+                elif command == SEND_DIR:
+                    self._makedir(base_dir=base_dir, dir_name=filename)
+                elif command == FINISH:
+                    break
+        except ConnectionResetError:
+            pass
+        else:
+            with self.__sessions_lock:
+                self.__sessions[session_id].add(conn)
+
+    def __recv_files_in_dir(self, session_id, base_dir):
+        with self.__sessions_lock:
+            conns = self.__sessions.get(session_id)
+        threads = []
+        for conn in conns:
+            t = threading.Thread(target=self._slave_work, args=(conn, base_dir, session_id))
+            threads.append(t)
+            t.start()
+        for t in threads:
+            t.join()
+
+    def start(self):
         host = socket.gethostname()
         self.ip = socket.gethostbyname(host)
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -151,12 +198,12 @@ class FTS:
         while True:
             try:
                 conn, addr = server_socket.accept()
-                threading.Thread(target=self._deal_data, args=(conn, addr)).start()
+                threading.Thread(target=self._route, args=(conn, addr)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
 
-    def _recv_file(self, conn: socket.socket, filename, file_size):
-        file_path = os.path.join(self.base_dir, filename)
+    def _recv_single_file(self, conn: socket.socket, filename, file_size, base_dir):
+        file_path = os.path.join(base_dir, filename)
         if self.__avoid_file_duplicate and os.path.exists(file_path):
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
             conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL))
@@ -179,7 +226,7 @@ class FTS:
             if command == Control.TOOLONG:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
             else:
-                relpath = os.path.relpath(original_file, self.base_dir)
+                relpath = os.path.relpath(original_file, base_dir)
                 rest_size = file_size - size
                 self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
                                   '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath, *calcu_size(rest_size)))
@@ -263,33 +310,34 @@ class FTS:
         在传输之前的预处理
 
         @param conn: 当前连接
-        @return: True表示断开连接
+        @return: 若成功连接则返回本次连接的 session_id
         """
         peer_host, peer_port = conn.getpeername()
         conn.settimeout(2)
         try:
             file_head = receive_data(conn, FMT.head_fmt.size)
-            password, command, _ = struct.unpack(FMT.head_fmt.value, file_head)
+            password, command, session_id = struct.unpack(FMT.head_fmt.value, file_head)
         except (socket.timeout, struct.error) as exception:
             conn.close()
             self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(exception, socket.timeout)
                                  else '服务器遭遇不明连接 {}:{}').format(peer_host, peer_port))
-            return True
+            return
         conn.settimeout(None)
-        password = password.decode(utf8).strip('\00')
         command = command.decode().strip('\00')
         if command != BEFORE_WORKING:
             conn.close()
-            return True
+            return
+        password = password.decode(utf8).strip('\00')
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
-        file_head = struct.pack(FMT.head_fmt.value, msg.encode(), BEFORE_WORKING.encode(), 0)
+        session_id = uuid.uuid4().node if session_id == 0 else session_id
+        file_head = struct.pack(FMT.head_fmt.value, msg.encode(), BEFORE_WORKING.encode(), session_id)
         conn.sendall(file_head)
         if password != self.__password:
             conn.close()
             self.logger.warning(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接')
-            return True
-        return False
+            return
+        return session_id
 
 
 if __name__ == '__main__':
@@ -321,7 +369,7 @@ if __name__ == '__main__':
     fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, avoid=args.avoid, password=args.password)
     handle_ctrl_event()
     try:
-        fts.main()
+        fts.start()
     finally:
         if packaging:
             os.system('pause')

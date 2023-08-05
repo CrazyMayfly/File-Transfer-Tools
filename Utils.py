@@ -392,9 +392,11 @@ packaging = getattr(sys, 'frozen', False)
 # 命令类型
 SEND_FILE: Final[str] = "send_file"
 SEND_DIR: Final[str] = "send_dir"
+SEND_FILES_IN_DIR: Final[str] = "send_files_dir"
 COMPARE_DIR: Final[str] = "compare_dir"
 COMMAND: Final[str] = 'command'
 SYSINFO: Final[str] = 'sysinfo'
+FINISH: Final[str] = 'finish'
 SPEEDTEST: Final[str] = 'speedtest'
 BEFORE_WORKING: Final[str] = 'before_working'
 CLOSE: Final[str] = 'close'

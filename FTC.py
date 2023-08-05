@@ -2,7 +2,9 @@ import argparse
 import json
 import os.path
 import random
+import socket
 import ssl
+import struct
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 
@@ -52,6 +54,7 @@ class FTC:
         self.__base_dir = ''
         self.__process_lock = threading.Lock()
         self.__position = 0
+        self.__session_id = 0
         self.__first_connect = True
         log_file = os.path.normcase(os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log'))
         self.logger = Logger(log_file)
@@ -64,22 +67,26 @@ class FTC:
     class Connections:
         def __init__(self):
             self.__conn_pool = []
-            self.__thread_conn_map = {}
+            self.__thread_conn_dict: dict[str:socket.socket] = {}
             self.__lock = threading.Lock()
 
         def __enter__(self):
             # 从空闲的conn中取出一个使用
-            conn = self.__thread_conn_map.get(threading.current_thread().name, None)
+            conn = self.__thread_conn_dict.get(threading.current_thread().name, None)
             if not conn:
                 with self.__lock:
                     conn = self.__conn_pool.pop() if len(
-                        self.__conn_pool) > 0 else self.__thread_conn_map.get('MainThread')
-                    self.__thread_conn_map[threading.current_thread().name] = conn
+                        self.__conn_pool) > 0 else self.__thread_conn_dict.get('MainThread')
+                    self.__thread_conn_dict[threading.current_thread().name] = conn
             return conn
 
         @property
-        def connections(self):
-            return set(self.__thread_conn_map.values())
+        def connections(self) -> set[socket.socket]:
+            return set(self.__thread_conn_dict.values())
+
+        @property
+        def main_conn(self) -> socket.socket:
+            return self.__thread_conn_dict['MainThread']
 
         def add(self, conn):
             self.__conn_pool.append(conn)
@@ -132,12 +139,13 @@ class FTC:
             sys.exit(-1)
 
     def validate_password(self, conn):
-        file_head = struct.pack(FMT.head_fmt.value, self.__password.encode(), BEFORE_WORKING.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt.value, self.__password.encode(), BEFORE_WORKING.encode(),
+                                self.__session_id)
         conn.sendall(file_head)
         file_head = receive_data(conn, FMT.head_fmt.size)
-        msg = struct.unpack(FMT.head_fmt.value, file_head)[0]
+        msg, _, session_id = struct.unpack(FMT.head_fmt.value, file_head)
         msg = msg.decode(utf8).strip('\00')
-        return msg
+        return msg, session_id
 
     def probe_server(self, wait=1):
         if self.host:
@@ -264,10 +272,9 @@ class FTC:
 
     def main(self):
         self.logger.info('当前线程数：{}'.format(self.threads))
-        self.__peer_platform = self._before_working()
+        self._before_working()
         while True:
-            tips = '请输入命令：'
-            command = input(tips)
+            command = input('请输入命令: ')
             readline.add_history(command)
             try:
                 if command in ['q', 'quit', 'exit']:
@@ -280,10 +287,7 @@ class FTC:
                 elif command == SYSINFO:
                     self._compare_sysinfo()
                 elif command.startswith(SPEEDTEST):
-                    times = '1000' if command[10:].isspace() or not command[10:] else command[10:]
-                    while not (times.isdigit() and int(times) > 0):
-                        times = input("请重新输入数据量（单位MB）：")
-                    self._speedtest(times=int(times))
+                    self._speedtest(times=command[10:])
                 elif command.startswith(COMPARE):
                     local_dir, destination_dir = split_dir(command)
                     if not destination_dir or not local_dir:
@@ -304,6 +308,7 @@ class FTC:
                 sys.exit(-1)
 
     def _send_files_in_dir(self, filepath):
+        self.__connections.main_conn.sendall(struct.pack(FMT.head_fmt.value, b'', SEND_FILES_IN_DIR.encode(), 0))
         self.connect(self.threads)
         # 每次发送文件夹时将进度条位置初始化
         self.__position = 0
@@ -344,6 +349,9 @@ class FTC:
                 result.wait()
                 success_recv.append(result.get())
         finally:
+            file_head = struct.pack(FMT.head_fmt.value, b'', FINISH.encode(), 0)
+            for conn in self.__connections.connections:
+                conn.sendall(file_head)
             self.__pbar.close()
             self.__pbar = None
             fails = set(all_file_name) - set(success_recv)
@@ -475,7 +483,11 @@ class FTC:
         local_sysinfo = t.get_result()
         print_sysinfo(local_sysinfo)
 
-    def _speedtest(self, times=1000):
+    def _speedtest(self, times):
+        times = '1000' if times.isspace() or not times else times
+        while not (times.isdigit() and int(times) > 0):
+            times = input("请重新输入数据量（单位MB）：")
+        times = int(times)
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
         file_head = struct.pack(FMT.head_fmt.value, b'', SPEEDTEST.encode(), data_size)
@@ -489,14 +501,15 @@ class FTC:
 
     def _before_working(self):
         with self.__connections as conn:
-            msg = self.validate_password(conn)
+            msg, session_id = self.validate_password(conn)
         if msg == FAIL:
             self.logger.error('连接至服务器的密码错误', highlight=1)
             self.close_connection(send_close_info=False)
             sys.exit(-1)
         else:
             self.logger.info('服务器所在平台: ' + msg)
-            return msg
+            self.__peer_platform = msg
+            self.__session_id = session_id
 
     def __exchange_clipboard(self, command):
         """
