@@ -2,9 +2,7 @@ import argparse
 import json
 import os.path
 import random
-import socket
 import ssl
-import struct
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 
@@ -159,42 +157,32 @@ class FTC:
         local_host = socket.gethostname()
         ip = socket.gethostbyname(local_host)
         sk.bind((ip, config.client_signal_port))
-        ip_list = {}
         self.logger.log('开始探测服务器信息，最短探测时长：{0}s.'.format(wait))
         content = ('53b997bc-a140-11ed-a8fc-0242ac120002_' + ip).encode(utf8)
         addr = (ip[0:ip.rindex('.')] + '.255', config.server_signal_port)
         sk.sendto(content, addr)
         begin = time.time()
+        ip_useSSL_dict = {}
         while time.time() - begin < wait:
             try:
                 data = sk.recv(1024).decode(utf8).split('_')
             except socket.timeout:
                 break
             if data[0] == '04c8979a-a107-11ed-a8fc-0242ac120002':
-                server_ip = data[1]
-                use_ssl = data[2] == 'True'
-                if server_ip not in ip_list.keys():
-                    ip_list.update({server_ip: use_ssl})
+                ip_useSSL_dict.update({data[1]: data[2] == 'True'})
             sk.settimeout(wait)
         sk.close()
-        all_ip = ip_list.keys()
-        ip_num = len(all_ip)
+        all_ip = list(ip_useSSL_dict.keys())
         print('当前可用主机列表：')
         for ip in all_ip:
-            hostname = 'unknown'
-            try:
-                hostname = socket.gethostbyaddr(ip)[0]
-            finally:
-                print('ip: {}, hostname: {}, useSSL: {}'.format(ip, hostname, ip_list.get(ip)))
-                if ip_num == 1:
-                    hostname = ip
-                    self.__use_ssl = ip_list.get(ip)
-                    self.host = hostname
-                    break
-        if ip_num > 1:
+            print('ip: {}, hostname: {}, useSSL: {}'.format(ip, get_hostname_by_ip(ip), ip_useSSL_dict.get(ip)))
+        if len(all_ip) == 1:
+            self.__use_ssl = ip_useSSL_dict.get(all_ip[0])
+            self.host = all_ip[0]
+        else:
             hostname = input('请输入主机名/ip: ')
             self.host = hostname
-            self.__use_ssl = ip_list.get(ip) if hostname in all_ip \
+            self.__use_ssl = ip_useSSL_dict.get(hostname) if hostname in all_ip \
                 else input('开启 SSL(y/n)? ').lower() == 'y'
 
     def close_connection(self, send_close_info=True):
@@ -274,7 +262,7 @@ class FTC:
         self.logger.info('当前线程数：{}'.format(self.threads))
         self._before_working()
         while True:
-            command = input('请输入命令: ')
+            command = input('>>> ')
             readline.add_history(command)
             try:
                 if command in ['q', 'quit', 'exit']:
@@ -306,6 +294,8 @@ class FTC:
                 if packaging:
                     os.system('pause')
                 sys.exit(-1)
+            finally:
+                self.logger.close()
 
     def _send_files_in_dir(self, filepath):
         self.__connections.main_conn.sendall(struct.pack(FMT.head_fmt.value, b'', SEND_FILES_IN_DIR.encode(), 0))
@@ -343,18 +333,16 @@ class FTC:
         # 异步发送文件并等待结果
         results = [self.__thread_pool.apply_async(self._send_file, (filename,)) for filename in all_file_name]
         # 比对发送成功或失败的文件
-        success_recv = []
+        success_recv = set()
         try:
-            for result in results:
-                result.wait()
-                success_recv.append(result.get())
-        finally:
+            success_recv = set([result.get() for result in results])
             file_head = struct.pack(FMT.head_fmt.value, b'', FINISH.encode(), 0)
             for conn in self.__connections.connections:
                 conn.sendall(file_head)
+        finally:
             self.__pbar.close()
             self.__pbar = None
-            fails = set(all_file_name) - set(success_recv)
+            fails = set(all_file_name) - success_recv
             if fails:
                 self.logger.error("发送失败的文件：", highlight=1)
                 for fail in fails:

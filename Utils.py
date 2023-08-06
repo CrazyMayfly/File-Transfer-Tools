@@ -64,9 +64,7 @@ class Logger:
         self.__log_lock = threading.Lock()
         self.__writing_lock = threading.Lock()
         self.__writing_buffer: list[str] = []
-        flush_thread = threading.Thread(target=self.auto_flush, args=(interval,))
-        flush_thread.setDaemon(True)
-        flush_thread.start()
+        threading.Thread(target=self.auto_flush, daemon=True, args=(interval,)).start()
 
     def auto_flush(self, interval):
         while True:
@@ -102,9 +100,10 @@ class Logger:
             self.__log_file.flush()
 
     def close(self):
-        if self.__writing_buffer:
-            self.__log_file.writelines(self.__writing_buffer)
-        self.__log_file.close()
+        if not self.__log_file.closed:
+            if self.__writing_buffer:
+                self.__log_file.writelines(self.__writing_buffer)
+            self.__log_file.close()
 
 
 def receive_data(connection: socket.socket, size: int):
@@ -302,6 +301,14 @@ def openfile_with_retires(filename: str, mode: str, max_retries: int = 10) -> Op
         except FileNotFoundError:
             retries += 1
     return file
+
+
+def get_hostname_by_ip(ip):
+    hostname = 'unknown'
+    try:
+        hostname = socket.gethostbyaddr(ip)[0]
+    finally:
+        return hostname
 
 
 def compress_log_files(base_dir, log_type, logger: Logger):

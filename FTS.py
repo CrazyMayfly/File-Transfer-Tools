@@ -3,7 +3,6 @@ import json
 import os.path
 import pathlib
 import ssl
-import threading
 import uuid
 
 from Utils import *
@@ -49,6 +48,9 @@ class FTS:
                          args=(config.log_dir, 'server', self.logger)).start()
 
     def _route(self, conn: socket.socket, addr):
+        """
+        根据会话是否存在判断一个连接是否为主连接并进行路由
+        """
         session_id = self._before_working(conn)
         if not session_id:
             return
@@ -96,6 +98,9 @@ class FTS:
                     sk.sendto(content, (target_ip, config.client_signal_port))  # 单播
 
     def _change_base_dir(self):
+        """
+        切换FTS的文件保存目录
+        """
         while True:
             base_dir = input('>>> ')
             if not base_dir or base_dir.isspace():
@@ -111,7 +116,13 @@ class FTS:
             self.logger.success(f'已将文件保存位置更改为: {self.base_dir}')
 
     def _master_work(self, conn, addr, session_id):
-        self.logger.info(f'客户端连接 {addr[0]}:{addr[1]}')
+        """
+        主连接的工作
+        @param conn: 主连接
+        @param addr: 客户端地址
+        @param session_id: 本次会话id
+        """
+        self.logger.info(f'客户端连接 {get_hostname_by_ip(addr[0])}, {addr[0]}:{addr[1]}')
         try:
             while True:
                 file_head = receive_data(conn, FMT.head_fmt.size)
@@ -120,7 +131,7 @@ class FTS:
                 command = command.decode().strip('\00')
                 base_dir = self.base_dir
                 if command == SEND_FILES_IN_DIR:
-                    self.__recv_files_in_dir(session_id, base_dir)
+                    self._recv_files_in_dir(session_id, base_dir, addr[0])
                 elif command == SEND_FILE:
                     self._recv_single_file(conn, filename, file_size, base_dir)
                 elif command == COMPARE_DIR:
@@ -147,6 +158,13 @@ class FTS:
                 self.__sessions.pop(session_id)
 
     def _slave_work(self, conn, base_dir, session_id):
+        """
+        从连接的工作，只用于处理多文件接受
+
+        @param conn: 从连接
+        @param base_dir: 文件保存位置
+        @param session_id: 本次会话id
+        """
         try:
             while True:
                 file_head = receive_data(conn, FMT.head_fmt.size)
@@ -162,15 +180,17 @@ class FTS:
         except ConnectionResetError:
             pass
         else:
+            # 首次工作结束后将连接添加到session里面
             with self.__sessions_lock:
                 self.__sessions[session_id].add(conn)
 
-    def __recv_files_in_dir(self, session_id, base_dir):
+    def _recv_files_in_dir(self, session_id, base_dir, ip):
         with self.__sessions_lock:
             conns = self.__sessions.get(session_id)
         threads = []
         for conn in conns:
-            t = threading.Thread(target=self._slave_work, args=(conn, base_dir, session_id))
+            t = threading.Thread(name='0x' + socket.inet_aton(ip).hex(), target=self._slave_work,
+                                 args=(conn, base_dir, session_id))
             threads.append(t)
             t.start()
         for t in threads:
@@ -198,7 +218,8 @@ class FTS:
         while True:
             try:
                 conn, addr = server_socket.accept()
-                threading.Thread(target=self._route, args=(conn, addr)).start()
+                threading.Thread(name='0x' + socket.inet_aton(addr[0]).hex(), target=self._route,
+                                 args=(conn, addr)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
 
