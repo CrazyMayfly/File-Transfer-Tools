@@ -6,8 +6,9 @@ import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 
-from tqdm import tqdm
 import readline
+from tqdm import tqdm
+
 from Utils import *
 from sys_info import *
 
@@ -291,11 +292,10 @@ class FTC:
                     self._execute_command(command)
             except ConnectionResetError as e:
                 self.logger.error(e.strerror, highlight=1)
+                self.logger.close()
                 if packaging:
                     os.system('pause')
                 sys.exit(-1)
-            finally:
-                self.logger.close()
 
     def _send_files_in_dir(self, filepath):
         self.__connections.main_conn.sendall(struct.pack(FMT.head_fmt.value, b'', SEND_FILES_IN_DIR.encode(), 0))
