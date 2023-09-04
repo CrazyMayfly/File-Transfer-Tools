@@ -61,19 +61,24 @@ class FTS:
         else:
             self._slave_work(conn, self.base_dir, session_id)
 
-    def _makedir(self, base_dir, dir_name, max_retries=10):
+    def _makedirs(self, conn, base_dir, size, max_retries=10):
+        data = json.loads(receive_data(conn, size).decode())
+        dir_names = data['dir_names'].split('|')
         # 处理文件夹
-        retries = 0
-        cur_dir = os.path.join(base_dir, dir_name)
-        while not os.path.exists(cur_dir) and retries < max_retries:
-            try:
-                os.makedirs(cur_dir)
-            except FileNotFoundError:
-                retries += 1
-            else:
-                self.logger.info('创建文件夹 {0}'.format(dir_name))
-        if retries == max_retries:
-            self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
+        self.logger.info('开始创建文件夹，文件夹个数为 {}'.format(data['num']))
+        for dir_name in dir_names:
+            retries = 0
+            cur_dir = os.path.join(base_dir, dir_name)
+            while not os.path.exists(cur_dir) and retries < max_retries:
+                try:
+                    os.makedirs(cur_dir)
+                except FileNotFoundError:
+                    retries += 1
+                else:
+                    self.logger.info('创建文件夹 {0}'.format(dir_name))
+            if retries == max_retries:
+                self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
+        conn.sendall(b'0')
 
     def _signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
@@ -131,6 +136,7 @@ class FTS:
                 command = command.decode().strip('\00')
                 base_dir = self.base_dir
                 if command == SEND_FILES_IN_DIR:
+                    self._makedirs(conn, base_dir=base_dir, size=file_size)
                     self._recv_files_in_dir(session_id, base_dir)
                 elif command == SEND_FILE:
                     self._recv_single_file(conn, filename, file_size, base_dir)
@@ -173,8 +179,6 @@ class FTS:
                 command = command.decode().strip('\00')
                 if command == SEND_FILE:
                     self._recv_single_file(conn, filename, file_size, base_dir)
-                elif command == SEND_DIR:
-                    self._makedir(base_dir=base_dir, dir_name=filename)
                 elif command == FINISH:
                     break
         except ConnectionResetError:

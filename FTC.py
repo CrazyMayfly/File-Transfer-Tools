@@ -298,17 +298,15 @@ class FTC:
                 sys.exit(-1)
 
     def _send_files_in_dir(self, filepath):
-        self.__connections.main_conn.sendall(struct.pack(FMT.head_fmt.value, b'', SEND_FILES_IN_DIR.encode(), 0))
-        self.connect(self.threads)
-        # 每次发送文件夹时将进度条位置初始化
         self.__position = 0
         self.__base_dir = os.path.dirname(filepath)
         all_dir_name, all_file_name = get_dir_file_name(filepath)
+        data = json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode()
+        self.__connections.main_conn.sendall(
+            struct.pack(FMT.head_fmt.value, b'', SEND_FILES_IN_DIR.encode(), len(data)))
+        # 每次发送文件夹时将进度条位置初始化
         self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}\n'.format(filepath, len(all_dir_name)))
-        # start = time.time()
-        if self.__thread_pool is None:
-            self.__thread_pool = ThreadPool(self.threads)
-        results = [self.__thread_pool.apply_async(self._send_dir, (dir_name,)) for dir_name in all_dir_name]
+        self.__connections.main_conn.sendall(data)
         # 打乱列表以避免多个小文件聚簇在一起，影响效率
         random.shuffle(all_file_name)
         # 将待发送的文件打印到日志
@@ -325,9 +323,11 @@ class FTC:
             self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
                                unit_scale=True, mininterval=1, position=0)
             self.__position += 1
+        self.connect(self.threads)
+        if self.__thread_pool is None:
+            self.__thread_pool = ThreadPool(self.threads)
         # 等待文件夹发送完成
-        for result in results:
-            result.wait()
+        receive_data(self.__connections.main_conn, 1)
         # self.log('文件夹发送完毕，耗时 {} s'.format(round(time.time() - start, 2)), 'blue')
         self.logger.info('开始发送 {} 路径下所有文件，文件个数为 {}\n'.format(filepath, len(all_file_name)))
         # 异步发送文件并等待结果
