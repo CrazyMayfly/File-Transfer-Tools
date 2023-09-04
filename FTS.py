@@ -30,7 +30,7 @@ def avoid_filename_duplication(filename: str):
 
 
 class FTS:
-    def __init__(self, base_dir, use_ssl, avoid, password=''):
+    def __init__(self, base_dir, use_ssl, repeated, password=''):
         self.__password = password
         log_file_path = os.path.normcase(
             os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log'))
@@ -39,7 +39,7 @@ class FTS:
         self.__use_ssl = use_ssl
         self.__sessions_lock = threading.Lock()
         self.__sessions: dict[int:set[socket.socket]] = {}
-        self.__avoid_file_duplicate = avoid
+        self.__avoid_file_duplicate = not repeated
         self.logger = Logger(log_file_path)
         self.logger.log('本次日志文件存放位置: ' + log_file_path)
         self.logger.log(f'本次服务器密码: {password if password else "无"}')
@@ -131,7 +131,7 @@ class FTS:
                 command = command.decode().strip('\00')
                 base_dir = self.base_dir
                 if command == SEND_FILES_IN_DIR:
-                    self._recv_files_in_dir(session_id, base_dir, addr[0])
+                    self._recv_files_in_dir(session_id, base_dir)
                 elif command == SEND_FILE:
                     self._recv_single_file(conn, filename, file_size, base_dir)
                 elif command == COMPARE_DIR:
@@ -184,12 +184,13 @@ class FTS:
             with self.__sessions_lock:
                 self.__sessions[session_id].add(conn)
 
-    def _recv_files_in_dir(self, session_id, base_dir, ip):
+    def _recv_files_in_dir(self, session_id, base_dir):
         with self.__sessions_lock:
             conns = self.__sessions.get(session_id)
         threads = []
         for conn in conns:
-            t = threading.Thread(name='0x' + socket.inet_aton(ip).hex(), target=self._slave_work,
+            peer_host, peer_port = conn.getpeername()
+            t = threading.Thread(name=socket.inet_aton(peer_host).hex() + hex(peer_port)[2:], target=self._slave_work,
                                  args=(conn, base_dir, session_id))
             threads.append(t)
             t.start()
@@ -218,52 +219,59 @@ class FTS:
         while True:
             try:
                 conn, addr = server_socket.accept()
-                threading.Thread(name='0x' + socket.inet_aton(addr[0]).hex(), target=self._route,
+                threading.Thread(name=socket.inet_aton(addr[0]).hex() + hex(addr[1])[2:], target=self._route,
                                  args=(conn, addr)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
 
     def _recv_single_file(self, conn: socket.socket, filename, file_size, base_dir):
         file_path = os.path.join(base_dir, filename)
-        if self.__avoid_file_duplicate and os.path.exists(file_path):
-            # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
-            conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL))
-        else:
-            original_file = avoid_filename_duplication(file_path)
-            cur_download_file = original_file + '.ftsdownload'
-            size = 0
-            if os.path.exists(cur_download_file):
-                fp = openfile_with_retires(cur_download_file, 'ab')
-                size = os.stat(cur_download_file).st_size
+        fp = None
+        try:
+            if self.__avoid_file_duplicate and os.path.exists(file_path):
+                # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL))
             else:
-                fp = openfile_with_retires(cur_download_file, 'wb')
-            if not fp:
-                self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
-                conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
-                return
-            # 此处+4是为了与控制标志的值分开
-            conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE if size == 0 else size + 4))
-            command = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))
-            if command == Control.TOOLONG:
-                self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
-            else:
-                relpath = os.path.relpath(original_file, base_dir)
-                rest_size = file_size - size
-                self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
-                                  '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath, *calcu_size(rest_size)))
-                timestamps = struct.unpack(FMT.file_details_fmt.value, receive_data(conn, FMT.file_details_fmt.size))
-                begin = time.time()
-                while rest_size > 0:
-                    data = conn.recv(min(unit, rest_size))
-                    rest_size -= len(data)
-                    fp.write(data)
+                original_file = avoid_filename_duplication(file_path)
+                cur_download_file = original_file + '.ftsdownload'
+                size = 0
+                if os.path.exists(cur_download_file):
+                    fp = openfile_with_retires(cur_download_file, 'ab')
+                    size = os.stat(cur_download_file).st_size
+                else:
+                    fp = openfile_with_retires(cur_download_file, 'wb')
+                if not fp:
+                    self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
+                    conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
+                    return
+                # 此处+4是为了与控制标志的值分开
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE if size == 0 else size + 4))
+                command = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))
+                if command == Control.TOOLONG:
+                    self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
+                else:
+                    relpath = os.path.relpath(original_file, base_dir)
+                    rest_size = file_size - size
+                    self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
+                                      '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath,
+                                                                                          *calcu_size(rest_size)))
+                    timestamps = struct.unpack(FMT.file_details_fmt.value,
+                                               receive_data(conn, FMT.file_details_fmt.size))
+                    begin = time.time()
+                    while rest_size > 0:
+                        data = conn.recv(min(unit, rest_size))
+                        rest_size -= len(data)
+                        fp.write(data)
+                    fp.close()
+                    time_cost = time.time() - begin
+                    avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
+                    self.logger.success(
+                        f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
+                    os.rename(cur_download_file, original_file)
+                    modifyFileTime(original_file, self.logger, *timestamps)
+        finally:
+            if fp and not fp.closed:
                 fp.close()
-                time_cost = time.time() - begin
-                avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
-                self.logger.success(
-                    f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
-                os.rename(cur_download_file, original_file)
-                modifyFileTime(original_file, self.logger, *timestamps)
 
     def _compare_dir(self, conn: socket.socket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
@@ -372,8 +380,8 @@ if __name__ == '__main__':
                         help='Set a password for the host.', default='')
     parser.add_argument('--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
-    parser.add_argument('--avoid', action='store_true',
-                        help='Do not continue the transfer when the file name is repeated.')
+    parser.add_argument('--repeated', action='store_true',
+                        help='Continue receive the file when file name already exists (cancel by default).')
     args = parser.parse_args()
     base_dir = pathlib.PureWindowsPath(args.dest).as_posix()
     if platform_ == LINUX:
@@ -387,7 +395,7 @@ if __name__ == '__main__':
             sys.exit(1)
         print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), level=LEVEL.INFO)
 
-    fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, avoid=args.avoid, password=args.password)
+    fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
     handle_ctrl_event()
     try:
         fts.start()

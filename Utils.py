@@ -230,7 +230,7 @@ def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
 def get_log_msg(msg):
     t = threading.current_thread()
     now = datetime.now().strftime('%H:%M:%S.%f')[0:-3]
-    return f'{now} {t.ident:5} {t.name:10} {msg}'
+    return f'{now} {t.name:12} {msg}'
 
 
 def get_relative_filename_from_basedir(base_dir):
@@ -284,7 +284,7 @@ def handle_ctrl_event():
             else None, 1)
 
 
-def openfile_with_retires(filename: str, mode: str, max_retries: int = 10) -> Optional[TextIO]:
+def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> Optional[TextIO]:
     """
     多次重试创建文件，用于解决文件路径过长时
     Windows容易无法创建文件的问题
