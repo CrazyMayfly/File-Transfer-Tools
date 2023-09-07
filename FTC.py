@@ -235,7 +235,7 @@ class FTC:
                     file_size = file_size - size
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
                 conn.sendall(struct.pack(FMT.file_details_fmt.value, *get_file_time_details(real_path)))
-                big_file = file_size > 1024 * 1024
+                big_file = file_size > 100 * 1024 * 1024
                 if big_file:  # 小文件不画进度条
                     with self.__process_lock:
                         position = self.__position
@@ -474,7 +474,7 @@ class FTC:
         print_sysinfo(local_sysinfo)
 
     def _speedtest(self, times):
-        times = '1000' if times.isspace() or not times else times
+        times = '500' if times.isspace() or not times else times
         while not (times.isdigit() and int(times) > 0):
             times = input("请重新输入数据量（单位MB）：")
         times = int(times)
@@ -483,11 +483,24 @@ class FTC:
         file_head = struct.pack(FMT.head_fmt.value, b'', SPEEDTEST.encode(), data_size)
         with self.__connections as conn:
             conn.sendall(file_head)
-            with tqdm(total=data_size, desc='speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
+            start = time.time()
+            with tqdm(total=data_size, desc='speedtest_upload', unit='bytes', unit_scale=True, mininterval=1) as pbar:
                 for i in range(0, times):
                     # 生产随机字节
                     conn.sendall(token_bytes(data_unit))
                     pbar.update(data_unit)
+            upload_over = time.time()
+            self.logger.success(
+                f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - start), factor=1000, suffix='bps')}, 耗时 {upload_over - start:.2f}s")
+            with tqdm(total=data_size, desc='speedtest_download', unit='bytes', unit_scale=True, mininterval=1) as pbar:
+                for i in range(1, times + 1):
+                    receive_data(conn, data_unit)
+                    if i % 10 == 0:
+                        pbar.update(data_unit * 10)
+                pbar.update(data_unit * (times % 10))
+            download_over = time.time()
+            self.logger.success(
+                f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - upload_over), factor=1000, suffix='bps')}, 耗时 {download_over - upload_over:.2f}s")
 
     def _before_working(self):
         with self.__connections as conn:

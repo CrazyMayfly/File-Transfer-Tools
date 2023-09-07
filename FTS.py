@@ -4,6 +4,7 @@ import os.path
 import pathlib
 import ssl
 import uuid
+from secrets import token_bytes
 
 from Utils import *
 from sys_info import *
@@ -329,14 +330,19 @@ class FTS:
         conn.sendall(data)
 
     def _speedtest(self, conn: socket.socket, data_size):
-        self.logger.log(f"客户端请求速度测试，数据量: {get_size(data_size, factor=1000)}")
+        self.logger.log(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
         start = time.time()
         data_unit = 1000 * 1000
         for i in range(0, int(data_size / data_unit)):
             receive_data(conn, data_unit)
-        time_cost = time.time() - start
+        download_over = time.time()
         self.logger.success(
-            f"速度测试完毕, 耗时 {time_cost:.2f}s, 平均速度{get_size(data_size / time_cost, factor=1000)}/s.")
+            f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - start), factor=1000, suffix='bps')}, 耗时 {download_over - start:.2f}s")
+        for i in range(0, int(data_size / data_unit)):
+            conn.sendall(token_bytes(data_unit))
+        upload_over = time.time()
+        self.logger.success(
+            f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - download_over), factor=1000, suffix='bps')}, 耗时 {upload_over - download_over:.2f}s")
 
     def _before_working(self, conn: socket.socket):
         """
