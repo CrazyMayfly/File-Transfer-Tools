@@ -48,61 +48,6 @@ class FTS:
         threading.Thread(name='ArchThread', target=compress_log_files,
                          args=(config.log_dir, 'server', self.logger)).start()
 
-    def _route(self, conn: socket.socket, addr):
-        """
-        根据会话是否存在判断一个连接是否为主连接并进行路由
-        """
-        session_id = self._before_working(conn)
-        if not session_id:
-            return
-        if session_id not in self.__sessions.keys():
-            with self.__sessions_lock:
-                self.__sessions[session_id] = {conn}
-            self._master_work(conn, addr, session_id)
-        else:
-            self._slave_work(conn, self.base_dir, session_id)
-
-    def _makedirs(self, conn, base_dir, size, max_retries=10):
-        data = json.loads(receive_data(conn, size).decode())
-        dir_names = data['dir_names'].split('|')
-        # 处理文件夹
-        self.logger.info('开始创建文件夹，文件夹个数为 {}'.format(data['num']))
-        for dir_name in dir_names:
-            retries = 0
-            cur_dir = os.path.join(base_dir, dir_name)
-            while not os.path.exists(cur_dir) and retries < max_retries:
-                try:
-                    os.makedirs(cur_dir)
-                except FileNotFoundError:
-                    retries += 1
-                else:
-                    self.logger.info('创建文件夹 {0}'.format(dir_name))
-            if retries == max_retries:
-                self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
-        conn.sendall(b'0')
-
-    def _signal_online(self):
-        sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-        try:
-            sk.bind(('0.0.0.0', config.server_signal_port))
-        except OSError as e:
-            self.logger.error(f'广播主机信息服务启动失败，{e.strerror}')
-            return
-        content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode(utf8)
-        addr = (self.ip[0:self.ip.rindex('.')] + '.255', config.client_signal_port)
-        self.logger.log('广播主机信息服务已启动')
-        sk.sendto(content, addr)  # 广播
-        while True:
-            try:
-                data = sk.recv(1024).decode(utf8).split('_')
-            except ConnectionResetError:
-                return
-            else:
-                if data[0] == '53b997bc-a140-11ed-a8fc-0242ac120002':
-                    target_ip = data[1]
-                    self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
-                    sk.sendto(content, (target_ip, config.client_signal_port))  # 单播
-
     def _change_base_dir(self):
         """
         切换FTS的文件保存目录
@@ -120,163 +65,6 @@ class FTS:
                 self.logger.info('已创建文件夹 {}'.format(base_dir))
             self.base_dir = os.path.normcase(base_dir)
             self.logger.success(f'已将文件保存位置更改为: {self.base_dir}')
-
-    def _master_work(self, conn, addr, session_id):
-        """
-        主连接的工作
-        @param conn: 主连接
-        @param addr: 客户端地址
-        @param session_id: 本次会话id
-        """
-        self.logger.info(f'客户端连接 {get_hostname_by_ip(addr[0])}, {addr[0]}:{addr[1]}')
-        try:
-            while True:
-                file_head = receive_data(conn, FMT.head_fmt.size)
-                filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
-                filename = filename.decode(utf8).strip('\00')
-                command = command.decode().strip('\00')
-                base_dir = self.base_dir
-                if command == SEND_FILES_IN_DIR:
-                    self._makedirs(conn, base_dir=base_dir, size=file_size)
-                    self._recv_files_in_dir(session_id, base_dir)
-                elif command == SEND_FILE:
-                    self._recv_single_file(conn, filename, file_size, base_dir)
-                elif command == COMPARE_DIR:
-                    self._compare_dir(conn, filename)
-                elif command == COMMAND:
-                    self._execute_command(conn, filename)
-                elif command == SYSINFO:
-                    self._compare_sysinfo(conn)
-                elif command == SPEEDTEST:
-                    self._speedtest(conn, file_size)
-                elif command == PULL_CLIPBOARD:
-                    send_clipboard(conn, self.logger, FTC=False)
-                elif command == PUSH_CLIPBOARD:
-                    get_clipboard(conn, self.logger, file_head=file_head, FTC=False)
-                elif command == CLOSE:
-                    for conn in self.__sessions[session_id]:
-                        conn.close()
-                    self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
-                    break
-        except ConnectionResetError as e:
-            self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
-        finally:
-            with self.__sessions_lock:
-                self.__sessions.pop(session_id)
-
-    def _slave_work(self, conn, base_dir, session_id):
-        """
-        从连接的工作，只用于处理多文件接受
-
-        @param conn: 从连接
-        @param base_dir: 文件保存位置
-        @param session_id: 本次会话id
-        """
-        try:
-            while True:
-                file_head = receive_data(conn, FMT.head_fmt.size)
-                filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
-                filename = filename.decode(utf8).strip('\00')
-                command = command.decode().strip('\00')
-                if command == SEND_FILE:
-                    self._recv_single_file(conn, filename, file_size, base_dir)
-                elif command == FINISH:
-                    break
-        except ConnectionResetError:
-            pass
-        else:
-            # 首次工作结束后将连接添加到session里面
-            with self.__sessions_lock:
-                self.__sessions[session_id].add(conn)
-
-    def _recv_files_in_dir(self, session_id, base_dir):
-        with self.__sessions_lock:
-            conns = self.__sessions.get(session_id)
-        threads = []
-        for conn in conns:
-            peer_host, peer_port = conn.getpeername()
-            t = threading.Thread(name=socket.inet_aton(peer_host).hex() + hex(peer_port)[2:], target=self._slave_work,
-                                 args=(conn, base_dir, session_id))
-            threads.append(t)
-            t.start()
-        for t in threads:
-            t.join()
-
-    def start(self):
-        host = socket.gethostname()
-        self.ip = socket.gethostbyname(host)
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind(('0.0.0.0', config.server_port))
-        server_socket.listen(9999)
-        self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning('当前数据未进行加密传输')
-        self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
-        self.logger.log('当前默认文件存放位置：' + self.base_dir)
-        threading.Thread(name='SignThread', daemon=True, target=self._signal_online).start()
-        threading.Thread(name='CBDThread ', daemon=True, target=self._change_base_dir).start()
-        if self.__use_ssl:
-            # 生成SSL上下文
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            # 加载服务器所用证书和私钥
-            context.load_cert_chain(os.path.join(config.cert_dir, 'server.crt'),
-                                    os.path.join(config.cert_dir, 'server_rsa_private.pem'))
-            server_socket = context.wrap_socket(server_socket, server_side=True)
-        while True:
-            try:
-                conn, addr = server_socket.accept()
-                threading.Thread(name=socket.inet_aton(addr[0]).hex() + hex(addr[1])[2:], target=self._route,
-                                 args=(conn, addr)).start()
-            except ssl.SSLError as e:
-                self.logger.warning(f'SSLError: {e.reason}')
-
-    def _recv_single_file(self, conn: socket.socket, filename, file_size, base_dir):
-        file_path = os.path.join(base_dir, filename)
-        fp = None
-        try:
-            if self.__avoid_file_duplicate and os.path.exists(file_path):
-                # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
-                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL))
-            else:
-                original_file = avoid_filename_duplication(file_path)
-                cur_download_file = original_file + '.ftsdownload'
-                size = 0
-                if os.path.exists(cur_download_file):
-                    fp = openfile_with_retires(cur_download_file, 'ab')
-                    size = os.stat(cur_download_file).st_size
-                else:
-                    fp = openfile_with_retires(cur_download_file, 'wb')
-                if not fp:
-                    self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
-                    conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
-                    return
-                # 此处+4是为了与控制标志的值分开
-                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE if size == 0 else size + 4))
-                command = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))
-                if command == Control.TOOLONG:
-                    self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
-                else:
-                    relpath = os.path.relpath(original_file, base_dir)
-                    rest_size = file_size - size
-                    self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
-                                      '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath,
-                                                                                          *calcu_size(rest_size)))
-                    timestamps = struct.unpack(FMT.file_details_fmt.value,
-                                               receive_data(conn, FMT.file_details_fmt.size))
-                    begin = time.time()
-                    while rest_size > 0:
-                        data = conn.recv(min(unit, rest_size))
-                        rest_size -= len(data)
-                        fp.write(data)
-                    fp.close()
-                    time_cost = time.time() - begin
-                    avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
-                    self.logger.success(
-                        f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
-                    os.rename(cur_download_file, original_file)
-                    modifyFileTime(original_file, self.logger, *timestamps)
-        finally:
-            if fp and not fp.closed:
-                fp.close()
 
     def _compare_dir(self, conn: socket.socket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
@@ -344,6 +132,87 @@ class FTS:
         self.logger.success(
             f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - download_over), factor=1000, suffix='bps')}, 耗时 {upload_over - download_over:.2f}s")
 
+    def _makedirs(self, conn, base_dir, size, max_retries=10):
+        data = json.loads(receive_data(conn, size).decode())
+        dir_names = data['dir_names'].split('|')
+        # 处理文件夹
+        self.logger.info('开始创建文件夹，文件夹个数为 {}'.format(data['num']))
+        for dir_name in dir_names:
+            retries = 0
+            cur_dir = os.path.join(base_dir, dir_name)
+            while not os.path.exists(cur_dir) and retries < max_retries:
+                try:
+                    os.makedirs(cur_dir)
+                except FileNotFoundError:
+                    retries += 1
+                else:
+                    self.logger.info('创建文件夹 {0}'.format(dir_name))
+            if retries == max_retries:
+                self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
+        conn.sendall(b'0')
+
+    def _recv_files_in_dir(self, session_id, base_dir):
+        with self.__sessions_lock:
+            conns = self.__sessions.get(session_id)
+        threads = []
+        for conn in conns:
+            peer_host, peer_port = conn.getpeername()
+            t = threading.Thread(name=socket.inet_aton(peer_host).hex() + hex(peer_port)[2:], target=self._slave_work,
+                                 args=(conn, base_dir, session_id))
+            threads.append(t)
+            t.start()
+        for t in threads:
+            t.join()
+
+    def _recv_single_file(self, conn: socket.socket, filename, file_size, base_dir):
+        file_path = os.path.join(base_dir, filename)
+        fp = None
+        try:
+            if self.__avoid_file_duplicate and os.path.exists(file_path):
+                # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL))
+            else:
+                original_file = avoid_filename_duplication(file_path)
+                cur_download_file = original_file + '.ftsdownload'
+                size = 0
+                if os.path.exists(cur_download_file):
+                    fp = openfile_with_retires(cur_download_file, 'ab')
+                    size = os.stat(cur_download_file).st_size
+                else:
+                    fp = openfile_with_retires(cur_download_file, 'wb')
+                if not fp:
+                    self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
+                    conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
+                    return
+                # 此处+4是为了与控制标志的值分开
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE if size == 0 else size + 4))
+                command = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))
+                if command == Control.TOOLONG:
+                    self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
+                else:
+                    relpath = os.path.relpath(original_file, base_dir)
+                    rest_size = file_size - size
+                    self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
+                                      '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath,
+                                                                                          *calcu_size(rest_size)))
+                    timestamps = struct.unpack(FMT.file_details_fmt.value,
+                                               receive_data(conn, FMT.file_details_fmt.size))
+                    begin = time.time()
+                    while rest_size > 0:
+                        data = conn.recv(min(unit, rest_size))
+                        rest_size -= len(data)
+                        fp.write(data)
+                    fp.close()
+                    time_cost = time.time() - begin
+                    avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
+                    self.logger.success(
+                        f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
+                    os.rename(cur_download_file, original_file)
+                    modifyFileTime(original_file, self.logger, *timestamps)
+        finally:
+            if fp and not fp.closed:
+                fp.close()
+
     def _before_working(self, conn: socket.socket):
         """
         在传输之前的预处理
@@ -378,6 +247,136 @@ class FTS:
             return
         return session_id
 
+    def _signal_online(self):
+        sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
+        try:
+            sk.bind(('0.0.0.0', config.server_signal_port))
+        except OSError as e:
+            self.logger.error(f'广播主机信息服务启动失败，{e.strerror}')
+            return
+        content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode(utf8)
+        addr = (self.ip[0:self.ip.rindex('.')] + '.255', config.client_signal_port)
+        self.logger.log('广播主机信息服务已启动')
+        sk.sendto(content, addr)  # 广播
+        while True:
+            try:
+                data = sk.recv(1024).decode(utf8).split('_')
+            except ConnectionResetError:
+                return
+            else:
+                if data[0] == '53b997bc-a140-11ed-a8fc-0242ac120002':
+                    target_ip, target_port = data[1], data[2]
+                    self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
+                    sk.sendto(content, (target_ip, target_port))  # 单播
+
+    def _slave_work(self, conn, base_dir, session_id):
+        """
+        从连接的工作，只用于处理多文件接受
+
+        @param conn: 从连接
+        @param base_dir: 文件保存位置
+        @param session_id: 本次会话id
+        """
+        try:
+            while True:
+                file_head = receive_data(conn, FMT.head_fmt.size)
+                filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
+                filename = filename.decode(utf8).strip('\00')
+                command = command.decode().strip('\00')
+                if command == SEND_FILE:
+                    self._recv_single_file(conn, filename, file_size, base_dir)
+                elif command == FINISH:
+                    break
+        except ConnectionResetError:
+            pass
+        else:
+            # 首次工作结束后将连接添加到session里面
+            with self.__sessions_lock:
+                self.__sessions[session_id].add(conn)
+
+    def _master_work(self, conn, addr, session_id):
+        """
+        主连接的工作
+        @param conn: 主连接
+        @param addr: 客户端地址
+        @param session_id: 本次会话id
+        """
+        self.logger.info(f'客户端连接 {get_hostname_by_ip(addr[0])}, {addr[0]}:{addr[1]}')
+        try:
+            while True:
+                file_head = receive_data(conn, FMT.head_fmt.size)
+                filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
+                filename = filename.decode(utf8).strip('\00')
+                command = command.decode().strip('\00')
+                base_dir = self.base_dir
+                if command == SEND_FILES_IN_DIR:
+                    self._makedirs(conn, base_dir=base_dir, size=file_size)
+                    self._recv_files_in_dir(session_id, base_dir)
+                elif command == SEND_FILE:
+                    self._recv_single_file(conn, filename, file_size, base_dir)
+                elif command == COMPARE_DIR:
+                    self._compare_dir(conn, filename)
+                elif command == COMMAND:
+                    self._execute_command(conn, filename)
+                elif command == SYSINFO:
+                    self._compare_sysinfo(conn)
+                elif command == SPEEDTEST:
+                    self._speedtest(conn, file_size)
+                elif command == PULL_CLIPBOARD:
+                    send_clipboard(conn, self.logger, FTC=False)
+                elif command == PUSH_CLIPBOARD:
+                    get_clipboard(conn, self.logger, file_head=file_head, FTC=False)
+                elif command == CLOSE:
+                    for conn in self.__sessions[session_id]:
+                        conn.close()
+                    self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
+                    break
+        except ConnectionResetError as e:
+            self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
+        finally:
+            with self.__sessions_lock:
+                self.__sessions.pop(session_id)
+
+    def _route(self, conn: socket.socket, addr):
+        """
+        根据会话是否存在判断一个连接是否为主连接并进行路由
+        """
+        session_id = self._before_working(conn)
+        if not session_id:
+            return
+        if session_id not in self.__sessions.keys():
+            with self.__sessions_lock:
+                self.__sessions[session_id] = {conn}
+            self._master_work(conn, addr, session_id)
+        else:
+            self._slave_work(conn, self.base_dir, session_id)
+
+    def start(self):
+        self.ip, host = get_ip_and_hostname()
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind(('0.0.0.0', config.server_port))
+        server_socket.listen(9999)
+        self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning('当前数据未进行加密传输')
+        self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
+        self.logger.log('当前默认文件存放位置：' + self.base_dir)
+        threading.Thread(name='SignThread', daemon=True, target=self._signal_online).start()
+        threading.Thread(name='CBDThread ', daemon=True, target=self._change_base_dir).start()
+        if self.__use_ssl:
+            # 生成SSL上下文
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            # 加载服务器所用证书和私钥
+            context.load_cert_chain(os.path.join(config.cert_dir, 'server.crt'),
+                                    os.path.join(config.cert_dir, 'server_rsa_private.pem'))
+            server_socket = context.wrap_socket(server_socket, server_side=True)
+        while True:
+            try:
+                conn, addr = server_socket.accept()
+                threading.Thread(name=socket.inet_aton(addr[0]).hex() + hex(addr[1])[2:], target=self._route,
+                                 args=(conn, addr)).start()
+            except ssl.SSLError as e:
+                self.logger.warning(f'SSLError: {e.reason}')
+
 
 if __name__ == '__main__':
     # base_dir = input('请输入文件保存位置（输入1默认为桌面）：')
@@ -397,18 +396,14 @@ if __name__ == '__main__':
     if platform_ == LINUX:
         base_dir = pathlib.PurePath(args.dest).as_posix()
     base_dir = os.path.normcase(base_dir)
+    handle_ctrl_event()
+    fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
     if not os.path.exists(base_dir):
         try:
             os.makedirs(base_dir)
         except OSError as error:
-            print_color(f'无法创建 {base_dir}, {error}', level=LEVEL.ERROR, highlight=1)
+            fts.logger.error(f'无法创建 {base_dir}, {error}', highlight=1)
             sys.exit(1)
-        print_color(get_log_msg('已创建文件夹 {}'.format(base_dir)), level=LEVEL.INFO)
+        fts.logger.info('已创建文件夹 {}'.format(base_dir))
 
-    fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
-    handle_ctrl_event()
-    try:
-        fts.start()
-    finally:
-        if packaging:
-            os.system('pause')
+    fts.start()

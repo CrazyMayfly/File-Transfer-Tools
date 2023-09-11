@@ -264,6 +264,18 @@ def get_dir_file_name(filepath):
     return all_dir_name, all_file_name
 
 
+def get_ip_and_hostname():
+    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        st.connect(('10.255.255.255', 1))
+        ip = st.getsockname()[0]
+    except OSError:
+        ip = '127.0.0.1'
+    finally:
+        st.close()
+    return ip, socket.gethostname()
+
+
 def get_file_md5(filename):
     md5 = hashlib.md5()
     with open(filename, 'rb') as fp:
