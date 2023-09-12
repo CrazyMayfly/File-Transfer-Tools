@@ -267,7 +267,7 @@ class FTS:
                 if data[0] == '53b997bc-a140-11ed-a8fc-0242ac120002':
                     target_ip, target_port = data[1], data[2]
                     self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
-                    sk.sendto(content, (target_ip, target_port))  # 单播
+                    sk.sendto(content, (target_ip, int(target_port)))  # 单播
 
     def _slave_work(self, conn, base_dir, session_id):
         """
