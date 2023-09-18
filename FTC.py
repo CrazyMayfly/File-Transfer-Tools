@@ -121,7 +121,10 @@ class FTC:
                 file_in_peer_smaller_than_local = []
                 file_size_and_name_both_equal = []
                 for filename in local_filenames:
-                    size_diff = local_dict[filename] - peer_dict[filename]
+                    try:
+                        size_diff = local_dict[filename] - peer_dict[filename]
+                    except KeyError:
+                        continue
                     if size_diff < 0:
                         file_in_local_smaller_than_peer.append(filename)
                     elif size_diff == 0:
