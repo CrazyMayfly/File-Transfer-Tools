@@ -102,73 +102,69 @@ class FTC:
         with self.__connections as conn:
             conn.sendall(file_head)
             is_dir_correct = receive_data(conn, len(DIRISCORRECT))
-            is_dir_correct = is_dir_correct.decode() == DIRISCORRECT
-            if is_dir_correct:
-                local_dict = get_relative_filename_from_basedir(local_dir)
-                # 获取本地的文件名
-                local_filenames = local_dict.keys()
-                # 获取本次字符串大小
-                data_size = receive_data(conn, FMT.size_fmt.size)
-                data_size = struct.unpack(FMT.size_fmt.value, data_size)[0]
-                # 接收字符串
-                data = receive_data(conn, data_size).decode()
-                # 将字符串转化为dict
-                peer_dict = json.loads(data)
-                peer_filenames = peer_dict.keys()
-
-                # 求各种集合
-                file_in_local_smaller_than_peer = []
-                file_in_peer_smaller_than_local = []
-                file_size_and_name_both_equal = []
-                for filename in local_filenames:
-                    try:
-                        size_diff = local_dict[filename] - peer_dict[filename]
-                    except KeyError:
-                        continue
-                    if size_diff < 0:
-                        file_in_local_smaller_than_peer.append(filename)
-                    elif size_diff == 0:
-                        file_size_and_name_both_equal.append(filename)
-                    else:
-                        file_in_peer_smaller_than_local.append(filename)
-
-                file_not_exits_in_local = [filename for filename in peer_filenames if filename not in local_filenames]
-                file_not_exits_in_peer = [filename for filename in local_filenames if filename not in peer_dict]
-                for arg in [("file exits in peer but not exits in local: ", file_not_exits_in_local),
-                            ("file exits in local but not exits in peer: ", file_not_exits_in_peer),
-                            ("file in local smaller than peer: ", file_in_local_smaller_than_peer),
-                            ("file in peer smaller than local: ", file_in_peer_smaller_than_local),
-                            ("file name and size both equal in two sides: ", file_size_and_name_both_equal)]:
-                    print_filename_if_exits(*arg)
-
-                if file_size_and_name_both_equal:
-                    is_continue = input("Continue to compare hash for filename and size both equal set?(y/n): ") == 'y'
-                    if is_continue:
-                        # 发送继续请求
-                        conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE.value))
-                        # 发送相同的文件名称大小
-                        data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
-                        conn.sendall(struct.pack(FMT.size_fmt.value, len(data_to_send)))
-                        # 发送字符串
-                        conn.sendall(data_to_send)
-                        results = {filename: get_file_md5(os.path.join(local_dir, filename)) for filename in
-                                   file_size_and_name_both_equal}
-                        # 获取本次字符串大小
-                        data_size = receive_data(conn, FMT.size_fmt.size)
-                        data_size = struct.unpack(FMT.size_fmt.value, data_size)[0]
-                        # 接收字符串
-                        data = receive_data(conn, data_size).decode()
-                        # 将字符串转化为dict
-                        peer_dict = json.loads(data)
-                        hash_not_matching = [filename for filename in results.keys() if
-                                             results[filename] != peer_dict[filename]]
-                        print_filename_if_exits("hash not matching: ", hash_not_matching)
-                    else:
-                        conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL.value))
-                else:
-                    conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL.value))
-            else:
+            if is_dir_correct.decode() != DIRISCORRECT:
                 self.logger.warning(f"目标文件夹 {peer_dir} 不存在")
+                return
+            local_dict = get_relative_filename_from_basedir(local_dir)
+            # 获取本地的文件名
+            local_filenames = local_dict.keys()
+            # 获取本次字符串大小
+            data_size = receive_data(conn, FMT.size_fmt.size)
+            data_size = struct.unpack(FMT.size_fmt.value, data_size)[0]
+            # 接收字符串
+            data = receive_data(conn, data_size).decode()
+            # 将字符串转化为dict
+            peer_dict: dict = json.loads(data)
+            # 求各种集合
+            file_in_local_smaller_than_peer = []
+            file_in_peer_smaller_than_local = []
+            file_size_and_name_both_equal = []
+            file_not_exits_in_peer = []
+            for filename in local_filenames:
+                peer_size = peer_dict.pop(filename, -1)
+                if peer_size == -1:
+                    file_not_exits_in_peer.append(filename)
+                    continue
+                size_diff = local_dict[filename] - peer_size
+                if size_diff < 0:
+                    file_in_local_smaller_than_peer.append(filename)
+                elif size_diff == 0:
+                    file_size_and_name_both_equal.append(filename)
+                else:
+                    file_in_peer_smaller_than_local.append(filename)
+            file_not_exits_in_local = peer_dict.keys()
+            for arg in [("file exits in peer but not exits in local: ", file_not_exits_in_local),
+                        ("file exits in local but not exits in peer: ", file_not_exits_in_peer),
+                        ("file in local smaller than peer: ", file_in_local_smaller_than_peer),
+                        ("file in peer smaller than local: ", file_in_peer_smaller_than_local),
+                        ("file name and size both equal in two sides: ", file_size_and_name_both_equal)]:
+                print_filename_if_exits(*arg)
+
+            if not file_size_and_name_both_equal:
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL.value))
+                return
+            if input("Continue to compare hash for filename and size both equal set?(y/n): ") != 'y':
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL.value))
+                return
+            # 发送继续请求
+            conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE.value))
+            # 发送相同的文件名称大小
+            data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
+            conn.sendall(struct.pack(FMT.size_fmt.value, len(data_to_send)))
+            # 发送字符串
+            conn.sendall(data_to_send)
+            results = {filename: get_file_md5(os.path.join(local_dir, filename)) for filename in
+                       file_size_and_name_both_equal}
+            # 获取本次字符串大小
+            data_size = receive_data(conn, FMT.size_fmt.size)
+            data_size = struct.unpack(FMT.size_fmt.value, data_size)[0]
+            # 接收字符串
+            data = receive_data(conn, data_size).decode()
+            # 将字符串转化为dict
+            peer_dict = json.loads(data)
+            hash_not_matching = [filename for filename in results.keys() if
+                                 results[filename] != peer_dict[filename]]
+            print_filename_if_exits("hash not matching: ", hash_not_matching)
 
     def _execute_command(self, command):
         command = command.strip()
