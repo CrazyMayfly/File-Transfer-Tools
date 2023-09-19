@@ -132,30 +132,30 @@ The following are screenshots running on the same host.
 
 Program start
 
-![startup](assets/startup.png)
+![startup](docs/assets/startup.png)
 
 Transfer files
-![file](assets/file.png)
+![file](docs/assets/file.png)
 
 Execute the command: sysinfo
 
-![sysinfo](assets/sysinfo.png)
+![sysinfo](docs/assets/sysinfo.png)
 
 Execute the command: speedtest
 
-![speedtest](assets/speedtest.png)
+![speedtest](docs/assets/speedtest.png)
 
 Execute the command: compare
 
-![compare](assets/compare.png)
+![compare](docs/assets/compare.png)
 
 Execute the command: clip
 
-![clip](assets/clip.png)
+![clip](docs/assets/clip.png)
 
 Execute command line commands
 
-![command](assets/cmd.png)
+![command](docs/assets/cmd.png)
 
 ### FTS
 
@@ -188,7 +188,7 @@ optional arguments:
 
 #### Screenshots of the runtime
 
-![FTS](assets/FTS.png)
+![FTS](docs/assets/FTS.png)
 
 ## Configuration
 
