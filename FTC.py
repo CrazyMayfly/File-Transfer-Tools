@@ -303,7 +303,7 @@ class FTC:
                 for fail in fails:
                     self.logger.warning(fail)
             else:
-                self.__pbar.colour = '#2ECC71'
+                self.__pbar.colour = '#98c379'
                 self.__pbar = self.__pbar.close()
                 self.logger.success("本次全部文件正常发送")
 
