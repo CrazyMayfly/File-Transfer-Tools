@@ -185,8 +185,7 @@ class FTS:
                     self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
                     conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
                     return
-                # 此处+4是为了与控制标志的值分开
-                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE if size == 0 else size + 4))
+                conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE + size))
                 command = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))
                 if command == Control.TOOLONG:
                     self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))

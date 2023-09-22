@@ -441,7 +441,7 @@ commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL,
 class FMT(Enum):
     filename_fmt = '800s'
     head_fmt = f'>{filename_fmt}14sQ'  # 大端对齐，800位文件（夹）名，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
-    size_fmt = 'Q'
+    size_fmt = 'q'
     file_details_fmt = 'ddd'
 
     @property
@@ -451,8 +451,8 @@ class FMT(Enum):
 
 class Control(IntFlag):
     CONTINUE = 0
-    CANCEL = 1
-    TOOLONG = 2
+    CANCEL = -1
+    TOOLONG = -2
 
 
 class ConfigOption(Enum):

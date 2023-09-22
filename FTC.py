@@ -1,6 +1,7 @@
 import argparse
 import json
 import os.path
+import queue
 import random
 import ssl
 from multiprocessing.pool import ThreadPool
@@ -11,15 +12,6 @@ from tqdm import tqdm
 
 from Utils import *
 from sys_info import *
-
-
-def print_filename_if_exits(prompt, filename_list):
-    print(prompt)
-    if filename_list:
-        for filename in filename_list:
-            print('\t' + filename)
-    else:
-        print('\tNone')
 
 
 def print_history(nums=10):
@@ -51,8 +43,7 @@ class FTC:
         self.threads = threads
         self.__connections = self.Connections()
         self.__base_dir = ''
-        self.__process_lock = threading.Lock()
-        self.__position = 0
+        self.__position_queue = queue.SimpleQueue()
         self.__session_id = 0
         self.__first_connect = True
         self.__command_prefix = ''
@@ -61,7 +52,9 @@ class FTC:
         self.logger.log('本次日志文件存放位置为: ' + log_file)
         # 进行日志归档
         self.__thread_pool = None
-        threading.Thread(name='ArchThread', target=compress_log_files,
+        for i in range(1, threads + 1):
+            self.__position_queue.put(i)
+        threading.Thread(name='ArchiveThread', target=compress_log_files,
                          args=(config.log_dir, 'client', self.logger)).start()
 
     class Connections:
@@ -95,6 +88,14 @@ class FTC:
             pass
 
     def _compare_dir(self, local_dir, peer_dir):
+        def print_filename_if_exits(prompt, filename_list):
+            print(prompt)
+            if filename_list:
+                for filename in filename_list:
+                    print('\t' + filename)
+            else:
+                print('\tNone')
+
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
             return
@@ -261,8 +262,6 @@ class FTC:
         self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}\n'.format(filepath, len(all_dir_name)))
         self.__connections.main_conn.sendall(data)
         del data
-        # 每次发送文件夹时将进度条位置初始化
-        self.__position = 0
         self.__base_dir = os.path.dirname(filepath)
         # 打乱列表以避免多个小文件聚簇在一起，影响效率
         random.shuffle(all_file_name)
@@ -275,11 +274,6 @@ class FTC:
             sz1, sz2 = calcu_size(file_size)
             self.logger.log(f"{real_path}, 约{sz1}, {sz2}", screen=False)
             total_size += file_size
-        # 初始化总进度条
-        with self.__process_lock:
-            self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
-                               unit_scale=True, mininterval=1, position=0)
-            self.__position += 1
         # 扩充连接和初始化线程池
         self.connect(self.threads)
         if self.__thread_pool is None:
@@ -288,6 +282,9 @@ class FTC:
         receive_data(self.__connections.main_conn, 1)
         # self.log('文件夹发送完毕，耗时 {} s'.format(round(time.time() - start, 2)), 'blue')
         self.logger.info('开始发送 {} 路径下所有文件，文件个数为 {}\n'.format(filepath, len(all_file_name)))
+        # 初始化总进度条
+        self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
+                           unit_scale=True, mininterval=1, position=0, colour='#01579B')
         # 异步发送文件并等待结果
         results = [self.__thread_pool.apply_async(self._send_file, (filename,)) for filename in all_file_name]
         # 比对发送成功或失败的文件
@@ -298,14 +295,16 @@ class FTC:
             for conn in self.__connections.connections:
                 conn.sendall(file_head)
         finally:
-            self.__pbar.close()
-            self.__pbar = None
             fails = set(all_file_name) - success_recv
             if fails:
+                self.__pbar.colour = '#F44336'
+                self.__pbar = self.__pbar.close()
                 self.logger.error("发送失败的文件：", highlight=1)
                 for fail in fails:
                     self.logger.warning(fail)
             else:
+                self.__pbar.colour = '#2ECC71'
+                self.__pbar = self.__pbar.close()
                 self.logger.success("本次全部文件正常发送")
 
     def _send_single_file(self, filepath):
@@ -316,6 +315,11 @@ class FTC:
             else self.logger.error("发送失败")
 
     def _send_file(self, filepath):
+        def update_pbar(size):
+            if self.__pbar:
+                with self.__pbar.get_lock():
+                    self.__pbar.update(size)
+
         real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
@@ -325,9 +329,7 @@ class FTC:
             conn.sendall(file_head)
             flag = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == Control.CANCEL:
-                if self.__pbar:
-                    with self.__process_lock:
-                        self.__pbar.update(file_size)
+                update_pbar(file_size)
             elif flag == Control.TOOLONG:
                 self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
@@ -337,34 +339,25 @@ class FTC:
                     self.logger.error(f'文件路径太长，无法发送: {real_path}', highlight=1)
                     conn.sendall(struct.pack(FMT.size_fmt.value, Control.TOOLONG))
                     return
-                size = flag
-                if size > 4:
-                    size -= 4
-                    fp.seek(size, 0)
-                    file_size = file_size - size
+                # 服务端已有的文件大小
+                exist_size = flag
+                fp.seek(exist_size, 0)
+                # 待发送的文件大小
+                rest_size = file_size - exist_size
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
                 conn.sendall(struct.pack(FMT.file_details_fmt.value, *get_file_time_details(real_path)))
-                big_file = file_size > 100 * 1024 * 1024
-                if big_file:  # 小文件不画进度条
-                    with self.__process_lock:
-                        position = self.__position
-                        self.__position += 1
-                    pbar = tqdm(total=file_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
-                                mininterval=1, position=position)
+                position, leave, delay = (self.__position_queue.get(), False, 0.1) if self.__pbar else (0, True, 0)
+                pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
+                            mininterval=1, position=position, leave=leave, delay=delay)
                 data = fp.read(unit)
                 while data:
                     conn.sendall(data)
-                    if big_file:
-                        pbar.update(len(data))
-                    if self.__pbar:
-                        with self.__process_lock:
-                            self.__pbar.update(len(data))
+                    pbar.update(len(data))
+                    update_pbar(len(data))
                     data = fp.read(unit)
-                if self.__pbar:
-                    with self.__process_lock:
-                        self.__pbar.update(size)
-                if big_file:
-                    pbar.close()
+                pbar.close()
+                self.__position_queue.put(position) if self.__pbar else None
+                update_pbar(exist_size)
                 fp.close()
         return filepath
 
