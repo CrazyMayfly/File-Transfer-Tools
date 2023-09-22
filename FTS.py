@@ -56,6 +56,7 @@ class FTS:
             base_dir = input('>>> ')
             if not base_dir or base_dir.isspace():
                 continue
+            base_dir = os.path.join(os.getcwd(), base_dir)
             if not os.path.exists(base_dir):
                 try:
                     os.makedirs(base_dir)
@@ -63,7 +64,7 @@ class FTS:
                     self.logger.error(f'无法创建 {base_dir}, {error}')
                     continue
                 self.logger.info('已创建文件夹 {}'.format(base_dir))
-            self.base_dir = os.path.normcase(base_dir)
+            self.base_dir = base_dir
             self.logger.success(f'已将文件保存位置更改为: {self.base_dir}')
 
     def _compare_dir(self, conn: socket.socket, dir_name):
