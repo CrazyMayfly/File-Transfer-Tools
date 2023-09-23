@@ -3,6 +3,7 @@ import json
 import os.path
 import queue
 import random
+import shutil
 import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
@@ -346,9 +347,10 @@ class FTC:
                 rest_size = file_size - exist_size
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
                 conn.sendall(struct.pack(FMT.file_details_fmt.value, *get_file_time_details(real_path)))
-                position, leave, delay = (self.__position_queue.get(), False, 0.1) if self.__pbar else (0, True, 0)
+                position, leave = (self.__position_queue.get(), False) if self.__pbar else (0, True)
+                pbar_width = shutil.get_terminal_size().columns / 4
                 pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
-                            mininterval=1, position=position, leave=leave, delay=delay)
+                            mininterval=1, position=position, leave=leave)
                 data = fp.read(unit)
                 while data:
                     conn.sendall(data)

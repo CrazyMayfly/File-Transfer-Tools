@@ -380,27 +380,31 @@ def compress_log_files(base_dir, log_type, logger: Logger):
 
 
 def shorten_path(path: str, max_width):
-    def shorten_string(string: str, width):
-        if width <= 0:
-            return '...'
-        if len(string) - width <= 0:
-            return string
-        margin = int(width / 2)
-        return '...' if margin == 0 else string[0:margin] + '..' + string[-margin:]
-
-    parts: list = path.split(os.path.sep)
-    if len(path) <= max_width or len(parts) == 1:
-        return shorten_string(path, max_width)
-    path_sep = '...' + os.path.sep
-    base = parts.pop()
-    if len(base) - 4 >= max_width:
-        return path_sep + shorten_string(base, len(base) - 4)
-    avg_width = int((max_width - len(base)) / len(parts))
-    if avg_width < 2:
-        return shorten_string(os.path.sep.join(parts), max_width - len(base)) + os.path.sep + base
-    shortened_parts = [shorten_string(part, avg_width) for part in parts]
-    shortened_parts.append(base)
-    return os.path.sep.join(shortened_parts)
+    if len(path) > max_width:
+        return path[:int((max_width - 3) / 3)] + '...' + path[-2 * int((max_width - 3) / 3):]
+    return path + ' ' * (int(max_width) - len(path))
+    #
+    # def shorten_string(string: str, width):
+    #     if width <= 0:
+    #         return '...'
+    #     if len(string) - width <= 0:
+    #         return string
+    #     margin = int(width / 2)
+    #     return '...' if margin == 0 else string[0:margin] + '..' + string[-margin:]
+    #
+    # parts: list = path.split(os.path.sep)
+    # if len(path) <= max_width or len(parts) == 1:
+    #     return shorten_string(path, max_width)
+    # path_sep = '...' + os.path.sep
+    # base = parts.pop()
+    # if len(base) - 4 >= max_width:
+    #     return path_sep + shorten_string(base, len(base) - 4)
+    # avg_width = int((max_width - len(base)) / len(parts))
+    # if avg_width < 2:
+    #     return shorten_string(os.path.sep.join(parts), max_width - len(base)) + os.path.sep + base
+    # shortened_parts = [shorten_string(part, avg_width) for part in parts]
+    # shortened_parts.append(base)
+    # return os.path.sep.join(shortened_parts)
 
 
 # 打包控制变量，用于将程序打包为exe后防止直接退出控制台
@@ -433,7 +437,6 @@ GET: Final[str] = 'get'
 SEND: Final[str] = 'send'
 DIRISCORRECT: Final[str] = "DirIsCorrect"
 utf8: Final[str] = 'utf-8'
-pbar_width: Final[int] = 30
 unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
 
