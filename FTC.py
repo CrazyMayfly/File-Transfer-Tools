@@ -1,7 +1,6 @@
 import argparse
 import json
 import os.path
-import queue
 import random
 import shutil
 import ssl
@@ -313,7 +312,7 @@ class FTC:
             else self.logger.error("发送失败")
 
     def _send_file(self, filepath):
-        def update_pbar(size):
+        def update_global_pbar(size):
             if self.__pbar:
                 with self.__pbar.get_lock():
                     self.__pbar.update(size)
@@ -327,7 +326,7 @@ class FTC:
             conn.sendall(file_head)
             flag = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == Control.CANCEL:
-                update_pbar(file_size)
+                update_global_pbar(file_size)
             elif flag == Control.TOOLONG:
                 self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
@@ -344,19 +343,20 @@ class FTC:
                 rest_size = file_size - exist_size
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
                 conn.sendall(struct.pack(FMT.file_details_fmt.value, *get_file_time_details(real_path)))
-                position, leave = (int(threading.current_thread().name[-1:]) % self.__threads, False) if self.__pbar else (0, True)
+                position, leave, delay = (int(threading.current_thread().name[-1:])
+                                          % self.__threads + 1, False, 0.1) if self.__pbar else (0, True, 0)
                 pbar_width = shutil.get_terminal_size().columns / 4
                 pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
-                            mininterval=1, position=position, leave=leave)
+                            mininterval=1, position=position, leave=leave, delay=delay)
                 data = fp.read(unit)
                 while data:
                     conn.sendall(data)
                     pbar.update(len(data))
-                    update_pbar(len(data))
+                    update_global_pbar(len(data))
                     data = fp.read(unit)
                 fp.close()
+                update_global_pbar(exist_size)
                 pbar.close()
-                update_pbar(exist_size)
         return filepath
 
     def validate_password(self, conn):
