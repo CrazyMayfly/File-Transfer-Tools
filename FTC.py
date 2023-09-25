@@ -41,10 +41,9 @@ class FTC:
         self.__use_ssl = use_ssl
         self.__pbar = None
         self.host = host
-        self.threads = threads
+        self.__threads = threads
         self.__connections = self.Connections()
         self.__base_dir = ''
-        self.__position_queue = queue.SimpleQueue()
         self.__session_id = 0
         self.__first_connect = True
         self.__command_prefix = ''
@@ -53,8 +52,6 @@ class FTC:
         self.logger.log('本次日志文件存放位置为: ' + log_file)
         # 进行日志归档
         self.__thread_pool = None
-        for i in range(1, threads + 1):
-            self.__position_queue.put(i)
         threading.Thread(name='ArchiveThread', target=compress_log_files,
                          args=(config.log_dir, 'client', self.logger)).start()
 
@@ -276,9 +273,9 @@ class FTC:
             self.logger.log(f"{real_path}, 约{sz1}, {sz2}", screen=False)
             total_size += file_size
         # 扩充连接和初始化线程池
-        self.connect(self.threads)
+        self.connect(self.__threads)
         if self.__thread_pool is None:
-            self.__thread_pool = ThreadPool(self.threads)
+            self.__thread_pool = ThreadPool(self.__threads)
         # 等待文件夹发送完成
         receive_data(self.__connections.main_conn, 1)
         # self.log('文件夹发送完毕，耗时 {} s'.format(round(time.time() - start, 2)), 'blue')
@@ -347,7 +344,7 @@ class FTC:
                 rest_size = file_size - exist_size
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
                 conn.sendall(struct.pack(FMT.file_details_fmt.value, *get_file_time_details(real_path)))
-                position, leave = (self.__position_queue.get(), False) if self.__pbar else (0, True)
+                position, leave = (int(threading.current_thread().name[-1:]) % self.__threads, False) if self.__pbar else (0, True)
                 pbar_width = shutil.get_terminal_size().columns / 4
                 pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
                             mininterval=1, position=position, leave=leave)
@@ -357,10 +354,9 @@ class FTC:
                     pbar.update(len(data))
                     update_pbar(len(data))
                     data = fp.read(unit)
-                pbar.close()
-                self.__position_queue.put(position) if self.__pbar else None
-                update_pbar(exist_size)
                 fp.close()
+                pbar.close()
+                update_pbar(exist_size)
         return filepath
 
     def validate_password(self, conn):
@@ -484,7 +480,7 @@ class FTC:
             sys.exit(-1)
 
     def main(self):
-        self.logger.info('当前线程数：{}'.format(self.threads))
+        self.logger.info('当前线程数：{}'.format(self.__threads))
         self._before_working()
         while True:
             command = input('>>> ')
