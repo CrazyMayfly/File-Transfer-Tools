@@ -16,6 +16,7 @@ from datetime import datetime
 from enum import Enum, IntFlag
 from typing import Optional, TextIO, Final
 
+import readline
 from send2trash import send2trash
 
 from sys_info import get_size
@@ -286,14 +287,18 @@ def get_file_md5(filename):
     return md5.hexdigest()
 
 
-def handle_ctrl_event():
+def handle_ctrl_event(logger: Logger, history_file=None):
     # determine platform, to fix ^c doesn't work on Windows
     if platform_ == WINDOWS:
+        def call_back(ctrl_type):
+            if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT):
+                if readline.get_current_history_length():
+                    readline.write_history_file(history_file)
+                logger.close()
+                os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+
         from win32api import SetConsoleCtrlHandler
-        SetConsoleCtrlHandler(
-            lambda ctrl_type: os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
-            if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT)
-            else None, 1)
+        SetConsoleCtrlHandler(call_back, 1)
 
 
 def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> Optional[TextIO]:

@@ -7,9 +7,7 @@ import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 
-import readline
 from tqdm import tqdm
-
 from Utils import *
 from sys_info import *
 
@@ -326,7 +324,9 @@ class FTC:
             conn.sendall(file_head)
             flag = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == Control.CANCEL:
-                update_global_pbar(file_size)
+                if self.__pbar:
+                    with self.__pbar.get_lock():
+                        self.__pbar.total -= file_size
             elif flag == Control.TOOLONG:
                 self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
@@ -531,7 +531,6 @@ if __name__ == '__main__':
     parser.add_argument('--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
     args = parser.parse_args()
-    handle_ctrl_event()
     # 自动补全设置
     readline.set_completer(completer)
     readline.set_history_length(1000)
@@ -541,6 +540,7 @@ if __name__ == '__main__':
         readline.read_history_file(history_file)
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
+    handle_ctrl_event(logger=ftc.logger, history_file=history_file)
     ftc.probe_server()
     try:
         ftc.connect()

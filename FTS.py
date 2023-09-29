@@ -53,7 +53,10 @@ class FTS:
         切换FTS的文件保存目录
         """
         while True:
-            base_dir = input('>>> ')
+            try:
+                base_dir = input('>>> ')
+            except Exception:
+                continue
             if not base_dir or base_dir.isspace():
                 continue
             base_dir = os.path.join(os.getcwd(), base_dir)
@@ -396,8 +399,8 @@ if __name__ == '__main__':
     if platform_ == LINUX:
         base_dir = pathlib.PurePath(args.dest).as_posix()
     base_dir = os.path.normcase(base_dir)
-    handle_ctrl_event()
     fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
+    handle_ctrl_event(logger=fts.logger)
     if not os.path.exists(base_dir):
         try:
             os.makedirs(base_dir)
@@ -405,5 +408,4 @@ if __name__ == '__main__':
             fts.logger.error(f'无法创建 {base_dir}, {error}', highlight=1)
             sys.exit(1)
         fts.logger.info('已创建文件夹 {}'.format(base_dir))
-
     fts.start()
