@@ -99,13 +99,13 @@ class FTS:
 
     def _execute_command(self, conn: socket.socket, command):
         self.logger.log("执行命令：" + command)
-        result = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        for pipe in (result.stdout, result.stderr):
-            res = pipe.read()
-            while res:
-                conn.sendall(res.encode("UTF-32"))
-                print(res, end='')
-                res = pipe.read(1)
+        out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT).stdout
+        result = out.read(1)
+        while result:
+            conn.sendall(result.encode("UTF-32"))
+            print(result, end='')
+            result = out.read(1)
         # 命令执行结束
         conn.sendall(b'\00' * 8)
 
