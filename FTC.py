@@ -192,7 +192,6 @@ class FTC:
                 self.__pbar.total -= size
 
     def _execute_command(self, command):
-        command = command.strip()
         # 防止命令将输入端交给服务器
         if len(command) == 0:
             return
@@ -505,7 +504,7 @@ class FTC:
         self.logger.info('当前线程数：{}'.format(self.__threads))
         self._before_working()
         while True:
-            command = input('>>> ')
+            command = input('>>> ').strip()
             self._add_history(command)
             try:
                 if command in ['q', 'quit', 'exit']:
