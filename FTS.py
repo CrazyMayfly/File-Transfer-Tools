@@ -33,16 +33,13 @@ def avoid_filename_duplication(filename: str):
 class FTS:
     def __init__(self, base_dir, use_ssl, repeated, password=''):
         self.__password = password
-        log_file_path = os.path.normcase(
-            os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log'))
         self.ip = ''
         self.base_dir = base_dir
         self.__use_ssl = use_ssl
         self.__sessions_lock = threading.Lock()
         self.__sessions: dict[int:set[socket.socket]] = {}
         self.__avoid_file_duplicate = not repeated
-        self.logger = Logger(log_file_path)
-        self.logger.log('本次日志文件存放位置: ' + log_file_path)
+        self.logger = Logger(os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_server.log'))
         self.logger.log(f'本次服务器密码: {password if password else "无"}')
         # 进行日志归档
         threading.Thread(name='ArchThread', target=compress_log_files,
@@ -395,9 +392,8 @@ if __name__ == '__main__':
     parser.add_argument('--repeated', action='store_true',
                         help='Continue receive the file when file name already exists (cancel by default).')
     args = parser.parse_args()
-    base_dir = pathlib.PureWindowsPath(args.dest).as_posix()
-    if platform_ == LINUX:
-        base_dir = pathlib.PurePath(args.dest).as_posix()
+    base_dir = pathlib.PurePath(args.dest).as_posix() if platform_ == LINUX else pathlib.PureWindowsPath(
+        args.dest).as_posix()
     base_dir = os.path.normcase(base_dir)
     fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
     handle_ctrl_event(logger=fts.logger)

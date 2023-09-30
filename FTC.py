@@ -7,6 +7,7 @@ import ssl
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 
+import readline
 from tqdm import tqdm
 from Utils import *
 from sys_info import *
@@ -25,10 +26,25 @@ def completer(text, state):
 
 
 def split_dir(command):
+    """
+    将命令分割为两个目录名
+    """
     dir_names = command[8:].split('"')
     dir_names = dir_names[0].split(' ') if len(dir_names) == 1 else \
         [dir_name.strip() for dir_name in dir_names if dir_name.strip()]
     return dir_names if len(dir_names) == 2 else (None, None)
+
+
+def read_line_setup() -> str:
+    """
+    设置readline的补全和历史记录功能
+    """
+    readline.set_completer(completer)
+    readline.set_history_length(1000)
+    readline.parse_and_bind('tab: complete')
+    history_filename = os.path.join(config.log_dir, 'history.txt')
+    readline.read_history_file(history_filename)
+    return history_filename
 
 
 class FTC:
@@ -44,11 +60,10 @@ class FTC:
         self.__session_id = 0
         self.__first_connect = True
         self.__command_prefix = ''
-        log_file = os.path.normcase(os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log'))
-        self.logger = Logger(log_file)
-        self.logger.log('本次日志文件存放位置为: ' + log_file)
+        self.logger = Logger(os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log'))
         # 进行日志归档
         self.__thread_pool = None
+        self.__history_file = open(read_line_setup(), 'a+', encoding=utf8)
         threading.Thread(name='ArchiveThread', target=compress_log_files,
                          args=(config.log_dir, 'client', self.logger)).start()
 
@@ -81,6 +96,11 @@ class FTC:
 
         def __exit__(self, exc_type, exc_val, exc_tb):
             pass
+
+    def _add_history(self, history: str):
+        readline.add_history(history)
+        self.__history_file.write(history + '\n')
+        self.__history_file.flush()
 
     def _compare_dir(self, local_dir, peer_dir):
         def print_filename_if_exits(prompt, filename_list):
@@ -375,8 +395,7 @@ class FTC:
             msg, session_id = self.validate_password(conn)
         if msg == FAIL:
             self.logger.error('连接至服务器的密码错误', highlight=1)
-            self.close_connection(send_close_info=False)
-            sys.exit(-1)
+            self.close(send_close_info=False)
         else:
             self.logger.info('服务器所在平台: ' + msg)
             self.__peer_platform = msg
@@ -422,7 +441,7 @@ class FTC:
             self.__use_ssl = ip_useSSL_dict.get(hostname) if hostname in all_ip \
                 else input('开启 SSL(y/n)? ').lower() == 'y'
 
-    def close_connection(self, send_close_info=True):
+    def close(self, send_close_info=True):
         if self.__thread_pool:
             self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
@@ -432,10 +451,11 @@ class FTC:
             for conn in self.__connections.connections:
                 if send_close_info:
                     conn.sendall(close_info)
-                # time.sleep(random.randint(0, 50) / 100)
                 conn.close()
         finally:
             self.logger.close()
+            self.__history_file.close()
+            sys.exit(0)
 
     def connect(self, nums=1):
         """
@@ -486,11 +506,10 @@ class FTC:
         self._before_working()
         while True:
             command = input('>>> ')
-            readline.add_history(command)
+            self._add_history(command)
             try:
                 if command in ['q', 'quit', 'exit']:
-                    self.close_connection()
-                    return
+                    self.close()
                 elif os.path.isdir(command) and os.path.exists(command):
                     self._send_files_in_dir(command)
                 elif os.path.isfile(command) and os.path.exists(command):
@@ -533,21 +552,11 @@ if __name__ == '__main__':
     parser.add_argument('--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
     args = parser.parse_args()
-    # 自动补全设置
-    readline.set_completer(completer)
-    readline.set_history_length(1000)
-    readline.parse_and_bind('tab: complete')
-    history_file = os.path.join(config.log_dir, 'history.txt')
-    if os.path.exists(history_file):
-        readline.read_history_file(history_file)
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
-    handle_ctrl_event(logger=ftc.logger, history_file=history_file)
+    handle_ctrl_event(logger=ftc.logger)
     ftc.probe_server()
-    try:
-        ftc.connect()
-        ftc.main()
-    finally:
-        readline.write_history_file(history_file)
-        if packaging:
-            os.system('pause')
+    ftc.connect()
+    ftc.main()
+    if packaging:
+        os.system('pause')

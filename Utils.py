@@ -16,7 +16,6 @@ from datetime import datetime
 from enum import Enum, IntFlag
 from typing import Optional, TextIO, Final
 
-import readline
 from send2trash import send2trash
 
 from sys_info import get_size
@@ -66,6 +65,7 @@ class Logger:
         self.__writing_lock = threading.Lock()
         self.__writing_buffer: list[str] = []
         threading.Thread(target=self.auto_flush, daemon=True, args=(interval,)).start()
+        self.log('本次日志文件存放位置为: ' + os.path.normcase(log_file_path))
 
     def auto_flush(self, interval):
         while True:
@@ -287,18 +287,18 @@ def get_file_md5(filename):
     return md5.hexdigest()
 
 
-def handle_ctrl_event(logger: Logger, history_file=None):
+def handle_ctrl_event(logger: Logger):
     # determine platform, to fix ^c doesn't work on Windows
-    if platform_ == WINDOWS:
-        def call_back(ctrl_type):
-            if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT):
-                if readline.get_current_history_length():
-                    readline.write_history_file(history_file)
-                logger.close()
-                os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+    if platform_ != WINDOWS:
+        return
 
-        from win32api import SetConsoleCtrlHandler
-        SetConsoleCtrlHandler(call_back, 1)
+    def call_back(ctrl_type):
+        if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT):
+            logger.close()
+            os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+
+    from win32api import SetConsoleCtrlHandler
+    SetConsoleCtrlHandler(call_back, 1)
 
 
 def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> Optional[TextIO]:
