@@ -310,10 +310,14 @@ class FTC:
             else self.logger.error("发送失败")
 
     def _send_file(self, filepath):
-        def update_global_pbar(size):
-            if self.__pbar:
-                with self.__pbar.get_lock():
+        def update_global_pbar(size, decrease=False):
+            if size == 0 or self.__pbar is None:
+                return
+            with self.__pbar.get_lock():
+                if not decrease:
                     self.__pbar.update(size)
+                else:
+                    self.__pbar.total -= size
 
         real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
@@ -324,9 +328,7 @@ class FTC:
             conn.sendall(file_head)
             flag = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == Control.CANCEL:
-                if self.__pbar:
-                    with self.__pbar.get_lock():
-                        self.__pbar.total -= file_size
+                update_global_pbar(file_size, decrease=True)
             elif flag == Control.TOOLONG:
                 self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
@@ -355,7 +357,7 @@ class FTC:
                     update_global_pbar(len(data))
                     data = fp.read(unit)
                 fp.close()
-                update_global_pbar(exist_size)
+                update_global_pbar(exist_size, decrease=True)
                 pbar.close()
         return filepath
 
