@@ -9,8 +9,8 @@ pip install -U pyinstaller
 # UPX.exe (https://upx.github.io/) in the same path as pyinstaller.exe
 
 # Package FTC.py as an executable program
-pyinstaller.exe  --onefile --icon="./build_guide/FTC.png" --console ./FTC.py
+pyinstaller.exe  --onefile --icon="./docs/build_guide/FTC.png" --console ./FTC.py
 
 # Package FTS.py as an executable program
-pyinstaller.exe  --onefile --icon="./build_guide/FTS.png" --console ./FTS.py
+pyinstaller.exe  --onefile --icon="./docs/build_guide/FTS.png" --console ./FTS.py
 
