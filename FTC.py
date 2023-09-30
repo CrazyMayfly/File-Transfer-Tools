@@ -182,6 +182,15 @@ class FTC:
                                  results[filename] != peer_dict[filename]]
             print_filename_if_exits("hash not matching: ", hash_not_matching)
 
+    def _update_global_pbar(self, size, decrease=False):
+        if size == 0 or self.__pbar is None:
+            return
+        with self.__pbar.get_lock():
+            if not decrease:
+                self.__pbar.update(size)
+            else:
+                self.__pbar.total -= size
+
     def _execute_command(self, command):
         command = command.strip()
         # 防止命令将输入端交给服务器
@@ -330,15 +339,6 @@ class FTC:
             else self.logger.error("发送失败")
 
     def _send_file(self, filepath):
-        def update_global_pbar(size, decrease=False):
-            if size == 0 or self.__pbar is None:
-                return
-            with self.__pbar.get_lock():
-                if not decrease:
-                    self.__pbar.update(size)
-                else:
-                    self.__pbar.total -= size
-
         real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
@@ -348,7 +348,7 @@ class FTC:
             conn.sendall(file_head)
             flag = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == Control.CANCEL:
-                update_global_pbar(file_size, decrease=True)
+                self._update_global_pbar(file_size, decrease=True)
             elif flag == Control.TOOLONG:
                 self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
@@ -374,14 +374,14 @@ class FTC:
                 while data:
                     conn.sendall(data)
                     pbar.update(len(data))
-                    update_global_pbar(len(data))
+                    self._update_global_pbar(len(data))
                     data = fp.read(unit)
                 fp.close()
-                update_global_pbar(exist_size, decrease=True)
+                self._update_global_pbar(exist_size, decrease=True)
                 pbar.close()
         return filepath
 
-    def validate_password(self, conn):
+    def _validate_password(self, conn):
         file_head = struct.pack(FMT.head_fmt.value, self.__password.encode(), BEFORE_WORKING.encode(),
                                 self.__session_id)
         conn.sendall(file_head)
@@ -392,7 +392,7 @@ class FTC:
 
     def _before_working(self):
         with self.__connections as conn:
-            msg, session_id = self.validate_password(conn)
+            msg, session_id = self._validate_password(conn)
         if msg == FAIL:
             self.logger.error('连接至服务器的密码错误', highlight=1)
             self.close(send_close_info=False)
@@ -484,7 +484,7 @@ class FTC:
                         client_socket = context.wrap_socket(client_socket, server_hostname='FTS')
                     # 验证密码
                     if not self.__first_connect:
-                        self.validate_password(client_socket)
+                        self._validate_password(client_socket)
                     # client_socket = context.wrap_socket(s, server_hostname='Server')
                     self.__connections.add(client_socket)
                 except ssl.SSLError as e:

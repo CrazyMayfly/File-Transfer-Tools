@@ -3,6 +3,7 @@ import json
 import os.path
 import pathlib
 import ssl
+import subprocess
 import uuid
 from secrets import token_bytes
 
@@ -28,6 +29,14 @@ def avoid_filename_duplication(filename: str):
             filename = ''.join(tmp) + path_split[1]
         i += 1
     return filename
+
+
+def get_result_and_send(pipe, conn: socket.socket):
+    result = pipe.read(1)
+    while result:
+        conn.sendall(result.encode("UTF-32"))
+        print(result, end='')
+        result = pipe.read(1)
 
 
 class FTS:
@@ -98,13 +107,9 @@ class FTS:
 
     def _execute_command(self, conn: socket.socket, command):
         self.logger.log("执行命令：" + command)
-        result = os.popen(command)
-        s = result.read(1)
-        while s:
-            # UTF-32 为定宽字符编码
-            conn.sendall(s.encode("UTF-32"))
-            print(s, end='')
-            s = result.read(1)
+        result = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        get_result_and_send(result.stdout, conn)
+        get_result_and_send(result.stderr, conn)
         # 命令执行结束
         conn.sendall(b'\00' * 8)
 
