@@ -1,8 +1,7 @@
 import platform
 import time
-from threading import Thread
-
 import psutil
+from threading import Thread
 
 
 def stringify_time(time_second):
@@ -48,7 +47,7 @@ def get_disk_io():
 
 
 class MyThread(Thread):
-    def __init__(self, func, args):
+    def __init__(self, func, args=()):
         super(MyThread, self).__init__()
         self.func = func
         self.args = args
@@ -79,7 +78,7 @@ def get_sys_info():
                      'total': get_size(usage.total), 'free': get_size(usage.free), 'percent': f'{usage.percent}%'}
         disks.append(disk_info)
     # 异步获取cpu、网络、硬盘的io
-    threads = [MyThread(method, args=()) for method in [get_net_io, get_cpu_percent, get_disk_io]]
+    threads = [MyThread(method) for method in [get_net_io, get_cpu_percent, get_disk_io]]
     for thread in threads:
         thread.start()
     for thread in threads:

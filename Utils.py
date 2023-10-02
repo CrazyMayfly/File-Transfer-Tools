@@ -4,7 +4,6 @@ import platform
 import re
 import signal
 import socket
-import stat
 import struct
 import sys
 import tarfile
@@ -15,9 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, IntFlag
 from typing import Optional, TextIO, Final
-
 from send2trash import send2trash
-
 from sys_info import get_size
 
 # 获取当前平台
@@ -32,8 +29,6 @@ if platform_ == WINDOWS:
 
 
 # 配置实体类
-
-
 @dataclass
 class Configration:
     default_path: str
@@ -59,27 +54,21 @@ class LEVEL(Enum):
 
 # 日志类，简化日志打印
 class Logger:
-    def __init__(self, log_file_path, interval=1):
+    def __init__(self, log_file_path: str):
         self.__log_file = open(log_file_path, 'a', encoding=utf8)
         self.__log_lock = threading.Lock()
         self.__writing_lock = threading.Lock()
         self.__writing_buffer: list[str] = []
-        threading.Thread(target=self.auto_flush, daemon=True, args=(interval,)).start()
+        threading.Thread(target=self.flush, daemon=True).start()
         self.log('本次日志文件存放位置为: ' + os.path.normcase(log_file_path))
-
-    def auto_flush(self, interval):
-        while True:
-            self.flush()
-            time.sleep(interval)
 
     def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0, screen=True):
         msg = get_log_msg(msg)
-        writing_msg = '[{}] {}\n'.format(level.name.ljust(7), msg)
         if screen:
             with self.__log_lock:
                 print_color(msg=msg, level=level, highlight=highlight)
         with self.__writing_lock:
-            self.__writing_buffer.append(writing_msg)  # O(1)
+            self.__writing_buffer.append(f'[{level.name:7}] {msg}\n')  # O(1)
 
     def info(self, msg, highlight=0):
         self.log(msg, LEVEL.INFO, highlight)
@@ -94,17 +83,21 @@ class Logger:
         self.log(msg, LEVEL.SUCCESS, highlight)
 
     def flush(self):
-        if self.__writing_buffer:
-            with self.__writing_lock:
-                msgs, self.__writing_buffer = self.__writing_buffer, []
-            self.__log_file.writelines(msgs)
-            self.__log_file.flush()
+        while True:
+            if self.__writing_buffer:
+                with self.__writing_lock:
+                    msgs, self.__writing_buffer = self.__writing_buffer, []
+                self.__log_file.writelines(msgs)
+                msgs.clear()
+                self.__log_file.flush()
+            time.sleep(1)
 
     def close(self):
-        if not self.__log_file.closed:
-            if self.__writing_buffer:
-                self.__log_file.writelines(self.__writing_buffer)
-            self.__log_file.close()
+        if self.__log_file.closed:
+            return
+        if self.__writing_buffer:
+            self.__log_file.writelines(self.__writing_buffer)
+        self.__log_file.close()
 
 
 def receive_data(connection: socket.socket, size: int):
@@ -142,14 +135,14 @@ def modifyFileTime(file_path: str, logger: Logger, create_timestamp: float,
         elif platform_ == LINUX:
             os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
     except (OverflowError, Exception) as e:
-        logger.error(f'{file_path}修改失败，{e}')
+        logger.warning(f'{file_path}修改失败，{e}')
 
 
-def get_file_time_details(filePath: str) -> tuple[float, float, float]:
+def get_file_time_details(file_path: str) -> tuple[float, float, float]:
     """
     获取并返回一个文件(夹)的创建、修改、访问时间的时间戳
     """
-    return os.path.getctime(filePath), os.path.getmtime(filePath), os.path.getatime(filePath)
+    return os.path.getctime(file_path), os.path.getmtime(file_path), os.path.getatime(file_path)
 
 
 def send_clipboard(conn, logger: Logger, FTC=True):
@@ -214,15 +207,14 @@ def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
 
 
 def get_log_msg(msg):
-    t = threading.current_thread()
-    now = datetime.now().strftime('%H:%M:%S.%f')[0:-3]
-    return f'{now} {t.name:12} {msg}'
+    now = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+    return f'{now} {threading.current_thread().name:12} {msg}'
 
 
 def get_relative_filename_from_basedir(base_dir):
     results = {}
     basedir_length = len(base_dir) + 1
-    for path, dir_list, file_list in os.walk(base_dir):
+    for path, _, file_list in os.walk(base_dir):
         for file in file_list:
             # 将文件路径风格统一至Linux
             real_path = os.path.normcase(os.path.join(path, file)).replace(os.path.sep, '/')
@@ -240,7 +232,7 @@ def get_dir_file_name(filepath):
     all_file_name = []
     # 获取上一级文件夹名称
     back_dir = os.path.dirname(filepath)
-    for path, dir_list, file_list in os.walk(filepath):
+    for path, _, file_list in os.walk(filepath):
         # 获取相对路径
         path = os.path.relpath(path, back_dir)
         all_dir_name.add(path)

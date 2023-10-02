@@ -4,10 +4,9 @@ import os.path
 import random
 import shutil
 import ssl
+import readline
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
-
-import readline
 from tqdm import tqdm
 from Utils import *
 from sys_info import *
@@ -47,6 +46,23 @@ def read_line_setup() -> str:
     return history_filename
 
 
+def get_parser() -> argparse.ArgumentParser:
+    """
+    获取命令行参数解析器
+    """
+    parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files and instructions.')
+    cpu_count = psutil.cpu_count(logical=False)
+    parser.add_argument('-t', metavar='thread', type=int,
+                        help=f'threads (default: {cpu_count})', default=cpu_count)
+    parser.add_argument('-host', metavar='host',
+                        help='destination hostname or ip address', default='')
+    parser.add_argument('-p', '--password', metavar='password', type=str,
+                        help='Use a password to connect host.', default='')
+    parser.add_argument('--plaintext', action='store_true',
+                        help='Use plaintext transfer (default: use ssl)')
+    return parser
+
+
 class FTC:
     def __init__(self, threads, host, use_ssl, password=''):
         self.__peer_platform = None
@@ -60,10 +76,10 @@ class FTC:
         self.__session_id = 0
         self.__first_connect = True
         self.__command_prefix = ''
-        self.logger = Logger(os.path.join(config.log_dir, datetime.now().strftime('%Y_%m_%d') + '_client.log'))
+        self.logger = Logger(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
         # 进行日志归档
         self.__thread_pool = None
-        self.__history_file = open(read_line_setup(), 'a+', encoding=utf8)
+        self.__history_file = open(read_line_setup(), 'a', encoding=utf8)
         threading.Thread(name='ArchiveThread', target=compress_log_files,
                          args=(config.log_dir, 'client', self.logger)).start()
 
@@ -223,16 +239,16 @@ class FTC:
         with self.__connections as conn:
             conn.sendall(file_head)
             # 异步获取自己的系统信息
-            t = MyThread(get_sys_info, args=())
-            t.start()
+            thread = MyThread(get_sys_info)
+            thread.start()
             # 接收对方的系统信息
             data_length = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             data = receive_data(conn, data_length).decode()
         peer_sysinfo = json.loads(data)
         print_sysinfo(peer_sysinfo)
         # 等待本机系统信息获取完成
-        t.join()
-        local_sysinfo = t.get_result()
+        thread.join()
+        local_sysinfo = thread.get_result()
         print_sysinfo(local_sysinfo)
 
     def _speedtest(self, times):
@@ -271,11 +287,9 @@ class FTC:
         @param command: get 或 send
         @return:
         """
+        func = get_clipboard if command in (GET, PULL) else send_clipboard
         with self.__connections as conn:
-            if command == SEND or command == PUSH:
-                send_clipboard(conn, self.logger)
-            elif command == GET or command == PULL:
-                get_clipboard(conn, self.logger)
+            func(conn, self.logger)
 
     def _send_files_in_dir(self, filepath):
         all_dir_name, all_file_name = get_dir_file_name(filepath)
@@ -298,7 +312,7 @@ class FTC:
             self.logger.log(f"{real_path}, 约{sz1}, {sz2}", screen=False)
             total_size += file_size
         # 扩充连接和初始化线程池
-        self.connect(self.__threads)
+        self._connect(self.__threads)
         if self.__thread_pool is None:
             self.__thread_pool = ThreadPool(self.__threads)
         # 等待文件夹发送完成
@@ -401,7 +415,7 @@ class FTC:
             self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
             self.__session_id = session_id
 
-    def probe_server(self, wait=1):
+    def _probe_server(self, wait=1):
         if self.host:
             splits = self.host.split(":")
             if len(splits) == 2:
@@ -434,11 +448,11 @@ class FTC:
         if len(all_ip) == 1:
             self.__use_ssl = ip_useSSL_dict.get(all_ip[0])
             self.host = all_ip[0]
-        else:
-            hostname = input('请输入主机名/ip: ')
-            self.host = hostname
-            self.__use_ssl = ip_useSSL_dict.get(hostname) if hostname in all_ip \
-                else input('开启 SSL(y/n)? ').lower() == 'y'
+            return
+        hostname = input('请输入主机名/ip: ')
+        self.host = hostname
+        self.__use_ssl = ip_useSSL_dict.get(hostname) if hostname in all_ip \
+            else input('开启 SSL(y/n)? ').lower() == 'y'
 
     def close(self, send_close_info=True):
         if self.__thread_pool:
@@ -456,7 +470,7 @@ class FTC:
             self.__history_file.close()
             sys.exit(0)
 
-    def connect(self, nums=1):
+    def _connect(self, nums=1):
         """
         将现有的连接数量扩充至nums
 
@@ -500,7 +514,9 @@ class FTC:
             self.logger.error(f'连接至 {self.host} 失败, {msg}')
             sys.exit(-1)
 
-    def main(self):
+    def start(self):
+        self._probe_server()
+        self._connect()
         self.logger.info('当前线程数：{}'.format(self.__threads))
         self._before_working()
         while True:
@@ -539,23 +555,10 @@ class FTC:
 
 
 if __name__ == '__main__':
-    # 添加命令行参数
-    parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files and instructions.')
-    cpu_count = psutil.cpu_count(logical=False)
-    parser.add_argument('-t', metavar='thread', type=int,
-                        help=f'threads (default: {cpu_count})', default=cpu_count)
-    parser.add_argument('-host', metavar='host',
-                        help='destination hostname or ip address', default='')
-    parser.add_argument('-p', '--password', metavar='password', type=str,
-                        help='Use a password to connect host.', default='')
-    parser.add_argument('--plaintext', action='store_true',
-                        help='Use plaintext transfer (default: use ssl)')
-    args = parser.parse_args()
+    args = get_parser().parse_args()
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
     handle_ctrl_event(logger=ftc.logger)
-    ftc.probe_server()
-    ftc.connect()
-    ftc.main()
+    ftc.start()
     if packaging:
         os.system('pause')
