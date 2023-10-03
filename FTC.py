@@ -131,6 +131,9 @@ class FTC:
                 self.logger.log_file.write('\tNone\n')
             self.logger.log_file.flush()
 
+        self.logger.flush()
+        self.logger.log_file.write(
+            '\n[INFO   ] ' + get_log_msg(f'对比本地文件夹 {local_dir} 和目标文件夹 {peer_dir} 的差异\n'))
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
             return
@@ -229,14 +232,14 @@ class FTC:
         with self.__connections as conn:
             file_head = struct.pack(FMT.head_fmt.value, command, COMMAND.encode(), len(command))
             conn.sendall(file_head)
-            self.logger.log_file.write(get_log_msg(f'下达指令: {command}\n\n'))
+            self.logger.flush()
+            self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command.decode(utf8)}\n'))
             # 接收返回结果
             result = receive_data(conn, 8).decode('UTF-32')
             while result != '\00' * 2:
                 print(result, end='')
                 self.logger.log_file.write(result)
                 result = receive_data(conn, 8).decode('UTF-32')
-            self.logger.log_file.write('\n\n')
             self.logger.log_file.flush()
 
     def __compare_sysinfo(self):
@@ -251,11 +254,16 @@ class FTC:
             data_length = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             data = receive_data(conn, data_length).decode()
         peer_sysinfo = json.loads(data)
+        self.logger.flush()
+        self.logger.log_file.write('[INFO   ] ' + get_log_msg("对比双方系统信息：\n"))
         print_sysinfo(peer_sysinfo)
+        print_sysinfo(peer_sysinfo, self.logger.log_file)
         # 等待本机系统信息获取完成
         thread.join()
         local_sysinfo = thread.get_result()
         print_sysinfo(local_sysinfo)
+        print_sysinfo(local_sysinfo, self.logger.log_file)
+        self.logger.log_file.flush()
 
     def __speedtest(self, times):
         times = '500' if times.isspace() or not times else times
@@ -302,14 +310,15 @@ class FTC:
         data = json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode()
         self.__connections.main_conn.sendall(
             struct.pack(FMT.head_fmt.value, b'', SEND_FILES_IN_DIR.encode(), len(data)))
-        self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}\n'.format(filepath, len(all_dir_name)))
+        self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}'.format(filepath, len(all_dir_name)))
+        self.logger.flush()
         self.__connections.main_conn.sendall(data)
         del data
         self.__base_dir = os.path.dirname(filepath)
         for dir_name in all_dir_name:
             self.logger.log_file.write(os.path.join(self.__base_dir, dir_name) + '\n')
         # 将待发送的文件打印到日志
-        self.logger.log_file.write(get_log_msg("本次待发送的文件列表为：\n\n"))
+        self.logger.log_file.write('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
         total_size = 0
         for filename in all_file_name:
             real_path = os.path.join(self.__base_dir, filename)
@@ -317,6 +326,7 @@ class FTC:
             sz1, sz2 = calcu_size(file_size)
             self.logger.log_file.write(f"{real_path}, 约{sz1}, {sz2}\n")
             total_size += file_size
+        self.logger.log_file.write('\n')
         self.logger.log_file.flush()
         # 打乱列表以避免多个小文件聚簇在一起，影响效率
         random.shuffle(all_file_name)
@@ -327,7 +337,7 @@ class FTC:
         # 等待文件夹发送完成
         receive_data(self.__connections.main_conn, 1)
         # self.log('文件夹发送完毕，耗时 {} s'.format(round(time.time() - start, 2)), 'blue')
-        self.logger.info('开始发送 {} 路径下所有文件，文件个数为 {}\n'.format(filepath, len(all_file_name)))
+        self.logger.info('开始发送 {} 路径下所有文件，文件个数为 {}'.format(filepath, len(all_file_name)))
         # 初始化总进度条
         self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
@@ -354,6 +364,7 @@ class FTC:
                 self.logger.success("本次全部文件正常发送")
 
     def __send_single_file(self, filepath):
+        self.logger.flush()
         self.logger.log_file.write(f'[INFO   ] {get_log_msg(f"发送单个文件: {filepath}")}\n\n')
         self.__base_dir = os.path.dirname(filepath)
         filepath = os.path.basename(filepath)
@@ -419,7 +430,7 @@ class FTC:
             self.logger.error('连接至服务器的密码错误', highlight=1)
             self.shutdown(send_close_info=False)
         else:
-            self.logger.info('服务器所在平台: ' + msg)
+            self.logger.info(f'服务器所在平台: {msg}\n')
             self.__peer_platform = msg
             self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
             self.__session_id = session_id

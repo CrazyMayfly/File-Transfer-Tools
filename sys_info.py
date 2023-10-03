@@ -1,4 +1,5 @@
 import platform
+import sys
 import time
 import psutil
 from threading import Thread
@@ -114,7 +115,7 @@ def get_sys_info():
     return info
 
 
-def print_sysinfo(info):
+def print_sysinfo(info, file=sys.stdout):
     user = info['user']
     system = info['system']
     cpu = info['cpu']
@@ -123,6 +124,8 @@ def print_sysinfo(info):
     battery = info['battery']
     disks = info['disks']
     disks_io = disks['io']
+    original_stdout = sys.stdout
+    sys.stdout = file
     print(f"用户: {user['username']}, 主机: {user['host']} 的系统信息如下: ")
     print(f"\t系统信息 : {system['platform']} {system['version']} {system['architecture']}")
     print(f"\t运行时间 : {info['boot time']}")
@@ -139,6 +142,7 @@ def print_sysinfo(info):
           f"当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}"
           if battery else "未检测到电池")
     print()
+    sys.stdout = original_stdout
 
 
 if __name__ == '__main__':

@@ -59,7 +59,7 @@ class Logger:
         self.__log_lock = threading.Lock()
         self.__writing_lock = threading.Lock()
         self.__writing_buffer: list[str] = []
-        threading.Thread(target=self.flush, daemon=True).start()
+        threading.Thread(target=self.auto_flush, daemon=True).start()
         self.log('本次日志文件存放位置为: ' + os.path.normcase(log_file_path))
 
     def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0):
@@ -82,13 +82,16 @@ class Logger:
         self.log(msg, LEVEL.SUCCESS, highlight)
 
     def flush(self):
+        if self.__writing_buffer:
+            with self.__writing_lock:
+                msgs, self.__writing_buffer = self.__writing_buffer, []
+            self.log_file.writelines(msgs)
+            msgs.clear()
+            self.log_file.flush()
+
+    def auto_flush(self):
         while True:
-            if self.__writing_buffer:
-                with self.__writing_lock:
-                    msgs, self.__writing_buffer = self.__writing_buffer, []
-                self.log_file.writelines(msgs)
-                msgs.clear()
-                self.log_file.flush()
+            self.flush()
             time.sleep(1)
 
     def close(self):
@@ -361,10 +364,9 @@ def compress_log_files(base_dir, log_type, logger: Logger):
 
 
 def shorten_path(path: str, max_width):
-    if len(path) > max_width:
-        return path[:int((max_width - 3) / 3)] + '...' + path[-2 * int((max_width - 3) / 3):]
-    return path + ' ' * (int(max_width) - len(path))
-    #
+    return path[:int((max_width - 3) / 3)] + '...' + path[-2 * int((max_width - 3) / 3):] if len(
+        path) > max_width else path + ' ' * (int(max_width) - len(path))
+
     # def shorten_string(string: str, width):
     #     if width <= 0:
     #         return '...'
