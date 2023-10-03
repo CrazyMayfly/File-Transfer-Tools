@@ -69,9 +69,9 @@ class FTC:
         self.__password = password
         self.__use_ssl = use_ssl
         self.__pbar = None
-        self.host = host
+        self.__host = host
         self.__threads = threads
-        self.__connections = self.Connections()
+        self.__connections = self.__Connections()
         self.__base_dir = ''
         self.__session_id = 0
         self.__first_connect = True
@@ -83,7 +83,7 @@ class FTC:
         threading.Thread(name='ArchiveThread', target=compress_log_files,
                          args=(config.log_dir, 'client', self.logger)).start()
 
-    class Connections:
+    class __Connections:
         def __init__(self):
             self.__conn_pool = []
             self.__thread_conn_dict: dict[str:socket.socket] = {}
@@ -113,12 +113,12 @@ class FTC:
         def __exit__(self, exc_type, exc_val, exc_tb):
             pass
 
-    def _add_history(self, history: str):
+    def __add_history(self, history: str):
         readline.add_history(history)
         self.__history_file.write(history + '\n')
         self.__history_file.flush()
 
-    def _compare_dir(self, local_dir, peer_dir):
+    def __compare_dir(self, local_dir, peer_dir):
         def print_filename_if_exits(prompt, filename_list):
             print(prompt)
             if filename_list:
@@ -198,7 +198,7 @@ class FTC:
                                  results[filename] != peer_dict[filename]]
             print_filename_if_exits("hash not matching: ", hash_not_matching)
 
-    def _update_global_pbar(self, size, decrease=False):
+    def __update_global_pbar(self, size, decrease=False):
         if size == 0 or self.__pbar is None:
             return
         with self.__pbar.get_lock():
@@ -207,7 +207,7 @@ class FTC:
             else:
                 self.__pbar.total -= size
 
-    def _execute_command(self, command):
+    def __execute_command(self, command):
         # 防止命令将输入端交给服务器
         if len(command) == 0:
             return
@@ -233,7 +233,7 @@ class FTC:
                 print(result.decode('UTF-32'), end='')
                 result = receive_data(conn, 8)
 
-    def _compare_sysinfo(self):
+    def __compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
         file_head = struct.pack(FMT.head_fmt.value, b'', SYSINFO.encode(), 0)
         with self.__connections as conn:
@@ -251,7 +251,7 @@ class FTC:
         local_sysinfo = thread.get_result()
         print_sysinfo(local_sysinfo)
 
-    def _speedtest(self, times):
+    def __speedtest(self, times):
         times = '500' if times.isspace() or not times else times
         while not (times.isdigit() and int(times) > 0):
             times = input("请重新输入数据量（单位MB）：")
@@ -291,7 +291,7 @@ class FTC:
         with self.__connections as conn:
             func(conn, self.logger)
 
-    def _send_files_in_dir(self, filepath):
+    def __send_files_in_dir(self, filepath):
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         data = json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode()
         self.__connections.main_conn.sendall(
@@ -312,7 +312,7 @@ class FTC:
             self.logger.log(f"{real_path}, 约{sz1}, {sz2}", screen=False)
             total_size += file_size
         # 扩充连接和初始化线程池
-        self._connect(self.__threads)
+        self.__connect(self.__threads)
         if self.__thread_pool is None:
             self.__thread_pool = ThreadPool(self.__threads)
         # 等待文件夹发送完成
@@ -323,7 +323,7 @@ class FTC:
         self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
         # 异步发送文件并等待结果
-        results = [self.__thread_pool.apply_async(self._send_file, (filename,)) for filename in all_file_name]
+        results = [self.__thread_pool.apply_async(self.__send_file, (filename,)) for filename in all_file_name]
         # 比对发送成功或失败的文件
         success_recv = set()
         try:
@@ -344,14 +344,14 @@ class FTC:
                 self.__pbar = self.__pbar.close()
                 self.logger.success("本次全部文件正常发送")
 
-    def _send_single_file(self, filepath):
+    def __send_single_file(self, filepath):
         self.logger.log(f'本次发送的文件: {filepath}\n', screen=False)
         self.__base_dir = os.path.dirname(filepath)
         filepath = os.path.basename(filepath)
-        self.logger.success("发送成功") if filepath == self._send_file(filepath) \
+        self.logger.success("发送成功") if filepath == self.__send_file(filepath) \
             else self.logger.error("发送失败")
 
-    def _send_file(self, filepath):
+    def __send_file(self, filepath):
         real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.stat(real_path).st_size
@@ -361,7 +361,7 @@ class FTC:
             conn.sendall(file_head)
             flag = struct.unpack(FMT.size_fmt.value, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == Control.CANCEL:
-                self._update_global_pbar(file_size, decrease=True)
+                self.__update_global_pbar(file_size, decrease=True)
             elif flag == Control.TOOLONG:
                 self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
@@ -387,14 +387,14 @@ class FTC:
                 while data:
                     conn.sendall(data)
                     pbar.update(len(data))
-                    self._update_global_pbar(len(data))
+                    self.__update_global_pbar(len(data))
                     data = fp.read(unit)
                 fp.close()
-                self._update_global_pbar(exist_size, decrease=True)
+                self.__update_global_pbar(exist_size, decrease=True)
                 pbar.close()
         return filepath
 
-    def _validate_password(self, conn):
+    def __validate_password(self, conn):
         file_head = struct.pack(FMT.head_fmt.value, self.__password.encode(), BEFORE_WORKING.encode(),
                                 self.__session_id)
         conn.sendall(file_head)
@@ -403,25 +403,25 @@ class FTC:
         msg = msg.decode(utf8).strip('\00')
         return msg, session_id
 
-    def _before_working(self):
+    def __before_working(self):
         with self.__connections as conn:
-            msg, session_id = self._validate_password(conn)
+            msg, session_id = self.__validate_password(conn)
         if msg == FAIL:
             self.logger.error('连接至服务器的密码错误', highlight=1)
-            self.close(send_close_info=False)
+            self.shutdown(send_close_info=False)
         else:
             self.logger.info('服务器所在平台: ' + msg)
             self.__peer_platform = msg
             self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
             self.__session_id = session_id
 
-    def _probe_server(self, wait=1):
-        if self.host:
-            splits = self.host.split(":")
+    def __probe_server(self, wait=1):
+        if self.__host:
+            splits = self.__host.split(":")
             if len(splits) == 2:
                 config.server_port = int(splits[1])
-                self.host = splits[0]
-            self.logger.log(f"目标主机: {self.host}, 目标端口: {config.server_port}")
+                self.__host = splits[0]
+            self.logger.log(f"目标主机: {self.__host}, 目标端口: {config.server_port}")
             return
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         ip, _ = get_ip_and_hostname()
@@ -447,19 +447,19 @@ class FTC:
             print('ip: {}, hostname: {}, useSSL: {}'.format(ip, get_hostname_by_ip(ip), ip_useSSL_dict.get(ip)))
         if len(all_ip) == 1:
             self.__use_ssl = ip_useSSL_dict.get(all_ip[0])
-            self.host = all_ip[0]
+            self.__host = all_ip[0]
             return
         hostname = input('请输入主机名/ip: ')
-        self.host = hostname
+        self.__host = hostname
         self.__use_ssl = ip_useSSL_dict.get(hostname) if hostname in all_ip \
             else input('开启 SSL(y/n)? ').lower() == 'y'
 
-    def close(self, send_close_info=True):
+    def shutdown(self, send_close_info=True):
         if self.__thread_pool:
             self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
         close_info = struct.pack(FMT.head_fmt.value, b'', CLOSE.encode(), 0)
-        self.logger.info('断开与 {0}:{1} 的连接'.format(self.host, config.server_port))
+        self.logger.info('断开与 {0}:{1} 的连接'.format(self.__host, config.server_port))
         try:
             for conn in self.__connections.connections:
                 if send_close_info:
@@ -470,7 +470,7 @@ class FTC:
             self.__history_file.close()
             sys.exit(0)
 
-    def _connect(self, nums=1):
+    def __connect(self, nums=1):
         """
         将现有的连接数量扩充至nums
 
@@ -491,61 +491,61 @@ class FTC:
                 try:
                     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     # 连接至服务器
-                    client_socket.connect((self.host, config.server_port))
+                    client_socket.connect((self.__host, config.server_port))
                     # 将socket包装为securitySocket
                     if self.__use_ssl:
                         client_socket = context.wrap_socket(client_socket, server_hostname='FTS')
                     # 验证密码
                     if not self.__first_connect:
-                        self._validate_password(client_socket)
+                        self.__validate_password(client_socket)
                     # client_socket = context.wrap_socket(s, server_hostname='Server')
                     self.__connections.add(client_socket)
                 except ssl.SSLError as e:
-                    self.logger.error('连接至 {0} 失败，{1}'.format(self.host, e.verify_message), highlight=1)
+                    self.logger.error('连接至 {0} 失败，{1}'.format(self.__host, e.verify_message), highlight=1)
                     sys.exit(-1)
             if self.__first_connect:
-                self.logger.success(f'成功连接至服务器 {self.host}:{config.server_port}')
+                self.logger.success(f'成功连接至服务器 {self.__host}:{config.server_port}')
                 self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning(
                     '当前数据未进行加密传输')
                 self.__first_connect = False
             else:
                 self.logger.info(f'将连接数扩充至: {nums}')
         except socket.error as msg:
-            self.logger.error(f'连接至 {self.host} 失败, {msg}')
+            self.logger.error(f'连接至 {self.__host} 失败, {msg}')
             sys.exit(-1)
 
     def start(self):
-        self._probe_server()
-        self._connect()
+        self.__probe_server()
+        self.__connect()
         self.logger.info('当前线程数：{}'.format(self.__threads))
-        self._before_working()
+        self.__before_working()
         while True:
             command = input('>>> ').strip()
-            self._add_history(command)
+            self.__add_history(command)
             try:
                 if command in ['q', 'quit', 'exit']:
-                    self.close()
+                    self.shutdown()
                 elif os.path.isdir(command) and os.path.exists(command):
-                    self._send_files_in_dir(command)
+                    self.__send_files_in_dir(command)
                 elif os.path.isfile(command) and os.path.exists(command):
-                    self._send_single_file(command)
+                    self.__send_single_file(command)
                 elif command == SYSINFO:
-                    self._compare_sysinfo()
+                    self.__compare_sysinfo()
                 elif command.startswith(SPEEDTEST):
-                    self._speedtest(times=command[10:])
+                    self.__speedtest(times=command[10:])
                 elif command.startswith(COMPARE):
                     local_dir, destination_dir = split_dir(command)
                     if not destination_dir or not local_dir:
                         self.logger.warning('本地文件夹且远程文件夹不能为空')
                         continue
-                    self._compare_dir(local_dir, destination_dir)
+                    self.__compare_dir(local_dir, destination_dir)
                 elif command.startswith(CLIP + ' '):
                     self.__exchange_clipboard(command.split()[1])
                 elif command.startswith(HISTORY):
                     print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
                         1].isdigit() else print_history()
                 else:
-                    self._execute_command(command)
+                    self.__execute_command(command)
             except ConnectionResetError as e:
                 self.logger.error(e.strerror, highlight=1)
                 self.logger.close()

@@ -69,8 +69,8 @@ def get_parser() -> argparse.ArgumentParser:
 class FTS:
     def __init__(self, base_dir, use_ssl, repeated, password=''):
         self.__password = password
-        self.ip = ''
-        self.base_dir = base_dir
+        self.__ip = ''
+        self.__base_dir = base_dir
         self.__use_ssl = use_ssl
         self.__sessions_lock = threading.Lock()
         self.__sessions: dict[int:set[socket.socket]] = {}
@@ -81,7 +81,7 @@ class FTS:
         threading.Thread(name='ArchThread', target=compress_log_files,
                          args=(config.log_dir, 'server', self.logger)).start()
 
-    def _change_base_dir(self):
+    def __change_base_dir(self):
         """
         切换FTS的文件保存目录
         """
@@ -95,10 +95,10 @@ class FTS:
             new_base_dir = os.path.join(os.getcwd(), new_base_dir)
             if not create_dir_if_not_exist(new_base_dir, self.logger):
                 continue
-            self.base_dir = new_base_dir
-            self.logger.success(f'已将文件保存位置更改为: {self.base_dir}')
+            self.__base_dir = new_base_dir
+            self.logger.success(f'已将文件保存位置更改为: {self.__base_dir}')
 
-    def _compare_dir(self, conn: socket.socket, dir_name):
+    def __compare_dir(self, conn: socket.socket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
         if not os.path.exists(dir_name):
             # 发送目录不存在
@@ -125,7 +125,7 @@ class FTS:
         conn.sendall(data)
         self.logger.log("Hash 比对结束。")
 
-    def _execute_command(self, conn: socket.socket, command):
+    def __execute_command(self, conn: socket.socket, command):
         self.logger.log("执行命令：" + command)
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT).stdout
@@ -137,7 +137,7 @@ class FTS:
         # 命令执行结束
         conn.sendall(b'\00' * 8)
 
-    def _compare_sysinfo(self, conn: socket.socket):
+    def __compare_sysinfo(self, conn: socket.socket):
         self.logger.log("目标获取系统信息")
         info = get_sys_info()
         data = json.dumps(info, ensure_ascii=True).encode()
@@ -147,7 +147,7 @@ class FTS:
         # 发送数据
         conn.sendall(data)
 
-    def _speedtest(self, conn: socket.socket, data_size):
+    def __speedtest(self, conn: socket.socket, data_size):
         self.logger.log(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
         start = time.time()
         data_unit = 1000 * 1000
@@ -162,7 +162,7 @@ class FTS:
         self.logger.success(
             f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - download_over), factor=1000, suffix='bps')}, 耗时 {upload_over - download_over:.2f}s")
 
-    def _makedirs(self, conn, base_dir, size, max_retries=10):
+    def __makedirs(self, conn, base_dir, size, max_retries=10):
         data = json.loads(receive_data(conn, size).decode())
         dir_names = data['dir_names'].split('|')
         # 处理文件夹
@@ -181,20 +181,20 @@ class FTS:
                 self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
         conn.sendall(b'0')
 
-    def _recv_files_in_dir(self, session_id, base_dir):
+    def __recv_files_in_dir(self, session_id, base_dir):
         with self.__sessions_lock:
             conns = self.__sessions.get(session_id)
         threads = []
         for conn in conns:
             peer_host, peer_port = conn.getpeername()
-            t = threading.Thread(name=socket.inet_aton(peer_host).hex() + hex(peer_port)[2:], target=self._slave_work,
+            t = threading.Thread(name=socket.inet_aton(peer_host).hex() + hex(peer_port)[2:], target=self.__slave_work,
                                  args=(conn, base_dir, session_id))
             t.start()
             threads.append(t)
         for t in threads:
             t.join()
 
-    def _recv_single_file(self, conn: socket.socket, filename, file_size, base_dir):
+    def __recv_single_file(self, conn: socket.socket, filename, file_size, base_dir):
         file_path = os.path.join(base_dir, filename)
         if self.__avoid_file_duplicate and os.path.exists(file_path):
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
@@ -240,7 +240,7 @@ class FTS:
             if fp and not fp.closed:
                 fp.close()
 
-    def _before_working(self, conn: socket.socket):
+    def __before_working(self, conn: socket.socket):
         """
         在传输之前的预处理
 
@@ -274,15 +274,15 @@ class FTS:
             return
         return session_id
 
-    def _signal_online(self):
+    def __signal_online(self):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         try:
             sk.bind(('0.0.0.0', config.server_signal_port))
         except OSError as e:
             self.logger.error(f'广播主机信息服务启动失败，{e.strerror}')
             return
-        content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.ip, self.__use_ssl)).encode(utf8)
-        addr = (self.ip[0:self.ip.rindex('.')] + '.255', config.client_signal_port)
+        content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.__ip, self.__use_ssl)).encode(utf8)
+        addr = (self.__ip[0:self.__ip.rindex('.')] + '.255', config.client_signal_port)
         self.logger.log('广播主机信息服务已启动')
         sk.sendto(content, addr)  # 广播
         while True:
@@ -296,7 +296,7 @@ class FTS:
                     self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
                     sk.sendto(content, (target_ip, int(target_port)))  # 单播
 
-    def _slave_work(self, conn, base_dir, session_id):
+    def __slave_work(self, conn, base_dir, session_id):
         """
         从连接的工作，只用于处理多文件接受
 
@@ -311,7 +311,7 @@ class FTS:
                 filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
                 if command == SEND_FILE:
-                    self._recv_single_file(conn, filename, file_size, base_dir)
+                    self.__recv_single_file(conn, filename, file_size, base_dir)
                 elif command == FINISH:
                     break
         except ConnectionResetError:
@@ -321,7 +321,7 @@ class FTS:
             with self.__sessions_lock:
                 self.__sessions[session_id].add(conn)
 
-    def _master_work(self, conn, addr, session_id):
+    def __master_work(self, conn, addr, session_id):
         """
         主连接的工作
         @param conn: 主连接
@@ -335,20 +335,20 @@ class FTS:
                 filename, command, file_size = struct.unpack(FMT.head_fmt.value, file_head)
                 filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
-                base_dir = self.base_dir
+                base_dir = self.__base_dir
                 if command == SEND_FILES_IN_DIR:
-                    self._makedirs(conn, base_dir=base_dir, size=file_size)
-                    self._recv_files_in_dir(session_id, base_dir)
+                    self.__makedirs(conn, base_dir=base_dir, size=file_size)
+                    self.__recv_files_in_dir(session_id, base_dir)
                 elif command == SEND_FILE:
-                    self._recv_single_file(conn, filename, file_size, base_dir)
+                    self.__recv_single_file(conn, filename, file_size, base_dir)
                 elif command == COMPARE_DIR:
-                    self._compare_dir(conn, filename)
+                    self.__compare_dir(conn, filename)
                 elif command == COMMAND:
-                    self._execute_command(conn, filename)
+                    self.__execute_command(conn, filename)
                 elif command == SYSINFO:
-                    self._compare_sysinfo(conn)
+                    self.__compare_sysinfo(conn)
                 elif command == SPEEDTEST:
-                    self._speedtest(conn, file_size)
+                    self.__speedtest(conn, file_size)
                 elif command == PULL_CLIPBOARD:
                     send_clipboard(conn, self.logger, FTC=False)
                 elif command == PUSH_CLIPBOARD:
@@ -364,31 +364,31 @@ class FTS:
             with self.__sessions_lock:
                 self.__sessions.pop(session_id)
 
-    def _route(self, conn: socket.socket, addr):
+    def __route(self, conn: socket.socket, addr):
         """
         根据会话是否存在判断一个连接是否为主连接并进行路由
         """
-        session_id = self._before_working(conn)
+        session_id = self.__before_working(conn)
         if not session_id:
             return
         if session_id not in self.__sessions.keys():
             with self.__sessions_lock:
                 self.__sessions[session_id] = {conn}
-            self._master_work(conn, addr, session_id)
+            self.__master_work(conn, addr, session_id)
         else:
-            self._slave_work(conn, self.base_dir, session_id)
+            self.__slave_work(conn, self.__base_dir, session_id)
 
     def start(self):
-        self.ip, host = get_ip_and_hostname()
+        self.__ip, host = get_ip_and_hostname()
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(('0.0.0.0', config.server_port))
         server_socket.listen(9999)
         self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning('当前数据未进行加密传输')
-        self.logger.log(f'服务器 {host}({self.ip}:{config.server_port}) 已启动，等待连接...')
-        self.logger.log('当前默认文件存放位置：' + self.base_dir)
-        threading.Thread(name='SignThread', daemon=True, target=self._signal_online).start()
-        threading.Thread(name='CBDThread ', daemon=True, target=self._change_base_dir).start()
+        self.logger.log(f'服务器 {host}({self.__ip}:{config.server_port}) 已启动，等待连接...')
+        self.logger.log('当前默认文件存放位置：' + self.__base_dir)
+        threading.Thread(name='SignThread', daemon=True, target=self.__signal_online).start()
+        threading.Thread(name='CBDThread ', daemon=True, target=self.__change_base_dir).start()
         if self.__use_ssl:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -399,7 +399,7 @@ class FTS:
         while True:
             try:
                 conn, addr = server_socket.accept()
-                threading.Thread(name=socket.inet_aton(addr[0]).hex() + hex(addr[1])[2:], target=self._route,
+                threading.Thread(name=socket.inet_aton(addr[0]).hex() + hex(addr[1])[2:], target=self.__route,
                                  args=(conn, addr)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
