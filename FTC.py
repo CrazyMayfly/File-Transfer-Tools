@@ -121,11 +121,15 @@ class FTC:
     def __compare_dir(self, local_dir, peer_dir):
         def print_filename_if_exits(prompt, filename_list):
             print(prompt)
+            self.logger.log_file.write(prompt + '\n')
             if filename_list:
                 for filename in filename_list:
                     print('\t' + filename)
+                    self.logger.log_file.write('\t' + filename + '\n')
             else:
                 print('\tNone')
+                self.logger.log_file.write('\tNone\n')
+            self.logger.log_file.flush()
 
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
@@ -133,8 +137,7 @@ class FTC:
         file_head = struct.pack(FMT.head_fmt.value, peer_dir.encode(utf8), COMPARE_DIR.encode(), 0)
         with self.__connections as conn:
             conn.sendall(file_head)
-            is_dir_correct = receive_data(conn, len(DIRISCORRECT))
-            if is_dir_correct.decode() != DIRISCORRECT:
+            if receive_data(conn, len(DIRISCORRECT)).decode() != DIRISCORRECT:
                 self.logger.warning(f"目标文件夹 {peer_dir} 不存在")
                 return
             local_dict = get_relative_filename_from_basedir(local_dir)
@@ -226,12 +229,15 @@ class FTC:
         with self.__connections as conn:
             file_head = struct.pack(FMT.head_fmt.value, command, COMMAND.encode(), len(command))
             conn.sendall(file_head)
-            self.logger.log(f'下达指令: {command}\n', screen=False)
+            self.logger.log_file.write(get_log_msg(f'下达指令: {command}\n\n'))
             # 接收返回结果
-            result = receive_data(conn, 8)
-            while result != b'\00' * 8:
-                print(result.decode('UTF-32'), end='')
-                result = receive_data(conn, 8)
+            result = receive_data(conn, 8).decode('UTF-32')
+            while result != '\00' * 2:
+                print(result, end='')
+                self.logger.log_file.write(result)
+                result = receive_data(conn, 8).decode('UTF-32')
+            self.logger.log_file.write('\n\n')
+            self.logger.log_file.flush()
 
     def __compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
@@ -300,17 +306,20 @@ class FTC:
         self.__connections.main_conn.sendall(data)
         del data
         self.__base_dir = os.path.dirname(filepath)
-        # 打乱列表以避免多个小文件聚簇在一起，影响效率
-        random.shuffle(all_file_name)
+        for dir_name in all_dir_name:
+            self.logger.log_file.write(os.path.join(self.__base_dir, dir_name) + '\n')
         # 将待发送的文件打印到日志
-        self.logger.log("本次待发送的文件列表为：\n", screen=False)
+        self.logger.log_file.write(get_log_msg("本次待发送的文件列表为：\n\n"))
         total_size = 0
         for filename in all_file_name:
             real_path = os.path.join(self.__base_dir, filename)
             file_size = os.stat(real_path).st_size
             sz1, sz2 = calcu_size(file_size)
-            self.logger.log(f"{real_path}, 约{sz1}, {sz2}", screen=False)
+            self.logger.log_file.write(f"{real_path}, 约{sz1}, {sz2}\n")
             total_size += file_size
+        self.logger.log_file.flush()
+        # 打乱列表以避免多个小文件聚簇在一起，影响效率
+        random.shuffle(all_file_name)
         # 扩充连接和初始化线程池
         self.__connect(self.__threads)
         if self.__thread_pool is None:
@@ -345,7 +354,7 @@ class FTC:
                 self.logger.success("本次全部文件正常发送")
 
     def __send_single_file(self, filepath):
-        self.logger.log(f'本次发送的文件: {filepath}\n', screen=False)
+        self.logger.log_file.write(f'[INFO   ] {get_log_msg(f"发送单个文件: {filepath}")}\n\n')
         self.__base_dir = os.path.dirname(filepath)
         filepath = os.path.basename(filepath)
         self.logger.success("发送成功") if filepath == self.__send_file(filepath) \

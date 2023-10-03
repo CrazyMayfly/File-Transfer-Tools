@@ -102,7 +102,7 @@ class FTS:
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
         if not os.path.exists(dir_name):
             # 发送目录不存在
-            conn.sendall(b'\00' * len(DIRISCORRECT))
+            conn.sendall(OVER * len(DIRISCORRECT))
             return
         conn.sendall(DIRISCORRECT.encode())
         # 将数组拼接成字符串发送到客户端
@@ -126,16 +126,17 @@ class FTS:
         self.logger.log("Hash 比对结束。")
 
     def __execute_command(self, conn: socket.socket, command):
-        self.logger.log("执行命令：" + command)
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT).stdout
-        result = out.read(1)
-        while result:
-            conn.sendall(result.encode("UTF-32"))
-            print(result, end='')
-            result = out.read(1)
+        output = ''
+        temp = out.read(1)
+        while temp:
+            conn.sendall(temp.encode("UTF-32"))
+            output += temp
+            temp = out.read(1)
         # 命令执行结束
-        conn.sendall(b'\00' * 8)
+        conn.sendall(OVER * 8)
+        self.logger.log(f"执行命令：{command}\n{output}")
 
     def __compare_sysinfo(self, conn: socket.socket):
         self.logger.log("目标获取系统信息")
@@ -179,7 +180,7 @@ class FTS:
                     self.logger.info('创建文件夹 {0}'.format(dir_name))
             if retries == max_retries:
                 self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
-        conn.sendall(b'0')
+        conn.sendall(OVER)
 
     def __recv_files_in_dir(self, session_id, base_dir):
         with self.__sessions_lock:

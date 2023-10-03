@@ -55,20 +55,19 @@ class LEVEL(Enum):
 # 日志类，简化日志打印
 class Logger:
     def __init__(self, log_file_path: str):
-        self.__log_file = open(log_file_path, 'a', encoding=utf8)
+        self.log_file = open(log_file_path, 'a', encoding=utf8)
         self.__log_lock = threading.Lock()
         self.__writing_lock = threading.Lock()
         self.__writing_buffer: list[str] = []
         threading.Thread(target=self.flush, daemon=True).start()
         self.log('本次日志文件存放位置为: ' + os.path.normcase(log_file_path))
 
-    def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0, screen=True):
+    def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0):
         msg = get_log_msg(msg)
-        if screen:
-            with self.__log_lock:
-                print_color(msg=msg, level=level, highlight=highlight)
+        with self.__log_lock:
+            print_color(msg=msg, level=level, highlight=highlight)
         with self.__writing_lock:
-            self.__writing_buffer.append(f'[{level.name:7}] {msg}\n')  # O(1)
+            self.__writing_buffer.append(f'[{level.name:7}] {msg}\n')
 
     def info(self, msg, highlight=0):
         self.log(msg, LEVEL.INFO, highlight)
@@ -87,17 +86,17 @@ class Logger:
             if self.__writing_buffer:
                 with self.__writing_lock:
                     msgs, self.__writing_buffer = self.__writing_buffer, []
-                self.__log_file.writelines(msgs)
+                self.log_file.writelines(msgs)
                 msgs.clear()
-                self.__log_file.flush()
+                self.log_file.flush()
             time.sleep(1)
 
     def close(self):
-        if self.__log_file.closed:
+        if self.log_file.closed:
             return
         if self.__writing_buffer:
-            self.__log_file.writelines(self.__writing_buffer)
-        self.__log_file.close()
+            self.log_file.writelines(self.__writing_buffer)
+        self.log_file.close()
 
 
 def receive_data(connection: socket.socket, size: int):
@@ -417,7 +416,8 @@ PUSH: Final[str] = 'push'
 PULL: Final[str] = 'pull'
 GET: Final[str] = 'get'
 SEND: Final[str] = 'send'
-DIRISCORRECT: Final[str] = "DirIsCorrect"
+OVER: Final[bytes] = b'\00'
+DIRISCORRECT: Final[str] = "DIC"
 utf8: Final[str] = 'utf-8'
 unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
