@@ -1,13 +1,40 @@
-import argparse
 import json
 import os.path
+import subprocess
 import pathlib
 import ssl
-import subprocess
-import uuid
+from uuid import uuid4
 from secrets import token_bytes
 from Utils import *
 from sys_info import *
+from argparse import ArgumentParser
+
+if platform_ == WINDOWS:
+    from win32file import CreateFile, SetFileTime, CloseHandle, GENERIC_WRITE, OPEN_EXISTING
+    import win32timezone
+
+
+def modifyFileTime(file_path: str, logger: Logger, create_timestamp: float,
+                   modify_timestamp: float, access_timestamp: float):
+    """
+    用来修改文件的相关时间属性
+    :param file_path: 文件路径名
+    :param logger: 日志打印对象
+    :param create_timestamp: 创建时间戳
+    :param modify_timestamp: 修改时间戳
+    :param access_timestamp: 访问时间戳
+    """
+    try:
+        if platform_ == WINDOWS:
+            # 调用文件处理器对时间进行修改
+            fileHandler = CreateFile(file_path, GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, 0)
+            SetFileTime(fileHandler, datetime.fromtimestamp(create_timestamp), datetime.fromtimestamp(access_timestamp),
+                        datetime.fromtimestamp(modify_timestamp))
+            CloseHandle(fileHandler)
+        elif platform_ == LINUX:
+            os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
+    except Exception as e:
+        logger.warning(f'{file_path}修改失败，{e}')
 
 
 def avoid_filename_duplication(filename: str):
@@ -48,11 +75,11 @@ def create_dir_if_not_exist(directory: str, logger: Logger) -> bool:
     return True
 
 
-def get_parser() -> argparse.ArgumentParser:
+def get_parser() -> ArgumentParser:
     """
     获取命令行参数解析器
     """
-    parser = argparse.ArgumentParser(
+    parser = ArgumentParser(
         description='File Transfer Server, used to RECEIVE files and EXECUTE instructions.')
     default_path = os.path.expanduser(config.default_path)
     parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
@@ -266,7 +293,7 @@ class FTS:
         password = password.decode(utf8).strip('\00')
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
-        session_id = uuid.uuid4().node if session_id == 0 else session_id
+        session_id = uuid4().node if session_id == 0 else session_id
         file_head = struct.pack(FMT.head_fmt.value, msg.encode(), BEFORE_WORKING.encode(), session_id)
         conn.sendall(file_head)
         if password != self.__password:

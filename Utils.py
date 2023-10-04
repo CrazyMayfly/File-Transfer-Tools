@@ -1,14 +1,14 @@
-import hashlib
 import os
-import platform
 import re
 import signal
 import socket
-import struct
 import sys
-import tarfile
 import threading
+import struct
 import time
+import tarfile
+from platform import system
+from hashlib import md5
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,7 +18,7 @@ from send2trash import send2trash
 from sys_info import get_size
 
 # 获取当前平台
-platform_: Final[str] = platform.system()
+platform_: Final[str] = system()
 WINDOWS: Final[str] = 'Windows'
 LINUX: Final[str] = 'Linux'
 MACOS: Final[str] = 'Macos'
@@ -110,41 +110,6 @@ def receive_data(connection: socket.socket, size: int):
         size -= len(data)
         result += data
     return result
-
-
-def modifyFileTime(file_path: str, logger: Logger, create_timestamp: float,
-                   modify_timestamp: float, access_timestamp: float) -> None:
-    """
-    用来修改文件的相关时间属性
-    :param file_path: 文件路径名
-    :param logger: 日志打印对象
-    :param create_timestamp: 创建时间戳
-    :param modify_timestamp: 修改时间戳
-    :param access_timestamp: 访问时间戳
-    """
-    try:
-        if platform_ == WINDOWS:
-            from pywintypes import Time
-            from win32file import CreateFile, SetFileTime, CloseHandle, GENERIC_READ, GENERIC_WRITE, OPEN_EXISTING
-            # 获取时间元组
-            createTime = Time(create_timestamp)
-            accessTime = Time(access_timestamp)
-            modifyTime = Time(modify_timestamp)
-            # 调用文件处理器对时间进行修改
-            fileHandler = CreateFile(file_path, GENERIC_READ | GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, 0)
-            SetFileTime(fileHandler, createTime, accessTime, modifyTime)
-            CloseHandle(fileHandler)
-        elif platform_ == LINUX:
-            os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
-    except (OverflowError, Exception) as e:
-        logger.warning(f'{file_path}修改失败，{e}')
-
-
-def get_file_time_details(file_path: str) -> tuple[float, float, float]:
-    """
-    获取并返回一个文件(夹)的创建、修改、访问时间的时间戳
-    """
-    return os.path.getctime(file_path), os.path.getmtime(file_path), os.path.getatime(file_path)
 
 
 def send_clipboard(conn, logger: Logger, FTC=True):
@@ -257,13 +222,13 @@ def get_ip_and_hostname():
 
 
 def get_file_md5(filename):
-    md5 = hashlib.md5()
+    hash = md5()
     with open(filename, 'rb') as fp:
         data = fp.read(unit)
         while data:
-            md5.update(data)
+            hash.update(data)
             data = fp.read(unit)
-    return md5.hexdigest()
+    return hash.hexdigest()
 
 
 def handle_ctrl_event(logger: Logger):

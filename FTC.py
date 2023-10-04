@@ -1,10 +1,10 @@
-import argparse
 import json
 import os.path
-import random
-import shutil
-import ssl
 import readline
+import random
+import ssl
+from shutil import get_terminal_size
+from argparse import ArgumentParser
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 from tqdm import tqdm
@@ -46,11 +46,11 @@ def read_line_setup() -> str:
     return history_filename
 
 
-def get_parser() -> argparse.ArgumentParser:
+def get_parser() -> ArgumentParser:
     """
     获取命令行参数解析器
     """
-    parser = argparse.ArgumentParser(description='File Transfer Client, used to SEND files and instructions.')
+    parser = ArgumentParser(description='File Transfer Client, used to SEND files and instructions.')
     cpu_count = psutil.cpu_count(logical=False)
     parser.add_argument('-t', metavar='thread', type=int,
                         help=f'threads (default: {cpu_count})', default=cpu_count)
@@ -322,7 +322,7 @@ class FTC:
         total_size = 0
         for filename in all_file_name:
             real_path = os.path.join(self.__base_dir, filename)
-            file_size = os.stat(real_path).st_size
+            file_size = os.path.getsize(real_path)
             sz1, sz2 = calcu_size(file_size)
             self.logger.log_file.write(f"{real_path}, 约{sz1}, {sz2}\n")
             total_size += file_size
@@ -374,7 +374,7 @@ class FTC:
     def __send_file(self, filepath):
         real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
-        file_size = os.stat(real_path).st_size
+        file_size = os.path.getsize(real_path)
         file_head = struct.pack(FMT.head_fmt.value, filepath.encode(utf8), SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
@@ -397,10 +397,12 @@ class FTC:
                 # 待发送的文件大小
                 rest_size = file_size - exist_size
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.CONTINUE))
-                conn.sendall(struct.pack(FMT.file_details_fmt.value, *get_file_time_details(real_path)))
+                # 发送文件的创建、访问、修改时间戳
+                conn.sendall(struct.pack(FMT.file_details_fmt.value, os.path.getctime(real_path),
+                                         os.path.getmtime(real_path), os.path.getatime(real_path)))
                 position, leave, delay = (int(threading.current_thread().name[-1:])
                                           % self.__threads + 1, False, 0.1) if self.__pbar else (0, True, 0)
-                pbar_width = shutil.get_terminal_size().columns / 4
+                pbar_width = get_terminal_size().columns / 4
                 pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
                             mininterval=1, position=position, leave=leave, delay=delay)
                 data = fp.read(unit)
