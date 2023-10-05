@@ -12,8 +12,11 @@ class Build:
         self.__target_dir_name = target_dir_name
         self.__output_dir = os.path.join(parent_dir, target_dir_name)
         self.__log_level = 'INFO'
+        self.__build_dir = os.path.join(parent_dir, 'build')
 
     def package(self):
+        if not os.path.exists(self.__build_dir):
+            os.mkdir(self.__build_dir)
         processes = []
         for program in ['FTC', 'FTS']:
             cmd = f'pyinstaller {self.__bundle_type} --icon="{resource_dir}/{program}.png" --specpath "./build" --upx-dir="{resource_dir}/" --distpath "./{self.__target_dir_name}" --console --log-level {self.__log_level}  ./{program}.py'
@@ -22,6 +25,8 @@ class Build:
             self.__log_level = 'ERROR'
         for process in processes:
             process.wait()
+            if process.returncode != 0:
+                raise Exception('package failed!')
 
     def copy_files(self):
         if not os.path.exists(os.path.join(self.__output_dir, 'cert')):
@@ -49,17 +54,38 @@ class Build:
     def archive(self):
         print('archiving')
         shutil.make_archive(self.__output_dir, 'zip', self.__output_dir)
+        output_file = self.__output_dir + '.zip'
+        print(f'Output file {output_file}, size: {get_size(os.path.getsize(output_file))}')
 
     def clean(self):
         print('cleaning')
-        shutil.rmtree(self.__output_dir)
-        shutil.rmtree(os.path.join(parent_dir, 'build'))
+        if os.path.exists(self.__output_dir):
+            shutil.rmtree(self.__output_dir)
+        if os.path.exists(self.__build_dir):
+            shutil.rmtree(self.__build_dir)
 
-    def mian(self):
-        self.package()
-        self.copy_files()
-        self.archive()
-        self.clean()
+    def main(self):
+        try:
+            self.package()
+            self.copy_files()
+            self.archive()
+        except Exception as error:
+            print(error)
+        finally:
+            self.clean()
+
+
+def get_size(bytes, factor=1024, suffix="B"):
+    """
+    Scale bytes to its proper format
+    e.g:
+        1253656 => '1.20MB'
+        1253656678 => '1.17GB'
+    """
+    for data_unit in ["", "K", "M", "G", "T", "P"]:
+        if bytes < factor:
+            return f"{bytes:.2f}{data_unit}{suffix}"
+        bytes /= factor
 
 
 def get_all_relative_file_name(filepath):
@@ -78,4 +104,4 @@ def get_all_relative_file_name(filepath):
 
 if __name__ == '__main__':
     build = Build(folder=True, target_dir_name='FTT')
-    build.mian()
+    build.main()
