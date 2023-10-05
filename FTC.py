@@ -121,15 +121,11 @@ class FTC:
     def __compare_dir(self, local_dir, peer_dir):
         def print_filename_if_exits(prompt, filename_list):
             print(prompt)
-            self.logger.log_file.write(prompt + '\n')
             if filename_list:
                 for filename in filename_list:
                     print('\t' + filename)
-                    self.logger.log_file.write('\t' + filename + '\n')
             else:
                 print('\tNone')
-                self.logger.log_file.write('\tNone\n')
-            self.logger.log_file.flush()
 
         self.logger.flush()
         self.logger.log_file.write(
@@ -176,7 +172,7 @@ class FTC:
                         ("file in local smaller than peer: ", file_in_local_smaller_than_peer),
                         ("file in peer smaller than local: ", file_in_peer_smaller_than_local),
                         ("file name and size both equal in two sides: ", file_size_and_name_both_equal)]:
-                print_filename_if_exits(*arg)
+                extra_print2file(print_filename_if_exits, arg, self.logger.log_file)
 
             if not file_size_and_name_both_equal:
                 conn.sendall(struct.pack(FMT.size_fmt.value, Control.CANCEL.value))
@@ -202,7 +198,7 @@ class FTC:
             peer_dict = json.loads(data)
             hash_not_matching = [filename for filename in results.keys() if
                                  results[filename] != peer_dict[filename]]
-            print_filename_if_exits("hash not matching: ", hash_not_matching)
+            extra_print2file(print_filename_if_exits, ("hash not matching: ", hash_not_matching), self.logger.log_file)
 
     def __update_global_pbar(self, size, decrease=False):
         if size == 0 or self.__pbar is None:
@@ -256,14 +252,11 @@ class FTC:
         peer_sysinfo = json.loads(data)
         self.logger.flush()
         self.logger.log_file.write('[INFO   ] ' + get_log_msg("对比双方系统信息：\n"))
-        print_sysinfo(peer_sysinfo)
-        print_sysinfo(peer_sysinfo, self.logger.log_file)
+        extra_print2file(print_sysinfo, (peer_sysinfo,), self.logger.log_file)
         # 等待本机系统信息获取完成
         thread.join()
         local_sysinfo = thread.get_result()
-        print_sysinfo(local_sysinfo)
-        print_sysinfo(local_sysinfo, self.logger.log_file)
-        self.logger.log_file.flush()
+        extra_print2file(print_sysinfo, (local_sysinfo,), self.logger.log_file)
 
     def __speedtest(self, times):
         times = '500' if times.isspace() or not times else times

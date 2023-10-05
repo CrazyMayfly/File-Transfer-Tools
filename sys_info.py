@@ -1,15 +1,7 @@
 import platform
-import sys
 import time
 import psutil
 from threading import Thread
-
-
-def stringify_time(time_second):
-    minutes, seconds = divmod(time_second, 60)
-    hours, minutes = divmod(minutes, 60)
-    days, hours = divmod(hours, 24)
-    return f"{days}天{hours}小时{minutes}分钟{seconds}秒"
 
 
 def get_size(bytes, factor=1024, suffix="B"):
@@ -62,6 +54,12 @@ class MyThread(Thread):
 
 
 def get_sys_info():
+    def format_time(time_second):
+        minutes, seconds = divmod(time_second, 60)
+        hours, minutes = divmod(minutes, 60)
+        days, hours = divmod(hours, 24)
+        return f"{days}天{hours}小时{minutes}分钟{seconds}秒"
+
     username = psutil.users()[0].name
     host = platform.node()
     # 系统的内存利用率
@@ -91,7 +89,7 @@ def get_sys_info():
         "system": {"platform": platform.system(), "version": platform.version(),
                    "architecture": platform.architecture()[0]
                    },
-        "boot time": stringify_time(int(time.time() - psutil.boot_time())),
+        "boot time": format_time(int(time.time() - psutil.boot_time())),
         "cpu": {"count": psutil.cpu_count(logical=False), "logic_count": psutil.cpu_count(logical=True),
                 "percentage": cpu_percent, 'info': platform.processor(),
                 "manufacturer": platform.machine(),
@@ -100,32 +98,23 @@ def get_sys_info():
         "network": net_io,
         "disks": {'info': disks, 'io': disk_io}
     }
+    battery_info = None
     if battery:
         if battery.secsleft == -1:
             secs_left = 'POWER_TIME_UNKNOWN'
         elif battery.secsleft == -2:
             secs_left = 'POWER_TIME_UNLIMITED'
         else:
-            secs_left = stringify_time(battery.secsleft)
-        info.update({"battery": {"percent": battery.percent,
-                                 "power_plugged": "已接通电源" if battery.power_plugged else "未接通电源",
-                                 "secsleft": secs_left}})
-    else:
-        info.update({"battery": None})
+            secs_left = format_time(battery.secsleft)
+        battery_info = {"percent": battery.percent, "secsleft": secs_left,
+                        "power_plugged": "已接通电源" if battery.power_plugged else "未接通电源"}
+    info.update({"battery": battery_info})
     return info
 
 
-def print_sysinfo(info, file=sys.stdout):
-    user = info['user']
-    system = info['system']
-    cpu = info['cpu']
-    memory = info['memory']
-    network = info['network']
-    battery = info['battery']
-    disks = info['disks']
-    disks_io = disks['io']
-    original_stdout = sys.stdout
-    sys.stdout = file
+def print_sysinfo(info):
+    user, system, cpu, memory, network, battery, disks, disks_io = info['user'], info['system'], info['cpu'], info[
+        'memory'], info['network'], info['battery'], info['disks'], info['disks']['io']
     print(f"用户: {user['username']}, 主机: {user['host']} 的系统信息如下: ")
     print(f"\t系统信息 : {system['platform']} {system['version']} {system['architecture']}")
     print(f"\t运行时间 : {info['boot time']}")
@@ -142,7 +131,6 @@ def print_sysinfo(info, file=sys.stdout):
           f"当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}"
           if battery else "未检测到电池")
     print()
-    sys.stdout = original_stdout
 
 
 if __name__ == '__main__':

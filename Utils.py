@@ -13,7 +13,7 @@ from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, IntFlag
-from typing import Optional, TextIO, Final
+from typing import Optional, TextIO, Final, Callable
 from send2trash import send2trash
 from sys_info import get_size
 
@@ -243,6 +243,19 @@ def handle_ctrl_event(logger: Logger):
 
     from win32api import SetConsoleCtrlHandler
     SetConsoleCtrlHandler(call_back, 1)
+
+
+def extra_print2file(print_func: Callable, args: tuple, file: TextIO):
+    """
+    将print的内容同时输出到控制台和文件中
+    """
+    print_func(*args)
+    # 将输出重定向到文件
+    original_out, sys.stdout = sys.stdout, file
+    print_func(*args)
+    # 恢复原来的输出
+    sys.stdout = original_out
+    file.flush()
 
 
 def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> Optional[TextIO]:
