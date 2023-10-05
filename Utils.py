@@ -65,7 +65,7 @@ class Logger:
     def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0):
         msg = get_log_msg(msg)
         with self.__log_lock:
-            print_color(msg=msg, level=level, highlight=highlight)
+            print(f"\033[{highlight}{level.value}m{msg}\033[0m")
         with self.__writing_lock:
             self.__writing_buffer.append(f'[{level.name:7}] {msg}\n')
 
@@ -170,7 +170,7 @@ def calcu_size(bytes, factor=1024):
 
 
 def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
-    print("\033[{}{}m{}\033[0m".format(highlight, level.value, msg))
+    print(f"\033[{highlight}{level.value}m{msg}\033[0m")
 
 
 def get_log_msg(msg):
