@@ -1,5 +1,5 @@
 tqdm~=4.66.1
-psutil~=5.9.4
+psutil~=5.9.5
 Send2Trash~=1.8.0
 pyperclip~=1.8.2
 pywin32; sys_platform == "win32"

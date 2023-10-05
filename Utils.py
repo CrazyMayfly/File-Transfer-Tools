@@ -12,8 +12,8 @@ from hashlib import md5
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum, IntFlag
-from typing import Optional, TextIO, Final, Callable
+from enum import IntFlag, StrEnum
+from typing import TextIO, Final, Callable
 from send2trash import send2trash
 from sys_info import get_size
 
@@ -41,7 +41,7 @@ class Configration:
     client_signal_port: int
 
 
-class LEVEL(Enum):
+class LEVEL(StrEnum):
     """
     日志打印等级的枚举类，值为等级对应的颜色代码
     """
@@ -65,7 +65,7 @@ class Logger:
     def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0):
         msg = get_log_msg(msg)
         with self.__log_lock:
-            print(f"\033[{highlight}{level.value}m{msg}\033[0m")
+            print(f"\033[{highlight}{level}m{msg}\033[0m")
         with self.__writing_lock:
             self.__writing_buffer.append(f'[{level.name:7}] {msg}\n')
 
@@ -119,18 +119,18 @@ def send_clipboard(conn, logger: Logger, FTC=True):
     content_length = len(content)
     if content_length == 0:
         if not FTC:
-            file_head = struct.pack(FMT.head_fmt.value, b'', b'', 0)
+            file_head = struct.pack(FMT.head_fmt, b'', b'', 0)
             conn.send(file_head)
         return
 
     logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
     # 需要发送的内容较小则一趟发送
     if content_length <= FMT.filename_fmt.size:
-        file_head = struct.pack(FMT.head_fmt.value, content, PUSH_CLIPBOARD.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt, content, PUSH_CLIPBOARD.encode(), 0)
         conn.send(file_head)
     else:
         # 较大则多趟发送
-        file_head = struct.pack(FMT.head_fmt.value, b'', PUSH_CLIPBOARD.encode(), content_length)
+        file_head = struct.pack(FMT.head_fmt, b'', PUSH_CLIPBOARD.encode(), content_length)
         conn.send(file_head)
         conn.send(content)
 
@@ -138,10 +138,10 @@ def send_clipboard(conn, logger: Logger, FTC=True):
 def get_clipboard(conn, logger: Logger, file_head=None, FTC=True):
     # 获取对方剪切板的内容
     if FTC:
-        file_head = struct.pack(FMT.head_fmt.value, b'', PULL_CLIPBOARD.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt, b'', PULL_CLIPBOARD.encode(), 0)
         conn.send(file_head)
         file_head = receive_data(conn, FMT.head_fmt.size)
-    content, command, file_size, = struct.unpack(FMT.head_fmt.value, file_head)
+    content, command, file_size, = struct.unpack(FMT.head_fmt, file_head)
     if command.decode() != PUSH_CLIPBOARD:
         logger.warning('对方剪切板为空')
         return
@@ -170,7 +170,7 @@ def calcu_size(bytes, factor=1024):
 
 
 def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
-    print(f"\033[{highlight}{level.value}m{msg}\033[0m")
+    print(f"\033[{highlight}{level}m{msg}\033[0m")
 
 
 def get_log_msg(msg):
@@ -209,7 +209,7 @@ def get_dir_file_name(filepath):
     return all_dir_name, all_file_name
 
 
-def get_ip_and_hostname():
+def get_ip_and_hostname() -> (str, str):
     st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         st.connect(('10.255.255.255', 1))
@@ -258,7 +258,7 @@ def extra_print2file(print_func: Callable, args: tuple, file: TextIO):
     file.flush()
 
 
-def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> Optional[TextIO]:
+def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> TextIO | None:
     """
     多次重试创建文件，用于解决文件路径过长时
     Windows容易无法创建文件的问题
@@ -341,7 +341,7 @@ def compress_log_files(base_dir, log_type, logger: Logger):
         return
 
 
-def shorten_path(path: str, max_width):
+def shorten_path(path: str, max_width: float) -> str:
     return path[:int((max_width - 3) / 3)] + '...' + path[-2 * int((max_width - 3) / 3):] if len(
         path) > max_width else path + ' ' * (int(max_width) - len(path))
 
@@ -403,7 +403,7 @@ unit: Final[int] = 1024 * 1024  # 1MB
 commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
 
 
-class FMT(Enum):
+class FMT(StrEnum):
     filename_fmt = '800s'
     head_fmt = f'>{filename_fmt}14sQ'  # 大端对齐，800位文件（夹）名，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
     size_fmt = 'q'
@@ -411,7 +411,7 @@ class FMT(Enum):
 
     @property
     def size(self):
-        return struct.calcsize(self.value)
+        return struct.calcsize(self)
 
 
 class Control(IntFlag):
@@ -420,7 +420,7 @@ class Control(IntFlag):
     TOOLONG = -2
 
 
-class ConfigOption(Enum):
+class ConfigOption(StrEnum):
     """
     配置文件的Option的枚举类
     name为配置项名称，value为配置的默认值
@@ -438,7 +438,7 @@ class ConfigOption(Enum):
 
     @property
     def optionAndValue(self):
-        return self.name, self.value
+        return self.name, self
 
 
 # 配置文件相关
