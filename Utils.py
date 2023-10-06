@@ -12,7 +12,7 @@ from hashlib import md5
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
-from enum import IntFlag, StrEnum, Enum
+from enum import IntFlag, StrEnum
 from typing import TextIO, Final, Callable
 from send2trash import send2trash
 from sys_info import get_size
@@ -463,23 +463,23 @@ class Config:
 
     @staticmethod
     def load_config():
-        config_parser = ConfigParser()
-        config_parser.read(Config.config_file, encoding=utf8)
+        cnf = ConfigParser()
+        cnf.read(Config.config_file, encoding=utf8)
         try:
             path_name = ConfigOption.windows_default_path.name if platform_ == WINDOWS else ConfigOption.linux_default_path.name
-            default_path = config_parser.get(ConfigOption.section_Main, path_name)
-            if not os.path.exists(cert_dir := config_parser.get(ConfigOption.section_Main, ConfigOption.cert_dir.name)):
+            default_path = cnf.get(ConfigOption.section_Main, path_name)
+            if not os.path.exists(cert_dir := cnf.get(ConfigOption.section_Main, ConfigOption.cert_dir.name)):
                 cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
             if not os.path.exists(cert_dir):
                 raise FileNotFoundError
             log_dir_name = ConfigOption.windows_log_dir.name if platform_ == WINDOWS else ConfigOption.linux_log_dir.name
-            if not os.path.exists(log_dir := os.path.expanduser(config_parser.get(ConfigOption.section_Log, log_dir_name))):
+            if not os.path.exists(log_dir := os.path.expanduser(cnf.get(ConfigOption.section_Log, log_dir_name))):
                 os.makedirs(log_dir)
-            log_file_archive_count = config_parser.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)
-            log_file_archive_size = config_parser.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_size.name)
-            server_port = config_parser.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
-            server_signal_port = config_parser.getint(ConfigOption.section_Port, ConfigOption.server_signal_port.name)
-            client_signal_port = config_parser.getint(ConfigOption.section_Port, ConfigOption.client_signal_port.name)
+            log_file_archive_count = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)
+            log_file_archive_size = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_size.name)
+            server_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
+            server_signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_signal_port.name)
+            client_signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.client_signal_port.name)
         except FileNotFoundError:
             print_color('未找到证书文件夹！\n', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
