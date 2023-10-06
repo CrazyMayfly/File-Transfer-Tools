@@ -138,7 +138,7 @@ class FTS:
         conn.sendall(struct.pack(FMT.size_fmt, len(relative_filename)))
         # 再发送字符串
         conn.sendall(relative_filename)
-        if receive_data(conn, 8)[0] != Control.CONTINUE:
+        if receive_data(conn, 8)[0] != CONTROL.CONTINUE:
             self.logger.log("不继续比对Hash")
             return
         self.logger.log("继续对比文件Hash")
@@ -224,7 +224,7 @@ class FTS:
         file_path = os.path.join(base_dir, filename)
         if self.__avoid_file_duplicate and os.path.exists(file_path):
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
-            conn.sendall(struct.pack(FMT.size_fmt, Control.CANCEL))
+            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
             return
         fp = None
         try:
@@ -238,11 +238,11 @@ class FTS:
                 fp = openfile_with_retires(cur_download_file, 'wb')
             if not fp:
                 self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
-                conn.sendall(struct.pack(FMT.size_fmt, Control.TOOLONG))
+                conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
                 return
-            conn.sendall(struct.pack(FMT.size_fmt, Control.CONTINUE + size))
+            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE + size))
             command = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))
-            if command == Control.TOOLONG:
+            if command == CONTROL.TOOLONG:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
                 return
             relpath = os.path.relpath(original_file, base_dir)
@@ -285,14 +285,14 @@ class FTS:
             return
         conn.settimeout(None)
         command = command.decode().strip('\00')
-        if command != BEFORE_WORKING:
+        if command != COMMAND.BEFORE_WORKING:
             conn.close()
             return
         password = password.decode(utf8).strip('\00')
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
         session_id = uuid4().node if session_id == 0 else session_id
-        file_head = struct.pack(FMT.head_fmt, msg.encode(), BEFORE_WORKING.encode(), session_id)
+        file_head = struct.pack(FMT.head_fmt, msg.encode(), COMMAND.BEFORE_WORKING.encode(), session_id)
         conn.sendall(file_head)
         if password != self.__password:
             conn.close()
@@ -336,7 +336,7 @@ class FTS:
                 filename, command, file_size = struct.unpack(FMT.head_fmt, file_head)
                 filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
-                if command == SEND_FILE:
+                if command == COMMAND.SEND_FILE:
                     self.__recv_single_file(conn, filename, file_size, base_dir)
                 elif command == FINISH:
                     break
@@ -362,28 +362,29 @@ class FTS:
                 filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
                 base_dir = self.__base_dir
-                if command == SEND_FILES_IN_DIR:
-                    self.__makedirs(conn, base_dir=base_dir, size=file_size)
-                    self.__recv_files_in_dir(session_id, base_dir)
-                elif command == SEND_FILE:
-                    self.__recv_single_file(conn, filename, file_size, base_dir)
-                elif command == COMPARE_DIR:
-                    self.__compare_dir(conn, filename)
-                elif command == COMMAND:
-                    self.__execute_command(conn, filename)
-                elif command == SYSINFO:
-                    self.__compare_sysinfo(conn)
-                elif command == SPEEDTEST:
-                    self.__speedtest(conn, file_size)
-                elif command == PULL_CLIPBOARD:
-                    send_clipboard(conn, self.logger, FTC=False)
-                elif command == PUSH_CLIPBOARD:
-                    get_clipboard(conn, self.logger, file_head=file_head, FTC=False)
-                elif command == CLOSE:
-                    for conn in self.__sessions[session_id]:
-                        conn.close()
-                    self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
-                    break
+                match command:
+                    case COMMAND.SEND_FILES_IN_DIR:
+                        self.__makedirs(conn, base_dir=base_dir, size=file_size)
+                        self.__recv_files_in_dir(session_id, base_dir)
+                    case COMMAND.SEND_FILE:
+                        self.__recv_single_file(conn, filename, file_size, base_dir)
+                    case COMMAND.COMPARE_DIR:
+                        self.__compare_dir(conn, filename)
+                    case COMMAND.EXECUTE_COMMAND:
+                        self.__execute_command(conn, filename)
+                    case COMMAND.SYSINFO:
+                        self.__compare_sysinfo(conn)
+                    case COMMAND.SPEEDTEST:
+                        self.__speedtest(conn, file_size)
+                    case COMMAND.PULL_CLIPBOARD:
+                        send_clipboard(conn, self.logger, FTC=False)
+                    case COMMAND.PUSH_CLIPBOARD:
+                        get_clipboard(conn, self.logger, file_head=file_head, FTC=False)
+                    case COMMAND.CLOSE:
+                        for conn in self.__sessions[session_id]:
+                            conn.close()
+                        self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
+                        break
         except ConnectionResetError as e:
             self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
         finally:

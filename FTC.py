@@ -80,7 +80,7 @@ class FTC:
         self.logger = Logger(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
         self.__thread_pool = None
         self.__history_file = open(read_line_setup(), 'a', encoding=utf8)
-        self.__position = deque(range(threads, 0, -1))
+        self.__position = deque(range(1, threads + 1))
         self.__position_lock = threading.Lock()
         # 进行日志归档
         threading.Thread(name='ArchiveThread', target=compress_log_files,
@@ -136,7 +136,7 @@ class FTC:
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
             return
-        file_head = struct.pack(FMT.head_fmt, peer_dir.encode(utf8), COMPARE_DIR.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt, peer_dir.encode(utf8), COMMAND.COMPARE_DIR.encode(), 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             if receive_data(conn, len(DIRISCORRECT)).decode() != DIRISCORRECT:
@@ -178,13 +178,13 @@ class FTC:
                 extra_print2file(print_filename_if_exits, arg, self.logger.log_file)
 
             if not file_size_and_name_both_equal:
-                conn.sendall(struct.pack(FMT.size_fmt, Control.CANCEL))
+                conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
                 return
             if input("Continue to compare hash for filename and size both equal set?(y/n): ") != 'y':
-                conn.sendall(struct.pack(FMT.size_fmt, Control.CANCEL))
+                conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
                 return
             # 发送继续请求
-            conn.sendall(struct.pack(FMT.size_fmt, Control.CONTINUE))
+            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE))
             # 发送相同的文件名称大小
             data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
             conn.sendall(struct.pack(FMT.size_fmt, len(data_to_send)))
@@ -229,7 +229,7 @@ class FTC:
             self.logger.warning("指令过长")
             return
         with self.__connections as conn:
-            file_head = struct.pack(FMT.head_fmt, command, COMMAND.encode(), len(command))
+            file_head = struct.pack(FMT.head_fmt, command, COMMAND.EXECUTE_COMMAND.encode(), len(command))
             conn.sendall(file_head)
             self.logger.flush()
             self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command.decode(utf8)}\n'))
@@ -241,7 +241,7 @@ class FTC:
 
     def __compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
-        file_head = struct.pack(FMT.head_fmt, b'', SYSINFO.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt, b'', COMMAND.SYSINFO.encode(), 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             # 异步获取自己的系统信息
@@ -266,7 +266,7 @@ class FTC:
         times = int(times)
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
-        file_head = struct.pack(FMT.head_fmt, b'', SPEEDTEST.encode(), data_size)
+        file_head = struct.pack(FMT.head_fmt, b'', COMMAND.SPEEDTEST.encode(), data_size)
         with self.__connections as conn:
             conn.sendall(file_head)
             start = time.time()
@@ -295,7 +295,7 @@ class FTC:
         @param command: get 或 send
         @return:
         """
-        func = get_clipboard if command in (GET, PULL) else send_clipboard
+        func = get_clipboard if command == GET else send_clipboard
         with self.__connections as conn:
             func(conn, self.logger)
 
@@ -303,7 +303,7 @@ class FTC:
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         data = json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode()
         self.__connections.main_conn.sendall(
-            struct.pack(FMT.head_fmt, b'', SEND_FILES_IN_DIR.encode(), len(data)))
+            struct.pack(FMT.head_fmt, b'', COMMAND.SEND_FILES_IN_DIR.encode(), len(data)))
         self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}'.format(filepath, len(all_dir_name)))
         self.logger.flush()
         self.__connections.main_conn.sendall(data)
@@ -368,32 +368,32 @@ class FTC:
         real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.path.getsize(real_path)
-        file_head = struct.pack(FMT.head_fmt, filepath.encode(utf8), SEND_FILE.encode(), file_size)
+        file_head = struct.pack(FMT.head_fmt, filepath.encode(utf8), COMMAND.SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.sendall(file_head)
             flag = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))[0]
-            if flag == Control.CANCEL:
+            if flag == CONTROL.CANCEL:
                 self.__update_global_pbar(file_size, decrease=True)
-            elif flag == Control.TOOLONG:
+            elif flag == CONTROL.TOOLONG:
                 self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
             else:
                 fp = openfile_with_retires(real_path, 'rb')
                 if not fp:
                     self.logger.error(f'文件路径太长，无法发送: {real_path}', highlight=1)
-                    conn.sendall(struct.pack(FMT.size_fmt, Control.TOOLONG))
+                    conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
                     return
                 # 服务端已有的文件大小
                 exist_size = flag
                 fp.seek(exist_size, 0)
                 # 待发送的文件大小
                 rest_size = file_size - exist_size
-                conn.sendall(struct.pack(FMT.size_fmt, Control.CONTINUE))
+                conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE))
                 # 发送文件的创建、访问、修改时间戳
                 conn.sendall(struct.pack(FMT.file_details_fmt, os.path.getctime(real_path),
                                          os.path.getmtime(real_path), os.path.getatime(real_path)))
-                position, leave, delay = (self.__position.pop(), False, 0.1) if self.__pbar else (0, True, 0)
+                position, leave, delay = (self.__position.popleft(), False, 0.1) if self.__pbar else (0, True, 0)
                 pbar_width = get_terminal_size().columns / 4
                 pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
                             mininterval=1, position=position, leave=leave, delay=delay)
@@ -408,7 +408,7 @@ class FTC:
         return filepath
 
     def __validate_password(self, conn):
-        file_head = struct.pack(FMT.head_fmt, self.__password.encode(), BEFORE_WORKING.encode(),
+        file_head = struct.pack(FMT.head_fmt, self.__password.encode(), COMMAND.BEFORE_WORKING.encode(),
                                 self.__session_id)
         conn.sendall(file_head)
         file_head = receive_data(conn, FMT.head_fmt.size)
@@ -471,7 +471,7 @@ class FTC:
         if self.__thread_pool:
             self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
-        close_info = struct.pack(FMT.head_fmt, b'', CLOSE.encode(), 0)
+        close_info = struct.pack(FMT.head_fmt, b'', COMMAND.CLOSE.encode(), 0)
         self.logger.info('断开与 {0}:{1} 的连接'.format(self.__host, config.server_port))
         try:
             for conn in self.__connections.connections:
@@ -542,19 +542,19 @@ class FTC:
                     self.__send_files_in_dir(command)
                 elif os.path.isfile(command) and os.path.exists(command):
                     self.__send_single_file(command)
-                elif command == SYSINFO:
+                elif command == COMMAND.SYSINFO:
                     self.__compare_sysinfo()
-                elif command.startswith(SPEEDTEST):
+                elif command.startswith(COMMAND.SPEEDTEST):
                     self.__speedtest(times=command[10:])
-                elif command.startswith(COMPARE):
+                elif command.startswith(COMMAND.COMPARE):
                     local_dir, destination_dir = split_dir(command)
                     if not destination_dir or not local_dir:
                         self.logger.warning('本地文件夹且远程文件夹不能为空')
                         continue
                     self.__compare_dir(local_dir, destination_dir)
-                elif command.startswith(CLIP + ' '):
-                    self.__exchange_clipboard(command.split()[1])
-                elif command.startswith(HISTORY):
+                elif command.endswith('clipboard'):
+                    self.__exchange_clipboard(command.split()[0])
+                elif command.startswith(COMMAND.HISTORY):
                     print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
                         1].isdigit() else print_history()
                 else:

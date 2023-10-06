@@ -126,11 +126,11 @@ def send_clipboard(conn, logger: Logger, FTC=True):
     logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
     # 需要发送的内容较小则一趟发送
     if content_length <= FMT.filename_fmt.size:
-        file_head = struct.pack(FMT.head_fmt, content, PUSH_CLIPBOARD.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt, content, COMMAND.PUSH_CLIPBOARD.encode(), 0)
         conn.send(file_head)
     else:
         # 较大则多趟发送
-        file_head = struct.pack(FMT.head_fmt, b'', PUSH_CLIPBOARD.encode(), content_length)
+        file_head = struct.pack(FMT.head_fmt, b'', COMMAND.PUSH_CLIPBOARD.encode(), content_length)
         conn.send(file_head)
         conn.send(content)
 
@@ -138,21 +138,18 @@ def send_clipboard(conn, logger: Logger, FTC=True):
 def get_clipboard(conn, logger: Logger, file_head=None, FTC=True):
     # 获取对方剪切板的内容
     if FTC:
-        file_head = struct.pack(FMT.head_fmt, b'', PULL_CLIPBOARD.encode(), 0)
+        file_head = struct.pack(FMT.head_fmt, b'', COMMAND.PULL_CLIPBOARD.encode(), 0)
         conn.send(file_head)
         file_head = receive_data(conn, FMT.head_fmt.size)
-    content, command, file_size, = struct.unpack(FMT.head_fmt, file_head)
-    if command.decode() != PUSH_CLIPBOARD:
+    content, command, file_size = struct.unpack(FMT.head_fmt, file_head)
+    if command.decode() != COMMAND.PUSH_CLIPBOARD:
         logger.warning('对方剪切板为空')
         return
         # 对方发送的内容较多则继续接收
-    if file_size != 0:
-        content = receive_data(conn, file_size)
-    logger.info('获取对方剪切板的内容，大小为 {}'.format(get_size(len(content.strip(b"\00")))))
-    content = content.decode(utf8).strip('\00')
-    print(content)
+    content = receive_data(conn, file_size).strip(b"\00") if file_size != 0 else content.strip(b"\00")
+    logger.log(f'获取对方剪切板的内容，大小为 {get_size(len(content))}\n{content.decode(utf8)}')
     # 拷贝到剪切板
-    pyperclip.copy(content)
+    pyperclip.copy(content.decode(utf8))
 
 
 def calcu_size(bytes, factor=1024):
@@ -371,34 +368,37 @@ def shorten_path(path: str, max_width: float) -> str:
 # used to prevent the console from exiting directly after the program is packaged as exe
 packaging = getattr(sys, 'frozen', False)
 
+
 # 命令类型
-SEND_FILE: Final[str] = "send_file"
-SEND_DIR: Final[str] = "send_dir"
-SEND_FILES_IN_DIR: Final[str] = "send_files_dir"
-COMPARE_DIR: Final[str] = "compare_dir"
-COMMAND: Final[str] = 'command'
-SYSINFO: Final[str] = 'sysinfo'
-FINISH: Final[str] = 'finish'
-SPEEDTEST: Final[str] = 'speedtest'
-BEFORE_WORKING: Final[str] = 'before_working'
-CLOSE: Final[str] = 'close'
-CLIP: Final[str] = 'clip'
-HISTORY: Final[str] = 'history'
-COMPARE: Final[str] = "compare"
-PUSH_CLIPBOARD: Final[str] = 'push_clipboard'
-PULL_CLIPBOARD: Final[str] = 'pull_clipboard'
+class COMMAND(StrEnum):
+    SEND_FILE: Final[str] = "send_file"
+    SEND_FILES_IN_DIR: Final[str] = "send_files_dir"
+    COMPARE_DIR: Final[str] = "compare_dir"
+    EXECUTE_COMMAND: Final[str] = 'command'
+    SYSINFO: Final[str] = 'sysinfo'
+    SPEEDTEST: Final[str] = 'speedtest'
+    BEFORE_WORKING: Final[str] = 'before_working'
+    CLOSE: Final[str] = 'close'
+    HISTORY: Final[str] = 'history'
+    COMPARE: Final[str] = "compare"
+    PUSH_CLIPBOARD: Final[str] = 'send clipboard'
+    PULL_CLIPBOARD: Final[str] = 'get clipboard'
+
 
 # 其他常量
 FAIL: Final[str] = 'fail'
-PUSH: Final[str] = 'push'
-PULL: Final[str] = 'pull'
 GET: Final[str] = 'get'
 SEND: Final[str] = 'send'
+FINISH: Final[str] = 'finish'
 OVER: Final[bytes] = b'\00'
 DIRISCORRECT: Final[str] = "DIC"
 utf8: Final[str] = 'utf-8'
 unit: Final[int] = 1024 * 1024  # 1MB
-commands: Final[list] = [SYSINFO, COMPARE, SPEEDTEST, HISTORY, CLIP, PUSH, PULL, SEND, GET]
+# PUSH: Final[str] = 'push'
+# PULL: Final[str] = 'pull'
+# CLIP: Final[str] = 'clipboard'
+commands: Final[list] = [COMMAND.SYSINFO, COMMAND.COMPARE, COMMAND.SPEEDTEST, COMMAND.HISTORY, COMMAND.PUSH_CLIPBOARD,
+                         COMMAND.PULL_CLIPBOARD]
 
 
 class FMT(StrEnum):
@@ -412,7 +412,7 @@ class FMT(StrEnum):
         return struct.calcsize(self)
 
 
-class Control(IntFlag):
+class CONTROL(IntFlag):
     CONTINUE = 0
     CANCEL = -1
     TOOLONG = -2
