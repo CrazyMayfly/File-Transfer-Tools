@@ -224,10 +224,8 @@ def get_ip_and_hostname() -> (str, str):
 def get_file_md5(filename):
     hash = md5()
     with open(filename, 'rb') as fp:
-        data = fp.read(unit)
-        while data:
+        while data := fp.read(unit):
             hash.update(data)
-            data = fp.read(unit)
     return hash.hexdigest()
 
 

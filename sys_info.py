@@ -77,7 +77,7 @@ def get_sys_info():
                      'total': get_size(usage.total), 'free': get_size(usage.free), 'percent': f'{usage.percent}%'}
         disks.append(disk_info)
     # 异步获取cpu、网络、硬盘的io
-    threads = [MyThread(method) for method in [get_net_io, get_cpu_percent, get_disk_io]]
+    threads = [MyThread(method) for method in (get_net_io, get_cpu_percent, get_disk_io)]
     for thread in threads:
         thread.start()
     for thread in threads:

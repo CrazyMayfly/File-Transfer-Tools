@@ -234,11 +234,9 @@ class FTC:
             self.logger.flush()
             self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command.decode(utf8)}\n'))
             # 接收返回结果
-            result = receive_data(conn, 8).decode('UTF-32')
-            while result != '\00' * 2:
+            while (result := receive_data(conn, 8).decode('UTF-32')) != '\00' * 2:
                 print(result, end='')
                 self.logger.log_file.write(result)
-                result = receive_data(conn, 8).decode('UTF-32')
             self.logger.log_file.flush()
 
     def __compare_sysinfo(self):
@@ -399,12 +397,10 @@ class FTC:
                 pbar_width = get_terminal_size().columns / 4
                 pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
                             mininterval=1, position=position, leave=leave, delay=delay)
-                data = fp.read(unit)
-                while data:
+                while data := fp.read(unit):
                     conn.sendall(data)
                     pbar.update(len(data))
                     self.__update_global_pbar(len(data))
-                    data = fp.read(unit)
                 fp.close()
                 self.__update_global_pbar(exist_size, decrease=True)
                 self.__position.append(position)

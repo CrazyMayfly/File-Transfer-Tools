@@ -156,11 +156,9 @@ class FTS:
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT).stdout
         output = ''
-        temp = out.read(1)
-        while temp:
+        while temp := out.read(1):
             conn.sendall(temp.encode("UTF-32"))
             output += temp
-            temp = out.read(1)
         # 命令执行结束
         conn.sendall(OVER * 8)
         self.logger.log(f"执行命令：{command}\n{output}")
