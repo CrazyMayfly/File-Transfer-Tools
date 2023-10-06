@@ -12,7 +12,7 @@ from hashlib import md5
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
-from enum import IntFlag, StrEnum
+from enum import IntFlag, StrEnum, Enum
 from typing import TextIO, Final, Callable
 from send2trash import send2trash
 from sys_info import get_size
@@ -112,13 +112,13 @@ def receive_data(connection: socket.socket, size: int):
     return result
 
 
-def send_clipboard(conn, logger: Logger, FTC=True):
+def send_clipboard(conn, logger: Logger, ftc=True):
     # 读取并编码剪切板的内容
     content = pyperclip.paste().encode()
     # 没有内容则不发送
     content_length = len(content)
     if content_length == 0:
-        if not FTC:
+        if not ftc:
             file_head = struct.pack(FMT.head_fmt, b'', b'', 0)
             conn.send(file_head)
         return
@@ -135,9 +135,9 @@ def send_clipboard(conn, logger: Logger, FTC=True):
         conn.send(content)
 
 
-def get_clipboard(conn, logger: Logger, file_head=None, FTC=True):
+def get_clipboard(conn, logger: Logger, file_head=None, ftc=True):
     # 获取对方剪切板的内容
-    if FTC:
+    if ftc:
         file_head = struct.pack(FMT.head_fmt, b'', COMMAND.PULL_CLIPBOARD.encode(), 0)
         conn.send(file_head)
         file_head = receive_data(conn, FMT.head_fmt.size)
@@ -155,7 +155,7 @@ def get_clipboard(conn, logger: Logger, file_head=None, FTC=True):
 def calcu_size(bytes, factor=1024):
     """
     计算文件大小所对应的合适的单位
-    :param bytes: 原始文件大小，单位byte
+    :param bytes: 原始文件大小，单位 byte
     :param factor: 计算因子
     :return:返回合适的两个单位及对应的大小
     """
@@ -219,11 +219,11 @@ def get_ip_and_hostname() -> (str, str):
 
 
 def get_file_md5(filename):
-    hash = md5()
+    file_hash = md5()
     with open(filename, 'rb') as fp:
         while data := fp.read(unit):
-            hash.update(data)
-    return hash.hexdigest()
+            file_hash.update(data)
+    return file_hash.hexdigest()
 
 
 def handle_ctrl_event(logger: Logger):
@@ -423,19 +423,24 @@ class ConfigOption(StrEnum):
     配置文件的Option的枚举类
     name为配置项名称，value为配置的默认值
     """
+    section_Main = 'Main'
     windows_default_path = '~/Desktop'
     linux_default_path = '~/FileTransferTool/FileRecv'
     cert_dir = './cert'
+
+    section_Log = 'Log'
     windows_log_dir = 'C:/ProgramData/logs'
     linux_log_dir = '~/FileTransferTool/logs'
     log_file_archive_count = '10'
     log_file_archive_size = '52428800'
+
+    section_Port = 'Port'
     server_port = '2023'
     client_signal_port = '2022'
     server_signal_port = '2021'
 
     @property
-    def optionAndValue(self):
+    def name_and_value(self):
         return self.name, self
 
 
@@ -443,85 +448,57 @@ class ConfigOption(StrEnum):
 class Config:
     config_file: Final[str] = 'config.txt'
 
-    section_Main: Final[str] = 'Main'
-    section_Log: Final[str] = 'Log'
-    section_Port: Final[str] = 'Port'
-
     @staticmethod
     def generate_config():
-        config = ConfigParser()
-        config.add_section(Config.section_Main)
-        if platform_ == WINDOWS:
-            config.set(Config.section_Main, *ConfigOption.windows_default_path.optionAndValue)
-        elif platform_ == LINUX:
-            config.set(Config.section_Main, *ConfigOption.linux_default_path.optionAndValue)
-        config.set(Config.section_Main, *ConfigOption.cert_dir.optionAndValue)
-        config.add_section(Config.section_Log)
-        config.set(Config.section_Log, *ConfigOption.windows_log_dir.optionAndValue)
-        config.set(Config.section_Log, *ConfigOption.linux_log_dir.optionAndValue)
-        config.set(Config.section_Log, *ConfigOption.log_file_archive_count.optionAndValue)
-        config.set(Config.section_Log, *ConfigOption.log_file_archive_size.optionAndValue)
-        config.add_section(Config.section_Port)
-        config.set(Config.section_Port, *ConfigOption.server_port.optionAndValue)
-        config.set(Config.section_Port, *ConfigOption.server_signal_port.optionAndValue)
-        config.set(Config.section_Port, *ConfigOption.client_signal_port.optionAndValue)
+        config_parser = ConfigParser()
+        cur_section = ''
+        for name, item in ConfigOption.__members__.items():
+            if name.startswith('section'):
+                cur_section = item
+                config_parser.add_section(cur_section)
+            else:
+                config_parser.set(cur_section, *item.name_and_value)
         with open(Config.config_file, 'w', encoding=utf8) as f:
-            config.write(f)
+            config_parser.write(f)
 
     @staticmethod
     def load_config():
-        config = ConfigParser()
-        config.read(Config.config_file, encoding=utf8)
+        config_parser = ConfigParser()
+        config_parser.read(Config.config_file, encoding=utf8)
         try:
-            default_path = config.get(Config.section_Main,
-                                      ConfigOption.windows_default_path.name) if platform_ == WINDOWS else config.get(
-                Config.section_Main, ConfigOption.linux_default_path.name)
-            cert_dir = config.get(Config.section_Main, ConfigOption.cert_dir.name)
-            if not os.path.exists(cert_dir):
+            path_name = ConfigOption.windows_default_path.name if platform_ == WINDOWS else ConfigOption.linux_default_path.name
+            default_path = config_parser.get(ConfigOption.section_Main, path_name)
+            if not os.path.exists(cert_dir := config_parser.get(ConfigOption.section_Main, ConfigOption.cert_dir.name)):
                 cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
-
             if not os.path.exists(cert_dir):
-                print_color(
-                    '未找到证书文件，默认位置为"./cert"文件夹中。\n'
-                    'The certificate file was not found, the default location is in the "./cert" folder.\n',
-                    level=LEVEL.ERROR, highlight=1)
-                if packaging:
-                    os.system('pause')
-                sys.exit(-2)
-
-            # 默认为Windows平台
-            log_dir = os.path.expanduser(config.get(Config.section_Log, ConfigOption.windows_log_dir.name))
-            # Linux 的日志存放位置
-            if platform_ == LINUX:
-                log_dir = os.path.expanduser(config.get(Config.section_Log, ConfigOption.linux_log_dir.name))
-            if not os.path.exists(log_dir):
-                try:
-                    os.makedirs(log_dir)
-                except Exception as e:
-                    print_color(f'日志文件夹 "{log_dir}" 创建失败 {e}', level=LEVEL.ERROR, highlight=1)
-                    sys.exit(-1)
-
-            log_file_archive_count = config.getint(Config.section_Log, ConfigOption.log_file_archive_count.name)
-            log_file_archive_size = config.getint(Config.section_Log, ConfigOption.log_file_archive_size.name)
-            server_port = config.getint(Config.section_Port, ConfigOption.server_port.name)
-            server_signal_port = config.getint(Config.section_Port, ConfigOption.server_signal_port.name)
-            client_signal_port = config.getint(Config.section_Port, ConfigOption.client_signal_port.name)
+                raise FileNotFoundError
+            log_dir_name = ConfigOption.windows_log_dir.name if platform_ == WINDOWS else ConfigOption.linux_log_dir.name
+            if not os.path.exists(log_dir := os.path.expanduser(config_parser.get(ConfigOption.section_Log, log_dir_name))):
+                os.makedirs(log_dir)
+            log_file_archive_count = config_parser.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)
+            log_file_archive_size = config_parser.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_size.name)
+            server_port = config_parser.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
+            server_signal_port = config_parser.getint(ConfigOption.section_Port, ConfigOption.server_signal_port.name)
+            client_signal_port = config_parser.getint(ConfigOption.section_Port, ConfigOption.client_signal_port.name)
+        except FileNotFoundError:
+            print_color('未找到证书文件夹！\n', level=LEVEL.ERROR, highlight=1)
+            sys.exit(-1)
+        except OSError as e:
+            print_color(f'日志文件夹创建失败 {e}', level=LEVEL.ERROR, highlight=1)
+            sys.exit(-1)
         except (NoOptionError, NoSectionError) as e:
             print_color(f'{e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
         except ValueError as e:
             print_color(f'配置错误 {e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
-        return Configration(default_path=default_path, cert_dir=cert_dir, log_dir=log_dir,
+        return Configration(default_path=default_path, cert_dir=cert_dir, log_dir=log_dir, server_port=server_port,
                             log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,
-                            server_port=server_port, server_signal_port=server_signal_port,
-                            client_signal_port=client_signal_port)
+                            server_signal_port=server_signal_port, client_signal_port=client_signal_port)
 
 
 if not os.path.exists(Config.config_file):
-    print_color(
-        '未找到配置文件，采用默认配置\nThe configuration file was not found, using the default configuration.\n',
-        level=LEVEL.WARNING, highlight=1)
+    print_color('未找到配置文件，采用默认配置\n', level=LEVEL.WARNING, highlight=1)
     # 生成配置文件
     Config.generate_config()
 

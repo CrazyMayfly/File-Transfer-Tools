@@ -4,7 +4,7 @@ import readline
 import random
 import ssl
 from shutil import get_terminal_size
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from multiprocessing.pool import ThreadPool
 from secrets import token_bytes
 from tqdm import tqdm
@@ -47,7 +47,7 @@ def read_line_setup() -> str:
     return history_filename
 
 
-def get_parser() -> ArgumentParser:
+def get_args() -> Namespace:
     """
     获取命令行参数解析器
     """
@@ -61,7 +61,7 @@ def get_parser() -> ArgumentParser:
                         help='Use a password to connect host.', default='')
     parser.add_argument('--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
-    return parser
+    return parser.parse_args()
 
 
 class FTC:
@@ -568,7 +568,7 @@ class FTC:
 
 
 if __name__ == '__main__':
-    args = get_parser().parse_args()
+    args = get_args()
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
     handle_ctrl_event(logger=ftc.logger)

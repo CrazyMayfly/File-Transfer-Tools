@@ -7,7 +7,7 @@ from uuid import uuid4
 from secrets import token_bytes
 from Utils import *
 from sys_info import *
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 
 if platform_ == WINDOWS:
     from win32file import CreateFile, SetFileTime, CloseHandle, GENERIC_WRITE, OPEN_EXISTING
@@ -75,7 +75,7 @@ def create_dir_if_not_exist(directory: str, logger: Logger) -> bool:
     return True
 
 
-def get_parser() -> ArgumentParser:
+def get_args() -> Namespace:
     """
     获取命令行参数解析器
     """
@@ -90,7 +90,7 @@ def get_parser() -> ArgumentParser:
                         help='Use plaintext transfer (default: use ssl)')
     parser.add_argument('--repeated', action='store_true',
                         help='Continue receive the file when file name already exists (cancel by default).')
-    return parser
+    return parser.parse_args()
 
 
 class FTS:
@@ -377,9 +377,9 @@ class FTS:
                     case COMMAND.SPEEDTEST:
                         self.__speedtest(conn, file_size)
                     case COMMAND.PULL_CLIPBOARD:
-                        send_clipboard(conn, self.logger, FTC=False)
+                        send_clipboard(conn, self.logger, ftc=False)
                     case COMMAND.PUSH_CLIPBOARD:
-                        get_clipboard(conn, self.logger, file_head=file_head, FTC=False)
+                        get_clipboard(conn, self.logger, file_head=file_head, ftc=False)
                     case COMMAND.CLOSE:
                         for conn in self.__sessions[session_id]:
                             conn.close()
@@ -433,7 +433,7 @@ class FTS:
 
 
 if __name__ == '__main__':
-    args = get_parser().parse_args()
+    args = get_args()
     base_dir = os.path.normcase(
         pathlib.PurePath(args.dest).as_posix() if platform_ == LINUX else pathlib.PureWindowsPath(args.dest).as_posix())
     fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
