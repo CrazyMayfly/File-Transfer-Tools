@@ -379,8 +379,9 @@ class FTC:
                 self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
                 return
             else:
-                fp = openfile_with_retires(real_path, 'rb')
-                if not fp:
+                try:
+                    fp = open(real_path, 'rb')
+                except FileNotFoundError:
                     self.logger.error(f'文件路径太长，无法发送: {real_path}', highlight=1)
                     conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
                     return

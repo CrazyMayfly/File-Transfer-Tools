@@ -227,19 +227,15 @@ class FTS:
             conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
             return
         fp = None
+        original_file = avoid_filename_duplication(file_path)
+        cur_download_file = original_file + '.ftsdownload'
         try:
-            original_file = avoid_filename_duplication(file_path)
-            cur_download_file = original_file + '.ftsdownload'
             size = 0
             if os.path.exists(cur_download_file):
-                fp = openfile_with_retires(cur_download_file, 'ab')
-                size = os.stat(cur_download_file).st_size
+                fp = open(cur_download_file, 'ab')
+                size = os.path.getsize(cur_download_file)
             else:
-                fp = openfile_with_retires(cur_download_file, 'wb')
-            if not fp:
-                self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
-                conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
-                return
+                fp = open(cur_download_file, 'wb')
             conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE + size))
             command = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))
             if command == CONTROL.TOOLONG:
@@ -250,6 +246,7 @@ class FTS:
             self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
                               '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath, *calcu_size(rest_size)))
             timestamps = struct.unpack(FMT.file_details_fmt, receive_data(conn, FMT.file_details_fmt.size))
+            conn.settimeout(4)
             begin = time.time()
             while rest_size > 0:
                 data: bytes = conn.recv(min(unit, rest_size))
@@ -262,7 +259,13 @@ class FTS:
                 f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
             os.rename(cur_download_file, original_file)
             modifyFileTime(original_file, self.logger, *timestamps)
+        except FileNotFoundError:
+            self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
+            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
+        except TimeoutError:
+            self.logger.warning(f'客户端传输超时，传输失败文件 {original_file}')
         finally:
+            conn.settimeout(None)
             if fp and not fp.closed:
                 fp.close()
 
@@ -385,6 +388,8 @@ class FTS:
                             conn.close()
                         self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
                         break
+        except UnicodeDecodeError:
+            self.logger.warning(f'{addr[0]}:{addr[1]} 数据流异常，连接断开')
         except ConnectionResetError as e:
             self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
         finally:
