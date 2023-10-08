@@ -106,9 +106,12 @@ def receive_data(connection: socket.socket, size: int):
     # 避免粘包
     result = b''
     while size > 0:
-        data: bytes = connection.recv(min(size, unit))
-        size -= len(data)
-        result += data
+        data = connection.recv(4096)
+        if data:
+            size -= len(data)
+            result += data
+        else:
+            raise ConnectionAbortedError('连接意外中止')
     return result
 
 
@@ -393,7 +396,7 @@ FINISH: Final[str] = 'finish'
 OVER: Final[bytes] = b'\00'
 DIRISCORRECT: Final[str] = "DIC"
 utf8: Final[str] = 'utf-8'
-unit: Final[int] = 1024 * 1024  # 1MB
+unit: Final[int] = 1024 * 1024 * 2  # 2MB
 # PUSH: Final[str] = 'push'
 # PULL: Final[str] = 'pull'
 # CLIP: Final[str] = 'clipboard'

@@ -226,11 +226,9 @@ class FTS:
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
             conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
             return
-        fp = None
-        original_file = avoid_filename_duplication(file_path)
-        cur_download_file = original_file + '.ftsdownload'
+        fp, size = None, 0
+        cur_download_file = (original_file := avoid_filename_duplication(file_path)) + '.ftsdownload'
         try:
-            size = 0
             if os.path.exists(cur_download_file):
                 fp = open(cur_download_file, 'ab')
                 size = os.path.getsize(cur_download_file)
@@ -241,24 +239,30 @@ class FTS:
             if command == CONTROL.TOOLONG:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
                 return
-            relpath = os.path.relpath(original_file, base_dir)
+            timestamps = struct.unpack(FMT.file_details_fmt, receive_data(conn, FMT.file_details_fmt.size))
             rest_size = file_size - size
+            relpath = os.path.relpath(original_file, base_dir)
+            begin = time.time()
             self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
                               '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath, *calcu_size(rest_size)))
-            timestamps = struct.unpack(FMT.file_details_fmt, receive_data(conn, FMT.file_details_fmt.size))
-            conn.settimeout(4)
-            begin = time.time()
+            conn.settimeout(5)
             while rest_size > 0:
-                data: bytes = conn.recv(min(unit, rest_size))
-                rest_size -= len(data)
-                fp.write(data)
+                data = conn.recv(4096)
+                if data:
+                    rest_size -= len(data)
+                    fp.write(data)
+                else:
+                    raise ConnectionAbortedError
             fp.close()
-            time_cost = time.time() - begin
-            avg_speed = file_size / 1000000 / time_cost if time_cost != 0 else 0
+            avg_speed = rest_size / 1000000 / time_cost if (time_cost := time.time() - begin) else 0
             self.logger.success(
                 f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
             os.rename(cur_download_file, original_file)
             modifyFileTime(original_file, self.logger, *timestamps)
+        except ConnectionAbortedError:
+            self.logger.warning(f'客户端连接意外中止，文件接收失败：{original_file}')
+        except PermissionError as err:
+            self.logger.warning(f'文件重命名失败：{err}')
         except FileNotFoundError:
             self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
             conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
@@ -343,8 +347,11 @@ class FTS:
                     self.__recv_single_file(conn, filename, file_size, base_dir)
                 elif command == FINISH:
                     break
-        except ConnectionResetError:
+        except (ConnectionResetError, ConnectionAbortedError):
             return
+        except UnicodeDecodeError:
+            self.logger.warning(f'数据流异常，连接断开')
+            conn.close()
         else:
             # 首次工作结束后将连接添加到session里面
             with self.__sessions_lock:
@@ -388,10 +395,16 @@ class FTS:
                             conn.close()
                         self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
                         break
-        except UnicodeDecodeError:
-            self.logger.warning(f'{addr[0]}:{addr[1]} 数据流异常，连接断开')
+        except ConnectionAbortedError as e:
+            self.logger.warning(f'{addr[0]}:{addr[1]} {e}')
         except ConnectionResetError as e:
             self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
+        except UnicodeDecodeError:
+            self.logger.warning(f'{addr[0]}:{addr[1]} 数据流异常，连接断开')
+            for conn in self.__sessions[session_id]:
+                conn.close()
+        except ssl.SSLEOFError as e:
+            self.logger.warning(e)
         finally:
             with self.__sessions_lock:
                 self.__sessions.pop(session_id)

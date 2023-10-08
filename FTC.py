@@ -343,6 +343,8 @@ class FTC:
             file_head = struct.pack(FMT.head_fmt, b'', FINISH.encode(), 0)
             for conn in self.__connections.connections:
                 conn.sendall(file_head)
+        except ssl.SSLEOFError:
+            self.logger.warning('文件传输超时')
         finally:
             fails = set(all_file_name) - success_recv
             if fails:
@@ -365,9 +367,8 @@ class FTC:
             else self.logger.error("发送失败")
 
     def __send_file(self, filepath):
-        real_path = os.path.normcase(os.path.join(self.__base_dir, filepath))
         # 定义文件头信息，包含文件名和文件大小
-        file_size = os.path.getsize(real_path)
+        file_size = os.path.getsize(real_path := os.path.normcase(os.path.join(self.__base_dir, filepath)))
         file_head = struct.pack(FMT.head_fmt, filepath.encode(utf8), COMMAND.SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
@@ -375,10 +376,7 @@ class FTC:
             flag = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == CONTROL.CANCEL:
                 self.__update_global_pbar(file_size, decrease=True)
-            elif flag == CONTROL.TOOLONG:
-                self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
-                return
-            else:
+            elif flag != CONTROL.TOOLONG:
                 try:
                     fp = open(real_path, 'rb')
                 except FileNotFoundError:
@@ -386,26 +384,32 @@ class FTC:
                     conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
                     return
                 # 服务端已有的文件大小
-                exist_size = flag
-                fp.seek(exist_size, 0)
-                # 待发送的文件大小
-                rest_size = file_size - exist_size
+                fp.seek(exist_size := flag, 0)
                 conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE))
                 # 发送文件的创建、访问、修改时间戳
                 conn.sendall(struct.pack(FMT.file_details_fmt, os.path.getctime(real_path),
                                          os.path.getmtime(real_path), os.path.getatime(real_path)))
-                position, leave, delay = (self.__position.popleft(), False, 0.1) if self.__pbar else (0, True, 0)
-                pbar_width = get_terminal_size().columns / 4
-                pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
-                            mininterval=1, position=position, leave=leave, delay=delay)
-                while data := fp.read(unit):
-                    conn.sendall(data)
-                    pbar.update(len(data))
+                rest_size = file_size - exist_size
+                if rest_size > unit:
+                    position, leave = (self.__position.popleft(), False) if self.__pbar else (0, True)
+                    pbar_width = get_terminal_size().columns / 4
+                    pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
+                                mininterval=1, position=position, leave=leave)
+                    while data := fp.read(unit):
+                        conn.sendall(data)
+                        pbar.update(data_size := len(data))
+                        self.__update_global_pbar(data_size)
+                    pbar.close()
+                    self.__position.append(position)
+                else:
+                    # 小文件
+                    conn.sendall(data := fp.read(unit))
                     self.__update_global_pbar(len(data))
                 fp.close()
                 self.__update_global_pbar(exist_size, decrease=True)
-                self.__position.append(position)
-                pbar.close()
+            else:
+                self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
+                return
         return filepath
 
     def __validate_password(self, conn):
