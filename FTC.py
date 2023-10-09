@@ -168,12 +168,15 @@ class FTC:
                     file_size_and_name_both_equal.append(filename)
                 else:
                     file_in_peer_smaller_than_local.append(filename)
+
+            tmp = file_size_and_name_both_equal[:10] + ['(more hidden...)'] if len(
+                file_size_and_name_both_equal) > 10 else file_size_and_name_both_equal
             file_not_exits_in_local = peer_dict.keys()
             for arg in [("file exits in peer but not exits in local: ", file_not_exits_in_local),
                         ("file exits in local but not exits in peer: ", file_not_exits_in_peer),
                         ("file in local smaller than peer: ", file_in_local_smaller_than_peer),
                         ("file in peer smaller than local: ", file_in_peer_smaller_than_local),
-                        ("file name and size both equal in two sides: ", file_size_and_name_both_equal)]:
+                        ("file name and size both equal in two sides: ", tmp)]:
                 extra_print2file(print_filename_if_exits, arg, self.logger.log_file)
 
             if not file_size_and_name_both_equal:
