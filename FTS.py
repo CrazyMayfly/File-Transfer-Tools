@@ -183,7 +183,7 @@ class FTS:
         self.logger.success(
             f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - start), factor=1000, suffix='bps')}, 耗时 {download_over - start:.2f}s")
         for i in range(0, int(data_size / data_unit)):
-            conn.sendall(token_bytes(data_unit))
+            conn.sendall(os.urandom(data_unit))
         upload_over = time.time()
         self.logger.success(
             f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - download_over), factor=1000, suffix='bps')}, 耗时 {upload_over - download_over:.2f}s")
@@ -371,13 +371,13 @@ class FTS:
                 filename, command, file_size = struct.unpack(FMT.head_fmt, file_head)
                 filename = filename.decode(utf8).strip('\00')
                 command = command.decode().strip('\00')
-                base_dir = self.__base_dir
+                cur_base_dir = self.__base_dir
                 match command:
                     case COMMAND.SEND_FILES_IN_DIR:
-                        self.__makedirs(conn, base_dir=base_dir, size=file_size)
-                        self.__recv_files_in_dir(session_id, base_dir)
+                        self.__makedirs(conn, base_dir=cur_base_dir, size=file_size)
+                        self.__recv_files_in_dir(session_id, cur_base_dir)
                     case COMMAND.SEND_FILE:
-                        self.__recv_single_file(conn, filename, file_size, base_dir)
+                        self.__recv_single_file(conn, filename, file_size, cur_base_dir)
                     case COMMAND.COMPARE_DIR:
                         self.__compare_dir(conn, filename)
                     case COMMAND.EXECUTE_COMMAND:

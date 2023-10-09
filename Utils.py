@@ -106,7 +106,7 @@ def receive_data(connection: socket.socket, size: int):
     # 避免粘包
     result = b''
     while size > 0:
-        data = connection.recv(4096)
+        data = connection.recv(min(4096, size))
         if data:
             size -= len(data)
             result += data

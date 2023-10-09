@@ -271,19 +271,17 @@ class FTC:
             conn.sendall(file_head)
             start = time.time()
             with tqdm(total=data_size, desc='speedtest_upload', unit='bytes', unit_scale=True, mininterval=1) as pbar:
-                for i in range(0, times):
+                for i in range(times):
                     # 生产随机字节
-                    conn.sendall(token_bytes(data_unit))
+                    conn.sendall(os.urandom(data_unit))
                     pbar.update(data_unit)
             upload_over = time.time()
             self.logger.success(
                 f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - start), factor=1000, suffix='bps')}, 耗时 {upload_over - start:.2f}s")
             with tqdm(total=data_size, desc='speedtest_download', unit='bytes', unit_scale=True, mininterval=1) as pbar:
-                for i in range(1, times + 1):
+                for i in range(times):
                     receive_data(conn, data_unit)
-                    if i % 10 == 0:
-                        pbar.update(data_unit * 10)
-                pbar.update(data_unit * (times % 10))
+                    pbar.update(data_unit)
             download_over = time.time()
             self.logger.success(
                 f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - upload_over), factor=1000, suffix='bps')}, 耗时 {download_over - upload_over:.2f}s")
