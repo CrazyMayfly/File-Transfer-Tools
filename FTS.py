@@ -4,7 +4,6 @@ import subprocess
 import pathlib
 import ssl
 from uuid import uuid4
-from secrets import token_bytes
 from Utils import *
 from sys_info import *
 from argparse import ArgumentParser, Namespace
@@ -115,8 +114,8 @@ class FTS:
         while True:
             try:
                 new_base_dir = input('>>> ')
-            except Exception:
-                continue
+            except BaseException:
+                break
             if not new_base_dir or new_base_dir.isspace():
                 continue
             new_base_dir = os.path.join(os.getcwd(), new_base_dir)

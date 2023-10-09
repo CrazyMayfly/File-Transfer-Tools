@@ -6,7 +6,6 @@ import ssl
 from shutil import get_terminal_size
 from argparse import ArgumentParser, Namespace
 from multiprocessing.pool import ThreadPool
-from secrets import token_bytes
 from tqdm import tqdm
 from Utils import *
 from sys_info import *

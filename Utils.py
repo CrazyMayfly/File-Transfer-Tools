@@ -330,7 +330,7 @@ def compress_log_files(base_dir, log_type, logger: Logger):
             for file_name in file_list:
                 try:
                     send2trash(os.path.join(base_dir, file_name).replace('/', os.path.sep))
-                except Exception as e:
+                except BaseException as e:
                     logger.warning(f'{file_name}送往回收站失败，执行删除{e}')
                     os.remove(os.path.join(base_dir, file_name))
 
