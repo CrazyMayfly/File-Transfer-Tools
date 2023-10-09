@@ -102,6 +102,10 @@ class Logger:
         self.log_file.close()
 
 
+class ConnectionDisappearedError(ConnectionError):
+    pass
+
+
 def receive_data(connection: socket.socket, size: int):
     # 避免粘包
     result = b''
@@ -111,7 +115,7 @@ def receive_data(connection: socket.socket, size: int):
             size -= len(data)
             result += data
         else:
-            raise ConnectionAbortedError('连接意外中止')
+            raise ConnectionDisappearedError('连接意外中止')
     return result
 
 
@@ -330,7 +334,7 @@ def compress_log_files(base_dir, log_type, logger: Logger):
             for file_name in file_list:
                 try:
                     send2trash(os.path.join(base_dir, file_name).replace('/', os.path.sep))
-                except BaseException as e:
+                except Exception as e:
                     logger.warning(f'{file_name}送往回收站失败，执行删除{e}')
                     os.remove(os.path.join(base_dir, file_name))
 

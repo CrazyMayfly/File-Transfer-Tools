@@ -114,7 +114,7 @@ class FTS:
         while True:
             try:
                 new_base_dir = input('>>> ')
-            except BaseException:
+            except EOFError:
                 break
             if not new_base_dir or new_base_dir.isspace():
                 continue
@@ -239,7 +239,7 @@ class FTS:
                 self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
                 return
             timestamps = struct.unpack(FMT.file_details_fmt, receive_data(conn, FMT.file_details_fmt.size))
-            rest_size = file_size - size
+            rest_size = temp = file_size - size
             relpath = os.path.relpath(original_file, base_dir)
             begin = time.time()
             self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
@@ -251,14 +251,14 @@ class FTS:
                     rest_size -= len(data)
                     fp.write(data)
                 else:
-                    raise ConnectionAbortedError
+                    raise ConnectionDisappearedError
             fp.close()
-            avg_speed = rest_size / 1000000 / time_cost if (time_cost := time.time() - begin) else 0
+            avg_speed = temp / 1000000 / time_cost if (time_cost := time.time() - begin) else 0
             self.logger.success(
                 f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
             os.rename(cur_download_file, original_file)
             modifyFileTime(original_file, self.logger, *timestamps)
-        except ConnectionAbortedError:
+        except ConnectionDisappearedError:
             self.logger.warning(f'客户端连接意外中止，文件接收失败：{original_file}')
         except PermissionError as err:
             self.logger.warning(f'文件重命名失败：{err}')
@@ -346,7 +346,7 @@ class FTS:
                     self.__recv_single_file(conn, filename, file_size, base_dir)
                 elif command == FINISH:
                     break
-        except (ConnectionResetError, ConnectionAbortedError):
+        except ConnectionError:
             return
         except UnicodeDecodeError:
             self.logger.warning(f'数据流异常，连接断开')
@@ -394,7 +394,7 @@ class FTS:
                             conn.close()
                         self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
                         break
-        except ConnectionAbortedError as e:
+        except ConnectionDisappearedError as e:
             self.logger.warning(f'{addr[0]}:{addr[1]} {e}')
         except ConnectionResetError as e:
             self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
