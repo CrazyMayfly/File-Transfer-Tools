@@ -238,13 +238,14 @@ class FTS:
             self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
                               '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath, *calcu_size(rest_size)))
             conn.settimeout(5)
-            while rest_size > 0:
+            while rest_size > 4096:
                 data = conn.recv(4096)
                 if data:
                     rest_size -= len(data)
                     fp.write(data)
                 else:
                     raise ConnectionDisappearedError
+            fp.write(receive_data(conn, rest_size))
             fp.close()
             avg_speed = temp / 1000000 / time_cost if (time_cost := time.time() - begin) else 0
             self.logger.success(
