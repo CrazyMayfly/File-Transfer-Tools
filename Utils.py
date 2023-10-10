@@ -189,7 +189,7 @@ def get_relative_filename_from_basedir(base_dir):
         for file in file_list:
             # 将文件路径风格统一至Linux
             real_path = os.path.normcase(os.path.join(path, file)).replace(os.path.sep, '/')
-            results.update({real_path[basedir_length:]: os.stat(real_path).st_size})
+            results.update({real_path[basedir_length:]: os.path.getsize(real_path)})
     return results
 
 
@@ -422,7 +422,7 @@ class FMT(StrEnum):
 class CONTROL(IntFlag):
     CONTINUE = 0
     CANCEL = -1
-    TOOLONG = -2
+    FAIL2OPEN = -2
 
 
 class ConfigOption(StrEnum):
@@ -479,7 +479,7 @@ class Config:
                 cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
             if not os.path.exists(cert_dir):
                 raise FileNotFoundError
-            log_dir_name = ConfigOption.windows_log_dir.name if platform_ == WINDOWS else ConfigOption.linux_log_dir.name
+            log_dir_name = (ConfigOption.windows_log_dir if platform_ == WINDOWS else ConfigOption.linux_log_dir).name
             if not os.path.exists(log_dir := os.path.expanduser(cnf.get(ConfigOption.section_Log, log_dir_name))):
                 os.makedirs(log_dir)
             log_file_archive_count = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)

@@ -124,8 +124,8 @@ class FTC:
         def print_filename_if_exits(prompt, filename_list):
             print(prompt)
             if filename_list:
-                for filename in filename_list:
-                    print('\t' + filename)
+                for file_name in filename_list:
+                    print('\t' + file_name)
             else:
                 print('\tNone')
 
@@ -279,14 +279,16 @@ class FTC:
                     pbar.update(data_unit)
             upload_over = time.time()
             self.logger.success(
-                f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - start), factor=1000, suffix='bps')}, 耗时 {upload_over - start:.2f}s")
+                f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - start), factor=1000, suffix='bps')}, "
+                f"耗时 {upload_over - start:.2f}s")
             with tqdm(total=data_size, desc='speedtest_download', unit='bytes', unit_scale=True, mininterval=1) as pbar:
                 for i in range(times):
                     receive_data(conn, data_unit)
                     pbar.update(data_unit)
             download_over = time.time()
             self.logger.success(
-                f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - upload_over), factor=1000, suffix='bps')}, 耗时 {download_over - upload_over:.2f}s")
+                f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - upload_over), factor=1000, suffix='bps')}, "
+                f"耗时 {download_over - upload_over:.2f}s")
 
     def __exchange_clipboard(self, command):
         """
@@ -376,12 +378,12 @@ class FTC:
             flag = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == CONTROL.CANCEL:
                 self.__update_global_pbar(file_size, decrease=True)
-            elif flag != CONTROL.TOOLONG:
+            elif flag != CONTROL.FAIL2OPEN:
                 try:
                     fp = open(real_path, 'rb')
                 except FileNotFoundError:
-                    self.logger.error(f'文件路径太长，无法发送: {real_path}', highlight=1)
-                    conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
+                    self.logger.error(f'文件打开失败，无法发送: {real_path}', highlight=1)
+                    conn.sendall(struct.pack(FMT.size_fmt, CONTROL.FAIL2OPEN))
                     return
                 # 服务端已有的文件大小
                 fp.seek(exist_size := flag, 0)
@@ -408,7 +410,7 @@ class FTC:
                 fp.close()
                 self.__update_global_pbar(exist_size, decrease=True)
             else:
-                self.logger.error(f'对方因文件路径太长或目录不存在无法接收文件', highlight=1)
+                self.logger.error(f'对方接收文件失败：{real_path}', highlight=1)
                 return
         return filepath
 
@@ -449,27 +451,27 @@ class FTC:
         addr = (ip[0:ip.rindex('.')] + '.255', config.server_signal_port)
         sk.sendto(content, addr)
         begin = time.time()
-        ip_useSSL_dict = {}
+        ip_use_ssl = {}
         while time.time() - begin < wait:
             try:
                 data = sk.recv(1024).decode(utf8).split('_')
             except socket.timeout:
                 break
             if data[0] == '04c8979a-a107-11ed-a8fc-0242ac120002':
-                ip_useSSL_dict.update({data[1]: data[2] == 'True'})
+                ip_use_ssl.update({data[1]: data[2] == 'True'})
             sk.settimeout(wait)
         sk.close()
-        all_ip = list(ip_useSSL_dict.keys())
+        all_ip = list(ip_use_ssl.keys())
         print('当前可用主机列表：')
         for ip in all_ip:
-            print('ip: {}, hostname: {}, useSSL: {}'.format(ip, get_hostname_by_ip(ip), ip_useSSL_dict.get(ip)))
+            print('ip: {}, hostname: {}, useSSL: {}'.format(ip, get_hostname_by_ip(ip), ip_use_ssl.get(ip)))
         if len(all_ip) == 1:
-            self.__use_ssl = ip_useSSL_dict.get(all_ip[0])
+            self.__use_ssl = ip_use_ssl.get(all_ip[0])
             self.__host = all_ip[0]
             return
         hostname = input('请输入主机名/ip: ')
         self.__host = hostname
-        self.__use_ssl = ip_useSSL_dict.get(hostname) if hostname in all_ip \
+        self.__use_ssl = ip_use_ssl.get(hostname) if hostname in all_ip \
             else input('开启 SSL(y/n)? ').lower() == 'y'
 
     def shutdown(self, send_close_info=True):

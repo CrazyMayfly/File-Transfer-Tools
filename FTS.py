@@ -13,8 +13,8 @@ if platform_ == WINDOWS:
     import win32timezone
 
 
-def modifyFileTime(file_path: str, logger: Logger, create_timestamp: float,
-                   modify_timestamp: float, access_timestamp: float):
+def modify_file_time(file_path: str, logger: Logger, create_timestamp: float,
+                     modify_timestamp: float, access_timestamp: float):
     """
     用来修改文件的相关时间属性
     :param file_path: 文件路径名
@@ -26,10 +26,10 @@ def modifyFileTime(file_path: str, logger: Logger, create_timestamp: float,
     try:
         if platform_ == WINDOWS:
             # 调用文件处理器对时间进行修改
-            fileHandler = CreateFile(file_path, GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, 0)
-            SetFileTime(fileHandler, datetime.fromtimestamp(create_timestamp), datetime.fromtimestamp(access_timestamp),
+            handler = CreateFile(file_path, GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, 0)
+            SetFileTime(handler, datetime.fromtimestamp(create_timestamp), datetime.fromtimestamp(access_timestamp),
                         datetime.fromtimestamp(modify_timestamp))
-            CloseHandle(fileHandler)
+            CloseHandle(handler)
         elif platform_ == LINUX:
             os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
     except Exception as e:
@@ -180,30 +180,27 @@ class FTS:
             receive_data(conn, data_unit)
         download_over = time.time()
         self.logger.success(
-            f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - start), factor=1000, suffix='bps')}, 耗时 {download_over - start:.2f}s")
+            f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - start), factor=1000, suffix='bps')},"
+            f" 耗时 {download_over - start:.2f}s")
         for i in range(0, int(data_size / data_unit)):
             conn.sendall(os.urandom(data_unit))
         upload_over = time.time()
         self.logger.success(
-            f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - download_over), factor=1000, suffix='bps')}, 耗时 {upload_over - download_over:.2f}s")
+            f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - download_over), factor=1000, suffix='bps')}, "
+            f"耗时 {upload_over - download_over:.2f}s")
 
-    def __makedirs(self, conn, base_dir, size, max_retries=10):
+    def __makedirs(self, conn, base_dir, size):
         data = json.loads(receive_data(conn, size).decode())
-        dir_names = data['dir_names'].split('|')
         # 处理文件夹
-        self.logger.info('开始创建文件夹，文件夹个数为 {}'.format(data['num']))
-        for dir_name in dir_names:
-            retries = 0
+        self.logger.info(f'开始创建文件夹，文件夹个数为 {data["num"]}')
+        for dir_name in data['dir_names'].split('|'):
             cur_dir = os.path.join(base_dir, dir_name)
-            while not os.path.exists(cur_dir) and retries < max_retries:
-                try:
-                    os.makedirs(cur_dir)
-                except FileNotFoundError:
-                    retries += 1
-                else:
-                    self.logger.info('创建文件夹 {0}'.format(dir_name))
-            if retries == max_retries:
-                self.logger.error('文件夹路径太长，创建文件夹失败 {0}'.format(dir_name), highlight=1)
+            if os.path.exists(cur_dir):
+                continue
+            try:
+                os.makedirs(cur_dir)
+            except FileNotFoundError:
+                self.logger.error(f'文件夹创建失败 {dir_name}', highlight=1)
         conn.sendall(OVER)
 
     def __recv_files_in_dir(self, session_id, base_dir):
@@ -225,18 +222,14 @@ class FTS:
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
             conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
             return
-        fp, size = None, 0
-        cur_download_file = (original_file := avoid_filename_duplication(file_path)) + '.ftsdownload'
+        cur_download_file, fp = (original_file := avoid_filename_duplication(file_path)) + '.ftsdownload', None
         try:
-            if os.path.exists(cur_download_file):
-                fp = open(cur_download_file, 'ab')
-                size = os.path.getsize(cur_download_file)
-            else:
-                fp = open(cur_download_file, 'wb')
+            fp = open(cur_download_file, 'ab')
+            size = os.path.getsize(cur_download_file)
             conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE + size))
             command = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))
-            if command == CONTROL.TOOLONG:
-                self.logger.warning('对方因文件路径太长无法发送文件 {}'.format(original_file))
+            if command == CONTROL.FAIL2OPEN:
+                self.logger.warning('对方文件发送失败 {}'.format(original_file))
                 return
             timestamps = struct.unpack(FMT.file_details_fmt, receive_data(conn, FMT.file_details_fmt.size))
             rest_size = temp = file_size - size
@@ -257,14 +250,14 @@ class FTS:
             self.logger.success(
                 f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
             os.rename(cur_download_file, original_file)
-            modifyFileTime(original_file, self.logger, *timestamps)
+            modify_file_time(original_file, self.logger, *timestamps)
         except ConnectionDisappearedError:
             self.logger.warning(f'客户端连接意外中止，文件接收失败：{original_file}')
         except PermissionError as err:
             self.logger.warning(f'文件重命名失败：{err}')
         except FileNotFoundError:
-            self.logger.error(f'文件路径太长或目录不存在，无法接收: {original_file}', highlight=1)
-            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.TOOLONG))
+            self.logger.error(f'文件新建/打开失败，无法接收: {original_file}', highlight=1)
+            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.FAIL2OPEN))
         except TimeoutError:
             self.logger.warning(f'客户端传输超时，传输失败文件 {original_file}')
         finally:
@@ -451,10 +444,10 @@ class FTS:
 
 if __name__ == '__main__':
     args = get_args()
-    base_dir = os.path.normcase(
+    file_store_path = os.path.normcase(
         pathlib.PurePath(args.dest).as_posix() if platform_ == LINUX else pathlib.PureWindowsPath(args.dest).as_posix())
-    fts = FTS(base_dir=base_dir, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
-    if not create_dir_if_not_exist(base_dir, fts.logger):
+    fts = FTS(base_dir=file_store_path, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
+    if not create_dir_if_not_exist(file_store_path, fts.logger):
         sys.exit(-1)
     handle_ctrl_event(logger=fts.logger)
     fts.start()

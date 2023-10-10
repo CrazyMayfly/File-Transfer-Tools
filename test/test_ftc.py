@@ -28,8 +28,8 @@ class FTCTest(unittest.TestCase):
 
     @patch('builtins.input')
     def test_ftc(self, mock_input):
-        mock_input.side_effect = ['pwd', 'sysinfo', 'get clipboard', 'send clipboard', self.signal_file,
-                                  self.batch_send_dir, f'compare {self.test_dir} {self.fts_test_dir}', 'y',
+        mock_input.side_effect = ['pwd', 'get clipboard', 'send clipboard', self.signal_file,
+                                  self.batch_send_dir, 'sysinfo', f'compare {self.test_dir} {self.fts_test_dir}', 'y',
                                   self.signal_file, self.batch_send_dir, 'speedtest 50', 'history 15',
                                   'q']
         with self.assertRaises(SystemExit) as cm:
@@ -44,7 +44,9 @@ class FTCTest(unittest.TestCase):
             self.assertEqual(int(os.path.getmtime(self.signal_file)), int(os.path.getmtime(fts_signal_file)))
         finally:
             shutil.rmtree(os.path.dirname(self.test_dir))
-            subprocess.Popen(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'), shell=True)
+            with self.assertWarns(ResourceWarning):
+                subprocess.Popen(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'), shell=True,
+                                 text=True)
 
 
 if __name__ == '__main__':
