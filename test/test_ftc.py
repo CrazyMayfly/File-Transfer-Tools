@@ -1,6 +1,5 @@
 import os
 import shutil
-import subprocess
 import unittest
 from datetime import datetime
 from unittest.mock import patch
@@ -44,9 +43,8 @@ class FTCTest(unittest.TestCase):
             self.assertEqual(int(os.path.getmtime(self.signal_file)), int(os.path.getmtime(fts_signal_file)))
         finally:
             shutil.rmtree(os.path.dirname(self.test_dir))
-            with self.assertWarns(ResourceWarning):
-                subprocess.Popen(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'), shell=True,
-                                 text=True)
+            os.startfile(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
+            os.startfile(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
 
 
 if __name__ == '__main__':
