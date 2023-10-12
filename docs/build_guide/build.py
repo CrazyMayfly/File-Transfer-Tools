@@ -56,6 +56,7 @@ class Build:
         shutil.make_archive(self.__output_dir, 'zip', self.__output_dir)
         output_file = self.__output_dir + '.zip'
         print(f'Output file {output_file}, size: {get_size(os.path.getsize(output_file))}')
+        os.startfile(os.path.dirname(self.__output_dir), 'explore')
 
     def clean(self):
         print('cleaning')
