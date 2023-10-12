@@ -277,18 +277,13 @@ class FTC:
                     # 生产随机字节
                     conn.sendall(os.urandom(data_unit))
                     pbar.update(data_unit)
+            show_bandwidth('上传速度测试完毕', data_size, interval=time.time() - start, logger=self.logger)
             upload_over = time.time()
-            self.logger.success(
-                f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - start), factor=1000, suffix='bps')}, "
-                f"耗时 {upload_over - start:.2f}s")
             with tqdm(total=data_size, desc='speedtest_download', unit='bytes', unit_scale=True, mininterval=1) as pbar:
                 for i in range(times):
                     receive_data(conn, data_unit)
                     pbar.update(data_unit)
-            download_over = time.time()
-            self.logger.success(
-                f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - upload_over), factor=1000, suffix='bps')}, "
-                f"耗时 {download_over - upload_over:.2f}s")
+            show_bandwidth('下载速度测试完毕', data_size, interval=time.time() - upload_over, logger=self.logger)
 
     def __exchange_clipboard(self, command):
         """
@@ -357,8 +352,9 @@ class FTC:
                     self.logger.warning(fail)
             else:
                 self.__pbar.colour = '#98c379'
+                data_size, interval = self.__pbar.total, time.time() - self.__pbar.start_t
                 self.__pbar = self.__pbar.close()
-                self.logger.success("本次全部文件正常发送")
+                show_bandwidth('本次全部文件正常发送', data_size, interval=interval, logger=self.logger)
 
     def __send_single_file(self, filepath):
         self.logger.flush()
@@ -448,8 +444,7 @@ class FTC:
         sk.bind((ip, config.client_signal_port))
         self.logger.log('开始探测服务器信息，最短探测时长：{0}s.'.format(wait))
         content = f'53b997bc-a140-11ed-a8fc-0242ac120002_{ip}_{config.client_signal_port}'.encode(utf8)
-        addr = (ip[0:ip.rindex('.')] + '.255', config.server_signal_port)
-        sk.sendto(content, addr)
+        broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
         begin = time.time()
         ip_use_ssl = {}
         while time.time() - begin < wait:
@@ -458,20 +453,21 @@ class FTC:
             except socket.timeout:
                 break
             if data[0] == '04c8979a-a107-11ed-a8fc-0242ac120002':
-                ip_use_ssl.update({data[1]: data[2] == 'True'})
+                ip_use_ssl[data[1]] = data[2] == 'True'
             sk.settimeout(wait)
         sk.close()
-        all_ip = list(ip_use_ssl.keys())
-        print('当前可用主机列表：')
-        for ip in all_ip:
-            print('ip: {}, hostname: {}, useSSL: {}'.format(ip, get_hostname_by_ip(ip), ip_use_ssl.get(ip)))
-        if len(all_ip) == 1:
-            self.__use_ssl = ip_use_ssl.get(all_ip[0])
-            self.__host = all_ip[0]
+        addresses = list(ip_use_ssl.keys())
+        msg = ['当前可用主机列表：']
+        msg += [f'ip: {address}, hostname: {get_hostname_by_ip(address)}, useSSL: {ip_use_ssl.get(address)}' for
+                address in addresses]
+        self.logger.log('\n'.join(msg))
+        if len(addresses) == 1:
+            self.__use_ssl = ip_use_ssl.get(addresses[0])
+            self.__host = addresses[0]
             return
         hostname = input('请输入主机名/ip: ')
         self.__host = hostname
-        self.__use_ssl = ip_use_ssl.get(hostname) if hostname in all_ip \
+        self.__use_ssl = ip_use_ssl.get(hostname) if hostname in addresses \
             else input('开启 SSL(y/n)? ').lower() == 'y'
 
     def shutdown(self, send_close_info=True):

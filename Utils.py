@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import re
 import signal
@@ -7,6 +8,7 @@ import threading
 import struct
 import time
 import tarfile
+import psutil
 from platform import system
 from hashlib import md5
 from configparser import ConfigParser, NoOptionError, NoSectionError
@@ -223,6 +225,34 @@ def get_ip_and_hostname() -> (str, str):
     finally:
         st.close()
     return ip, socket.gethostname()
+
+
+def format_time(time_interval):
+    units = [(86400, 'd'), (3600, 'h'), (60, 'm'), (1, 's')]
+    formatted_time = ''
+    for unit_time, unit_label in units:
+        if time_interval >= unit_time:
+            unit_count, time_interval = divmod(time_interval, unit_time)
+            formatted_time += f"{int(unit_count)}{unit_label}"
+    return formatted_time if formatted_time else '0s'
+
+
+def show_bandwidth(msg, data_size, interval, logger: Logger):
+    bandwidth = (data_size * 8 / interval) if interval != 0 else 0
+    logger.success(f"{msg}, 平均带宽 {get_size(bandwidth, factor=1000, suffix='bps')}, 耗时 {format_time(interval)}")
+
+
+def broadcast_to_all_interfaces(sk: socket.socket, port: int, content: bytes):
+    interface_stats = psutil.net_if_stats()
+    for interface, addresses in psutil.net_if_addrs().items():
+        if not interface_stats[interface].isup:
+            continue
+        for addr in addresses:
+            if addr.family == socket.AF_INET and addr.netmask:
+                broadcast_address = ipaddress.IPv4Network(f"{addr.address}/{addr.netmask}",
+                                                          strict=False).broadcast_address
+                if not broadcast_address.is_loopback:
+                    sk.sendto(content, (str(broadcast_address), port))
 
 
 def get_file_md5(filename):

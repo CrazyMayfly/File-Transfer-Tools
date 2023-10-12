@@ -178,16 +178,11 @@ class FTS:
         data_unit = 1000 * 1000
         for i in range(0, int(data_size / data_unit)):
             receive_data(conn, data_unit)
+        show_bandwidth('下载速度测试完毕', data_size, interval=time.time() - start, logger=self.logger)
         download_over = time.time()
-        self.logger.success(
-            f"下载速度测试完毕, 平均带宽 {get_size(data_size * 8 / (download_over - start), factor=1000, suffix='bps')},"
-            f" 耗时 {download_over - start:.2f}s")
         for i in range(0, int(data_size / data_unit)):
             conn.sendall(os.urandom(data_unit))
-        upload_over = time.time()
-        self.logger.success(
-            f"上传速度测试完毕, 平均带宽 {get_size(data_size * 8 / (upload_over - download_over), factor=1000, suffix='bps')}, "
-            f"耗时 {upload_over - download_over:.2f}s")
+        show_bandwidth('上传速度测试完毕', data_size, interval=time.time() - download_over, logger=self.logger)
 
     def __makedirs(self, conn, base_dir, size):
         data = json.loads(receive_data(conn, size).decode())
@@ -308,9 +303,8 @@ class FTS:
             self.logger.error(f'广播主机信息服务启动失败，{e.strerror}')
             return
         content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.__ip, self.__use_ssl)).encode(utf8)
-        addr = (self.__ip[0:self.__ip.rindex('.')] + '.255', config.client_signal_port)
         self.logger.log('广播主机信息服务已启动')
-        sk.sendto(content, addr)  # 广播
+        broadcast_to_all_interfaces(sk, config.client_signal_port, content)
         while True:
             try:
                 data = sk.recv(1024).decode(utf8).split('_')
