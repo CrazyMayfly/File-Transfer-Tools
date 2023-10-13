@@ -56,14 +56,14 @@ def avoid_filename_duplication(filename: str):
     return filename
 
 
-def create_dir_if_not_exist(directory: str, logger: Logger) -> bool:
+def create_dir_if_not_exist(directory: Path, logger: Logger) -> bool:
     """
     创建文件夹
     @param directory: 文件夹路径
     @param logger: 日志对象
     @return: 是否创建成功
     """
-    if os.path.exists(directory):
+    if directory.exists():
         return True
     try:
         os.makedirs(directory)
@@ -80,7 +80,7 @@ def get_args() -> Namespace:
     """
     parser = ArgumentParser(
         description='File Transfer Server, used to RECEIVE files and EXECUTE instructions.')
-    default_path = os.path.expanduser(config.default_path)
+    default_path = Path(config.default_path).expanduser()
     parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
                         help='File storage location (default: {})'.format(default_path), default=default_path)
     parser.add_argument('-p', '--password', metavar='password', type=str,
@@ -96,12 +96,12 @@ class FTS:
     def __init__(self, base_dir, use_ssl, repeated, password=''):
         self.__password = password
         self.__ip = ''
-        self.__base_dir = base_dir
+        self.__base_dir: Path = base_dir
         self.__use_ssl = use_ssl
         self.__sessions_lock = threading.Lock()
         self.__sessions: dict[int:set[socket.socket]] = {}
         self.__avoid_file_duplicate = not repeated
-        self.logger = Logger(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
+        self.logger = Logger(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
         self.logger.log(f'本次服务器密码: {password if password else "无"}')
         # 进行日志归档
         threading.Thread(name='ArchThread', target=compress_log_files,
@@ -118,7 +118,7 @@ class FTS:
                 break
             if not new_base_dir or new_base_dir.isspace():
                 continue
-            new_base_dir = os.path.join(os.getcwd(), new_base_dir)
+            new_base_dir = Path.cwd() / Path(new_base_dir)
             if not create_dir_if_not_exist(new_base_dir, self.logger):
                 continue
             self.__base_dir = new_base_dir
@@ -144,7 +144,7 @@ class FTS:
         str_len = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))[0]
         file_size_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
         # 得到文件相对路径名: hash值字典
-        results = {filename: get_file_md5(os.path.join(dir_name, filename)) for filename in
+        results = {filename: get_file_md5(Path(dir_name, filename)) for filename in
                    file_size_and_name_both_equal}
         data = json.dumps(results, ensure_ascii=True).encode()
         conn.sendall(struct.pack(FMT.size_fmt, len(data)))
@@ -189,8 +189,8 @@ class FTS:
         # 处理文件夹
         self.logger.info(f'开始创建文件夹，文件夹个数为 {data["num"]}')
         for dir_name in data['dir_names'].split('|'):
-            cur_dir = os.path.join(base_dir, dir_name)
-            if os.path.exists(cur_dir):
+            cur_dir = Path(base_dir, dir_name)
+            if cur_dir.exists():
                 continue
             try:
                 os.makedirs(cur_dir)
@@ -212,12 +212,12 @@ class FTS:
             t.join()
 
     def __recv_single_file(self, conn: socket.socket, filename, file_size, base_dir):
-        file_path = os.path.join(base_dir, filename)
-        if self.__avoid_file_duplicate and os.path.exists(file_path):
+        file_path = Path(base_dir, filename)
+        if self.__avoid_file_duplicate and file_path.exists():
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
             conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
             return
-        cur_download_file, fp = (original_file := avoid_filename_duplication(file_path)) + '.ftsdownload', None
+        cur_download_file, fp = (original_file := avoid_filename_duplication(str(file_path))) + '.ftsdownload', None
         try:
             fp = open(cur_download_file, 'ab')
             size = os.path.getsize(cur_download_file)
@@ -302,7 +302,7 @@ class FTS:
         except OSError as e:
             self.logger.error(f'广播主机信息服务启动失败，{e.strerror}')
             return
-        content = ('04c8979a-a107-11ed-a8fc-0242ac120002_{}_{}'.format(self.__ip, self.__use_ssl)).encode(utf8)
+        content = f'HI-I-AM-FTS_{self.__ip}_{self.__use_ssl}'.encode(utf8)
         self.logger.log('广播主机信息服务已启动')
         broadcast_to_all_interfaces(sk, config.client_signal_port, content)
         while True:
@@ -311,7 +311,7 @@ class FTS:
             except ConnectionResetError:
                 return
             else:
-                if data[0] == '53b997bc-a140-11ed-a8fc-0242ac120002':
+                if data[0] == 'HI-I-AM-FTC':
                     target_ip, target_port = data[1], data[2]
                     self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
                     sk.sendto(content, (target_ip, int(target_port)))  # 单播
@@ -418,15 +418,15 @@ class FTS:
         server_socket.listen(9999)
         self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning('当前数据未进行加密传输')
         self.logger.log(f'服务器 {host}({self.__ip}:{config.server_port}) 已启动，等待连接...')
-        self.logger.log('当前默认文件存放位置：' + self.__base_dir)
+        self.logger.log('当前默认文件存放位置：' + os.path.normcase(self.__base_dir))
         threading.Thread(name='SignThread', daemon=True, target=self.__signal_online).start()
         threading.Thread(name='CBDThread ', daemon=True, target=self.__change_base_dir).start()
         if self.__use_ssl:
             # 生成SSL上下文
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             # 加载服务器所用证书和私钥
-            context.load_cert_chain(os.path.join(config.cert_dir, 'server.crt'),
-                                    os.path.join(config.cert_dir, 'server_rsa_private.pem'))
+            context.load_cert_chain(Path(config.cert_dir, 'server.crt'),
+                                    Path(config.cert_dir, 'server_rsa_private.pem'))
             server_socket = context.wrap_socket(server_socket, server_side=True)
         while True:
             try:
@@ -439,10 +439,8 @@ class FTS:
 
 if __name__ == '__main__':
     args = get_args()
-    file_store_path = os.path.normcase(
-        pathlib.PurePath(args.dest).as_posix() if platform_ == LINUX else pathlib.PureWindowsPath(args.dest).as_posix())
-    fts = FTS(base_dir=file_store_path, use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
-    if not create_dir_if_not_exist(file_store_path, fts.logger):
+    fts = FTS(base_dir=Path(args.dest), use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
+    if not create_dir_if_not_exist(Path(args.dest), fts.logger):
         sys.exit(-1)
     handle_ctrl_event(logger=fts.logger)
     fts.start()

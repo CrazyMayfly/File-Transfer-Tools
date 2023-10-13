@@ -34,14 +34,14 @@ def split_dir(command):
     return dir_names if len(dir_names) == 2 else (None, None)
 
 
-def read_line_setup() -> str:
+def read_line_setup() -> Path:
     """
     设置readline的补全和历史记录功能
     """
     readline.set_completer(completer)
     readline.set_history_length(1000)
     readline.parse_and_bind('tab: complete')
-    history_filename = os.path.join(config.log_dir, 'history.txt')
+    history_filename = Path(config.log_dir, 'history.txt')
     readline.read_history_file(history_filename)
     return history_filename
 
@@ -76,11 +76,10 @@ class FTC:
         self.__session_id = 0
         self.__first_connect = True
         self.__command_prefix = ''
-        self.logger = Logger(os.path.join(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
+        self.logger = Logger(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
         self.__thread_pool = None
         self.__history_file = open(read_line_setup(), 'a', encoding=utf8)
         self.__position = deque(range(1, threads + 1))
-        self.__position_lock = threading.Lock()
         # 进行日志归档
         threading.Thread(name='ArchiveThread', target=compress_log_files,
                          args=(config.log_dir, 'client', self.logger)).start()
@@ -93,12 +92,12 @@ class FTC:
 
         def __enter__(self):
             # 从空闲的conn中取出一个使用
-            conn = self.__thread_conn_dict.get(threading.current_thread().name, None)
+            conn = self.__thread_conn_dict.get(threading.current_thread().ident, None)
             if not conn:
                 with self.__lock:
                     conn = self.__conn_pool.pop() if len(
-                        self.__conn_pool) > 0 else self.__thread_conn_dict.get('MainThread')
-                    self.__thread_conn_dict[threading.current_thread().name] = conn
+                        self.__conn_pool) > 0 else self.__thread_conn_dict.get(threading.main_thread().ident)
+                    self.__thread_conn_dict[threading.current_thread().ident] = conn
             return conn
 
         @property
@@ -107,7 +106,7 @@ class FTC:
 
         @property
         def main_conn(self) -> socket.socket:
-            return self.__thread_conn_dict['MainThread']
+            return self.__thread_conn_dict[threading.main_thread().ident]
 
         def add(self, conn):
             self.__conn_pool.append(conn)
@@ -192,7 +191,7 @@ class FTC:
             conn.sendall(struct.pack(FMT.size_fmt, len(data_to_send)))
             # 发送字符串
             conn.sendall(data_to_send)
-            results = {filename: get_file_md5(os.path.join(local_dir, filename)) for filename in
+            results = {filename: get_file_md5(Path(local_dir, filename)) for filename in
                        file_size_and_name_both_equal}
             # 获取本次字符串大小
             data_size = receive_data(conn, FMT.size_fmt.size)
@@ -307,12 +306,12 @@ class FTC:
         del data
         self.__base_dir = os.path.dirname(filepath)
         for dir_name in all_dir_name:
-            self.logger.log_file.write(os.path.join(self.__base_dir, dir_name) + '\n')
+            self.logger.log_file.write(f'{Path(self.__base_dir, dir_name)}\n')
         # 将待发送的文件打印到日志
         self.logger.log_file.write('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
         total_size = 0
         for filename in all_file_name:
-            real_path = os.path.join(self.__base_dir, filename)
+            real_path = Path(self.__base_dir, filename)
             file_size = os.path.getsize(real_path)
             sz1, sz2 = calcu_size(file_size)
             self.logger.log_file.write(f"{real_path}, 约{sz1}, {sz2}\n")
@@ -366,7 +365,7 @@ class FTC:
 
     def __send_file(self, filepath):
         # 定义文件头信息，包含文件名和文件大小
-        file_size = os.path.getsize(real_path := os.path.normcase(os.path.join(self.__base_dir, filepath)))
+        file_size = os.path.getsize(real_path := os.path.normcase(Path(self.__base_dir, filepath)))
         file_head = struct.pack(FMT.head_fmt, filepath.encode(utf8), COMMAND.SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
@@ -442,8 +441,8 @@ class FTC:
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         ip, _ = get_ip_and_hostname()
         sk.bind((ip, config.client_signal_port))
-        self.logger.log('开始探测服务器信息，最短探测时长：{0}s.'.format(wait))
-        content = f'53b997bc-a140-11ed-a8fc-0242ac120002_{ip}_{config.client_signal_port}'.encode(utf8)
+        self.logger.log(f'开始探测服务器信息，最短探测时长：{wait}s.')
+        content = f'HI-I-AM-FTC_{ip}_{config.client_signal_port}'.encode(utf8)
         broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
         begin = time.time()
         ip_use_ssl = {}
@@ -452,7 +451,7 @@ class FTC:
                 data = sk.recv(1024).decode(utf8).split('_')
             except socket.timeout:
                 break
-            if data[0] == '04c8979a-a107-11ed-a8fc-0242ac120002':
+            if data[0] == 'HI-I-AM-FTS':
                 ip_use_ssl[data[1]] = data[2] == 'True'
             sk.settimeout(wait)
         sk.close()
@@ -502,7 +501,7 @@ class FTC:
                 # 生成SSL上下文
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 # 加载信任根证书
-                context.load_verify_locations(os.path.join(config.cert_dir, 'ca.crt'))
+                context.load_verify_locations(Path(config.cert_dir, 'ca.crt'))
             for i in range(0, additional_connections_nums):
                 try:
                     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

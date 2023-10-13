@@ -9,6 +9,7 @@ import struct
 import time
 import tarfile
 import psutil
+from pathlib import Path
 from platform import system
 from hashlib import md5
 from configparser import ConfigParser, NoOptionError, NoSectionError
@@ -56,7 +57,7 @@ class LEVEL(StrEnum):
 
 # 日志类，简化日志打印
 class Logger:
-    def __init__(self, log_file_path: str):
+    def __init__(self, log_file_path: Path):
         self.log_file = open(log_file_path, 'a', encoding=utf8)
         self.__log_lock = threading.Lock()
         self.__writing_lock = threading.Lock()
@@ -190,8 +191,8 @@ def get_relative_filename_from_basedir(base_dir):
     for path, _, file_list in os.walk(base_dir):
         for file in file_list:
             # 将文件路径风格统一至Linux
-            real_path = os.path.normcase(os.path.join(path, file)).replace(os.path.sep, '/')
-            results.update({real_path[basedir_length:]: os.path.getsize(real_path)})
+            real_path = os.path.normcase(Path(path, file).as_posix())
+            results[real_path[basedir_length:]] = os.path.getsize(real_path)
     return results
 
 
@@ -340,35 +341,33 @@ def compress_log_files(base_dir, log_type, logger: Logger):
         # 当日志文件数大于10个时归档
         file_list = matching_files if len(matching_files) >= config.log_file_archive_count else None
         total_size = sum(
-            os.stat(real_path).st_size for real_path in (os.path.join(path, file) for file in matching_files))
+            os.path.getsize(real_path) for real_path in (Path(path, file) for file in matching_files))
         if not file_list:
             # 日志文件小于十个但是总体积大于50MB也进行归档处理
             file_list = matching_files if total_size >= config.log_file_archive_size else None
             if not file_list:
                 return
         dates = [datetime.strptime(file[0:10], '%Y_%m_%d') for file in matching_files]
-        max_date = max(dates).strftime('%Y%m%d')
-        min_date = min(dates).strftime('%Y%m%d')
+        max_date, min_date = max(dates).strftime('%Y%m%d'), min(dates).strftime('%Y%m%d')
         logger.info(
             f'开始对 {min_date} - {max_date} 时间范围内的 {log_type.upper()} 日志进行归档, 总计大小: {get_size(total_size)}')
         # 压缩后的输出文件名
-        output_file = f'{min_date}_{max_date}.{log_type}.tar.gz'
-        output_file = os.path.join(base_dir, output_file).replace('/', os.path.sep)
+        output_file = Path(base_dir, f'{min_date}_{max_date}.{log_type}.tar.gz')
         # 创建一个 tar 归档文件对象
-        with tarfile.open(os.path.join(base_dir, output_file), 'w:gz') as tar:
+        with tarfile.open(Path(base_dir, output_file), 'w:gz') as tar:
             # 逐个添加文件到归档文件中
             for file_name in file_list:
-                tar.add(os.path.join(base_dir, file_name), arcname=file_name)
+                tar.add(Path(base_dir, file_name), arcname=file_name)
         # 若压缩文件完整则将日志文件移入回收站
         if tarfile.is_tarfile(output_file):
             for file_name in file_list:
                 try:
-                    send2trash(os.path.join(base_dir, file_name).replace('/', os.path.sep))
+                    send2trash(Path(base_dir, file_name))
                 except Exception as e:
                     logger.warning(f'{file_name}送往回收站失败，执行删除{e}')
-                    os.remove(os.path.join(base_dir, file_name))
+                    os.remove(Path(base_dir, file_name))
 
-        logger.success(f'日志文件归档完成: {output_file}，压缩后的文件大小: {get_size(os.stat(output_file).st_size)}')
+        logger.success(f'日志文件归档完成: {output_file}，压缩后的文件大小: {get_size(os.path.getsize(output_file))}')
         # 不进行文件夹递归
         return
 
