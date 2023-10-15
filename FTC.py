@@ -134,7 +134,8 @@ class FTC:
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
             return
-        file_head = struct.pack(FMT.head_fmt, peer_dir.encode(utf8), COMMAND.COMPARE_DIR.encode(), 0)
+
+        file_head = pack_filehead(peer_dir, COMMAND.COMPARE_DIR, 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             if receive_data(conn, len(DIRISCORRECT)).decode() != DIRISCORRECT:
@@ -225,15 +226,12 @@ class FTC:
                 self.logger.info('使用CMD(命令提示符)')
                 self.__command_prefix = ''
             return
-        command = (self.__command_prefix + command).encode(utf8)
-        if len(command) > FMT.filename_fmt.size:
-            self.logger.warning("指令过长")
-            return
+        command = self.__command_prefix + command
         with self.__connections as conn:
-            file_head = struct.pack(FMT.head_fmt, command, COMMAND.EXECUTE_COMMAND.encode(), len(command))
+            file_head = pack_filehead(command, COMMAND.EXECUTE_COMMAND, len(command.encode(utf8)))
             conn.sendall(file_head)
             self.logger.flush()
-            self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command.decode(utf8)}\n'))
+            self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command}\n'))
             # 接收返回结果
             while (result := receive_data(conn, 8).decode('UTF-32')) != '\00' * 2:
                 print(result, end='')
@@ -242,7 +240,7 @@ class FTC:
 
     def __compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
-        file_head = struct.pack(FMT.head_fmt, b'', COMMAND.SYSINFO.encode(), 0)
+        file_head = pack_filehead('', COMMAND.SYSINFO, 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             # 异步获取自己的系统信息
@@ -267,7 +265,7 @@ class FTC:
         times = int(times)
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
-        file_head = struct.pack(FMT.head_fmt, b'', COMMAND.SPEEDTEST.encode(), data_size)
+        file_head = pack_filehead('', COMMAND.SPEEDTEST, data_size)
         with self.__connections as conn:
             conn.sendall(file_head)
             start = time.time()
@@ -298,8 +296,7 @@ class FTC:
     def __send_files_in_dir(self, filepath):
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         data = json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode()
-        self.__connections.main_conn.sendall(
-            struct.pack(FMT.head_fmt, b'', COMMAND.SEND_FILES_IN_DIR.encode(), len(data)))
+        self.__connections.main_conn.sendall(pack_filehead('', COMMAND.SEND_FILES_IN_DIR, len(data)))
         self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}'.format(filepath, len(all_dir_name)))
         self.logger.flush()
         self.__connections.main_conn.sendall(data)
@@ -336,7 +333,7 @@ class FTC:
         success_recv = set()
         try:
             success_recv = set([result.get() for result in results])
-            file_head = struct.pack(FMT.head_fmt, b'', FINISH.encode(), 0)
+            file_head = pack_filehead('', FINISH, 0)
             for conn in self.__connections.connections:
                 conn.sendall(file_head)
         except ssl.SSLEOFError:
@@ -366,10 +363,9 @@ class FTC:
     def __send_file(self, filepath):
         # 定义文件头信息，包含文件名和文件大小
         file_size = os.path.getsize(real_path := os.path.normcase(Path(self.__base_dir, filepath)))
-        file_head = struct.pack(FMT.head_fmt, filepath.encode(utf8), COMMAND.SEND_FILE.encode(), file_size)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
-            conn.sendall(file_head)
+            conn.sendall(pack_filehead(filepath, COMMAND.SEND_FILE, file_size))
             flag = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))[0]
             if flag == CONTROL.CANCEL:
                 self.__update_global_pbar(file_size, decrease=True)
@@ -410,12 +406,8 @@ class FTC:
         return filepath
 
     def __validate_password(self, conn):
-        file_head = struct.pack(FMT.head_fmt, self.__password.encode(), COMMAND.BEFORE_WORKING.encode(),
-                                self.__session_id)
-        conn.sendall(file_head)
-        file_head = receive_data(conn, FMT.head_fmt.size)
-        msg, _, session_id = struct.unpack(FMT.head_fmt, file_head)
-        msg = msg.decode(utf8).strip('\00')
+        conn.sendall(pack_filehead(self.__password, COMMAND.BEFORE_WORKING, self.__session_id))
+        msg, _, session_id = recv_filehead(conn)
         return msg, session_id
 
     def __before_working(self):
@@ -473,7 +465,7 @@ class FTC:
         if self.__thread_pool:
             self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
-        close_info = struct.pack(FMT.head_fmt, b'', COMMAND.CLOSE.encode(), 0)
+        close_info = pack_filehead('', COMMAND.CLOSE, 0)
         self.logger.info('断开与 {0}:{1} 的连接'.format(self.__host, config.server_port))
         try:
             for conn in self.__connections.connections:

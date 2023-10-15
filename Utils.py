@@ -124,42 +124,29 @@ def receive_data(connection: socket.socket, size: int):
 
 def send_clipboard(conn, logger: Logger, ftc=True):
     # 读取并编码剪切板的内容
-    content = pyperclip.paste().encode()
-    # 没有内容则不发送
-    content_length = len(content)
-    if content_length == 0:
+    content = pyperclip.paste()
+    content_length = len(content.encode(utf8))
+    if content_length == 0 or content_length > 65535:
+        logger.warning(f'剪切板为空或过大({get_size(content_length)})，无法发送')
         if not ftc:
-            file_head = struct.pack(FMT.head_fmt, b'', b'', 0)
-            conn.send(file_head)
+            conn.send(pack_filehead('', '', content_length))
         return
-
     logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
-    # 需要发送的内容较小则一趟发送
-    if content_length <= FMT.filename_fmt.size:
-        file_head = struct.pack(FMT.head_fmt, content, COMMAND.PUSH_CLIPBOARD.encode(), 0)
-        conn.send(file_head)
-    else:
-        # 较大则多趟发送
-        file_head = struct.pack(FMT.head_fmt, b'', COMMAND.PUSH_CLIPBOARD.encode(), content_length)
-        conn.send(file_head)
-        conn.send(content)
+    conn.send(pack_filehead(content, COMMAND.PUSH_CLIPBOARD, content_length))
 
 
-def get_clipboard(conn, logger: Logger, file_head=None, ftc=True):
+def get_clipboard(conn, logger: Logger, content=None, command=None, length=None, ftc=True):
     # 获取对方剪切板的内容
     if ftc:
-        file_head = struct.pack(FMT.head_fmt, b'', COMMAND.PULL_CLIPBOARD.encode(), 0)
-        conn.send(file_head)
-        file_head = receive_data(conn, FMT.head_fmt.size)
-    content, command, file_size = struct.unpack(FMT.head_fmt, file_head)
-    if command.decode() != COMMAND.PUSH_CLIPBOARD:
-        logger.warning('对方剪切板为空')
+        conn.send(pack_filehead('', COMMAND.PULL_CLIPBOARD, 0))
+        content, command, length = recv_filehead(conn)
+    if command != COMMAND.PUSH_CLIPBOARD:
+        logger.warning(f'对方剪切板为空或过大({get_size(length)})，无法发送')
         return
-        # 对方发送的内容较多则继续接收
-    content = receive_data(conn, file_size).strip(b"\00") if file_size != 0 else content.strip(b"\00")
-    logger.log(f'获取对方剪切板的内容，大小为 {get_size(len(content))}\n{content.decode(utf8)}')
+
+    logger.log(f'获取对方剪切板的内容，大小为 {get_size(length)}\n{content}')
     # 拷贝到剪切板
-    pyperclip.copy(content.decode(utf8))
+    pyperclip.copy(content)
 
 
 def calcu_size(bytes, factor=1024):
@@ -438,14 +425,36 @@ commands: Final[list] = [COMMAND.SYSINFO, COMMAND.COMPARE, COMMAND.SPEEDTEST, CO
 
 
 class FMT(StrEnum):
-    filename_fmt = '800s'
-    head_fmt = f'>{filename_fmt}14sQ'  # 大端对齐，800位文件（夹）名，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1
+    head_fmt = f'>14sQH'  # 大端对齐，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1，H为 unsigned short，表示文件夹名长度 0~65535
     size_fmt = 'q'
     file_details_fmt = 'ddd'
 
     @property
     def size(self):
         return struct.calcsize(self)
+
+
+def pack_filehead(name: str, command: str, size: int) -> bytes:
+    """
+    打包文件头 14字节的命令类型 + 8字节的文件大小 + 2字节的文件夹名长度 + 文件夹名
+    @param name: 文件(夹)名等
+    @param command: 命令
+    @param size: 文件大小
+    @return: 打包后的文件头
+    """
+    length = len(name := name.encode(utf8))
+    return struct.pack(f'{FMT.head_fmt}{length}s', command.encode(), size, length, name)
+
+
+def recv_filehead(conn: socket.socket) -> tuple[str, str, int]:
+    """
+    接收文件头
+    @param conn: socket连接
+    @return: 文件(夹)名等，命令，文件大小
+    """
+    command, data_size, name_size = struct.unpack(FMT.head_fmt, receive_data(conn, FMT.head_fmt.size))
+    filename = receive_data(conn, name_size).decode(utf8) if name_size else ''
+    return filename, command.strip(b'\00').decode(), data_size
 
 
 class CONTROL(IntFlag):

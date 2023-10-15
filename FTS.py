@@ -271,24 +271,20 @@ class FTS:
         peer_host, peer_port = conn.getpeername()
         conn.settimeout(2)
         try:
-            file_head = receive_data(conn, FMT.head_fmt.size)
-            password, command, session_id = struct.unpack(FMT.head_fmt, file_head)
+            password, command, session_id = recv_filehead(conn)
         except (socket.timeout, struct.error) as exception:
             conn.close()
             self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(exception, socket.timeout)
                                  else '服务器遭遇不明连接 {}:{}').format(peer_host, peer_port))
             return
         conn.settimeout(None)
-        command = command.decode().strip('\00')
         if command != COMMAND.BEFORE_WORKING:
             conn.close()
             return
-        password = password.decode(utf8).strip('\00')
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
         session_id = uuid4().node if session_id == 0 else session_id
-        file_head = struct.pack(FMT.head_fmt, msg.encode(), COMMAND.BEFORE_WORKING.encode(), session_id)
-        conn.sendall(file_head)
+        conn.sendall(pack_filehead(msg, COMMAND.BEFORE_WORKING, session_id))
         if password != self.__password:
             conn.close()
             self.logger.warning(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接')
@@ -326,10 +322,7 @@ class FTS:
         """
         try:
             while True:
-                file_head = receive_data(conn, FMT.head_fmt.size)
-                filename, command, file_size = struct.unpack(FMT.head_fmt, file_head)
-                filename = filename.decode(utf8).strip('\00')
-                command = command.decode().strip('\00')
+                filename, command, file_size = recv_filehead(conn)
                 if command == COMMAND.SEND_FILE:
                     self.__recv_single_file(conn, filename, file_size, base_dir)
                 elif command == FINISH:
@@ -354,10 +347,7 @@ class FTS:
         self.logger.info(f'客户端连接 {get_hostname_by_ip(addr[0])}, {addr[0]}:{addr[1]}')
         try:
             while True:
-                file_head = receive_data(conn, FMT.head_fmt.size)
-                filename, command, file_size = struct.unpack(FMT.head_fmt, file_head)
-                filename = filename.decode(utf8).strip('\00')
-                command = command.decode().strip('\00')
+                filename, command, file_size = recv_filehead(conn)
                 cur_base_dir = self.__base_dir
                 match command:
                     case COMMAND.SEND_FILES_IN_DIR:
@@ -376,7 +366,7 @@ class FTS:
                     case COMMAND.PULL_CLIPBOARD:
                         send_clipboard(conn, self.logger, ftc=False)
                     case COMMAND.PUSH_CLIPBOARD:
-                        get_clipboard(conn, self.logger, file_head=file_head, ftc=False)
+                        get_clipboard(conn, self.logger, filename, command, file_size, ftc=False)
                     case COMMAND.CLOSE:
                         for conn in self.__sessions[session_id]:
                             conn.close()
