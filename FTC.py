@@ -95,8 +95,8 @@ class FTC:
             conn = self.__thread_conn_dict.get(threading.current_thread().ident, None)
             if not conn:
                 with self.__lock:
-                    conn = self.__conn_pool.pop() if len(
-                        self.__conn_pool) > 0 else self.__thread_conn_dict.get(threading.main_thread().ident)
+                    conn = self.__conn_pool.pop() if len(self.__conn_pool) > 0 else self.__thread_conn_dict.get(
+                        threading.main_thread().ident)
                     self.__thread_conn_dict[threading.current_thread().ident] = conn
             return conn
 
@@ -145,8 +145,8 @@ class FTC:
             # 获取本地的文件名
             local_filenames = local_dict.keys()
             # 获取本次字符串大小
-            data_size = receive_data(conn, FMT.size_fmt.size)
-            data_size = struct.unpack(FMT.size_fmt, data_size)[0]
+            data_size = receive_data(conn, size_fmt.size)
+            data_size = size_fmt.unpack(data_size)[0]
             # 接收字符串
             data = receive_data(conn, data_size).decode()
             # 将字符串转化为dict
@@ -180,23 +180,23 @@ class FTC:
                 extra_print2file(print_filename_if_exits, arg, self.logger.log_file)
 
             if not file_size_and_name_both_equal:
-                conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
+                conn.sendall(size_fmt.pack(CONTROL.CANCEL))
                 return
             if input("Continue to compare hash for filename and size both equal set?(y/n): ") != 'y':
-                conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
+                conn.sendall(size_fmt.pack(CONTROL.CANCEL))
                 return
             # 发送继续请求
-            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE))
+            conn.sendall(size_fmt.pack(CONTROL.CONTINUE))
             # 发送相同的文件名称大小
             data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
-            conn.sendall(struct.pack(FMT.size_fmt, len(data_to_send)))
+            conn.sendall(size_fmt.pack(len(data_to_send)))
             # 发送字符串
             conn.sendall(data_to_send)
             results = {filename: get_file_md5(Path(local_dir, filename)) for filename in
                        file_size_and_name_both_equal}
             # 获取本次字符串大小
-            data_size = receive_data(conn, FMT.size_fmt.size)
-            data_size = struct.unpack(FMT.size_fmt, data_size)[0]
+            data_size = receive_data(conn, size_fmt.size)
+            data_size = size_fmt.unpack(data_size)[0]
             # 接收字符串
             data = receive_data(conn, data_size).decode()
             # 将字符串转化为dict
@@ -247,7 +247,7 @@ class FTC:
             thread = MyThread(get_sys_info)
             thread.start()
             # 接收对方的系统信息
-            data_length = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))[0]
+            data_length = size_fmt.unpack(receive_data(conn, size_fmt.size))[0]
             data = receive_data(conn, data_length).decode()
         peer_sysinfo = json.loads(data)
         self.logger.flush()
@@ -366,7 +366,7 @@ class FTC:
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.sendall(pack_filehead(filepath, COMMAND.SEND_FILE, file_size))
-            flag = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))[0]
+            flag = size_fmt.unpack(receive_data(conn, size_fmt.size))[0]
             if flag == CONTROL.CANCEL:
                 self.__update_global_pbar(file_size, decrease=True)
             elif flag != CONTROL.FAIL2OPEN:
@@ -374,14 +374,14 @@ class FTC:
                     fp = open(real_path, 'rb')
                 except FileNotFoundError:
                     self.logger.error(f'文件打开失败，无法发送: {real_path}', highlight=1)
-                    conn.sendall(struct.pack(FMT.size_fmt, CONTROL.FAIL2OPEN))
+                    conn.sendall(size_fmt.pack(CONTROL.FAIL2OPEN))
                     return
                 # 服务端已有的文件大小
                 fp.seek(exist_size := flag, 0)
-                conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE))
+                conn.sendall(size_fmt.pack(CONTROL.CONTINUE))
                 # 发送文件的创建、访问、修改时间戳
-                conn.sendall(struct.pack(FMT.file_details_fmt, os.path.getctime(real_path),
-                                         os.path.getmtime(real_path), os.path.getatime(real_path)))
+                conn.sendall(file_details_fmt.pack(os.path.getctime(real_path), os.path.getmtime(real_path),
+                                                   os.path.getatime(real_path)))
                 rest_size = file_size - exist_size
                 if rest_size > unit:
                     position, leave = (self.__position.popleft(), False) if self.__pbar else (0, True)

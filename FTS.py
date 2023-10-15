@@ -1,5 +1,6 @@
 import json
 import os.path
+import struct
 import subprocess
 import pathlib
 import ssl
@@ -44,14 +45,9 @@ def avoid_filename_duplication(filename: str):
     @return: 新文件名
     """
     i = 1
+    base, extension = os.path.splitext(filename)
     while os.path.exists(filename):
-        path_split = os.path.splitext(filename)
-        if i == 1:
-            filename = path_split[0] + ' (1)' + path_split[1]
-        else:
-            tmp = list(path_split[0])
-            tmp[-2] = str(i)
-            filename = ''.join(tmp) + path_split[1]
+        filename = f"{base}({i}){extension}"
         i += 1
     return filename
 
@@ -119,10 +115,9 @@ class FTS:
             if not new_base_dir or new_base_dir.isspace():
                 continue
             new_base_dir = Path.cwd() / Path(new_base_dir)
-            if not create_dir_if_not_exist(new_base_dir, self.logger):
-                continue
-            self.__base_dir = new_base_dir
-            self.logger.success(f'已将文件保存位置更改为: {self.__base_dir}')
+            if create_dir_if_not_exist(new_base_dir, self.logger):
+                self.__base_dir = new_base_dir
+                self.logger.success(f'已将文件保存位置更改为: {self.__base_dir}')
 
     def __compare_dir(self, conn: socket.socket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
@@ -134,20 +129,20 @@ class FTS:
         # 将数组拼接成字符串发送到客户端
         relative_filename = json.dumps(get_relative_filename_from_basedir(dir_name), ensure_ascii=True).encode()
         # 先发送字符串的大小
-        conn.sendall(struct.pack(FMT.size_fmt, len(relative_filename)))
+        conn.sendall(size_fmt.pack(len(relative_filename)))
         # 再发送字符串
         conn.sendall(relative_filename)
         if receive_data(conn, 8)[0] != CONTROL.CONTINUE:
             self.logger.log("不继续比对Hash")
             return
         self.logger.log("继续对比文件Hash")
-        str_len = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))[0]
+        str_len = size_fmt.unpack(receive_data(conn, size_fmt.size))[0]
         file_size_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
         # 得到文件相对路径名: hash值字典
         results = {filename: get_file_md5(Path(dir_name, filename)) for filename in
                    file_size_and_name_both_equal}
         data = json.dumps(results, ensure_ascii=True).encode()
-        conn.sendall(struct.pack(FMT.size_fmt, len(data)))
+        conn.sendall(size_fmt.pack(len(data)))
         conn.sendall(data)
         self.logger.log("Hash 比对结束。")
 
@@ -167,7 +162,7 @@ class FTS:
         info = get_sys_info()
         data = json.dumps(info, ensure_ascii=True).encode()
         # 发送数据长度
-        str_len = struct.pack(FMT.size_fmt, len(data))
+        str_len = size_fmt.pack(len(data))
         conn.sendall(str_len)
         # 发送数据
         conn.sendall(data)
@@ -201,13 +196,10 @@ class FTS:
     def __recv_files_in_dir(self, session_id, base_dir):
         with self.__sessions_lock:
             conns = self.__sessions.get(session_id)
-        threads = []
-        for conn in conns:
-            peer_host, peer_port = conn.getpeername()
-            t = threading.Thread(name=socket.inet_aton(peer_host).hex() + hex(peer_port)[2:], target=self.__slave_work,
-                                 args=(conn, base_dir, session_id))
+        threads = [threading.Thread(name=socket.inet_aton(conn.getpeername()[0]).hex() + hex(conn.getpeername()[1])[2:],
+                                    target=self.__slave_work, args=(conn, base_dir, session_id)) for conn in conns]
+        for t in threads:
             t.start()
-            threads.append(t)
         for t in threads:
             t.join()
 
@@ -215,18 +207,18 @@ class FTS:
         file_path = Path(base_dir, filename)
         if self.__avoid_file_duplicate and file_path.exists():
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
-            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CANCEL))
+            conn.sendall(size_fmt.pack(CONTROL.CANCEL))
             return
         cur_download_file, fp = (original_file := avoid_filename_duplication(str(file_path))) + '.ftsdownload', None
         try:
             fp = open(cur_download_file, 'ab')
             size = os.path.getsize(cur_download_file)
-            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.CONTINUE + size))
-            command = struct.unpack(FMT.size_fmt, receive_data(conn, FMT.size_fmt.size))
+            conn.sendall(size_fmt.pack(CONTROL.CONTINUE + size))
+            command = size_fmt.unpack(receive_data(conn, size_fmt.size))
             if command == CONTROL.FAIL2OPEN:
                 self.logger.warning('对方文件发送失败 {}'.format(original_file))
                 return
-            timestamps = struct.unpack(FMT.file_details_fmt, receive_data(conn, FMT.file_details_fmt.size))
+            timestamps = file_details_fmt.unpack(receive_data(conn, file_details_fmt.size))
             rest_size = temp = file_size - size
             relpath = os.path.relpath(original_file, base_dir)
             begin = time.time()
@@ -253,7 +245,7 @@ class FTS:
             self.logger.warning(f'文件重命名失败：{err}')
         except FileNotFoundError:
             self.logger.error(f'文件新建/打开失败，无法接收: {original_file}', highlight=1)
-            conn.sendall(struct.pack(FMT.size_fmt, CONTROL.FAIL2OPEN))
+            conn.sendall(size_fmt.pack(CONTROL.FAIL2OPEN))
         except TimeoutError:
             self.logger.warning(f'客户端传输超时，传输失败文件 {original_file}')
         finally:
@@ -305,12 +297,11 @@ class FTS:
             try:
                 data = sk.recv(1024).decode(utf8).split('_')
             except ConnectionResetError:
-                return
-            else:
-                if data[0] == 'HI-I-AM-FTC':
-                    target_ip, target_port = data[1], data[2]
-                    self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
-                    sk.sendto(content, (target_ip, int(target_port)))  # 单播
+                continue
+            if data[0] == 'HI-I-AM-FTC':
+                target_ip, target_port = data[1], data[2]
+                self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
+                sk.sendto(content, (target_ip, int(target_port)))  # 单播
 
     def __slave_work(self, conn, base_dir, session_id):
         """

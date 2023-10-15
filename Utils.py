@@ -5,7 +5,6 @@ import signal
 import socket
 import sys
 import threading
-import struct
 import time
 import tarfile
 import psutil
@@ -15,6 +14,7 @@ from hashlib import md5
 from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
+from struct import Struct
 from enum import IntFlag, StrEnum
 from typing import TextIO, Final, Callable
 from send2trash import send2trash
@@ -423,15 +423,10 @@ unit: Final[int] = 1024 * 1024 * 2  # 2MB
 commands: Final[list] = [COMMAND.SYSINFO, COMMAND.COMPARE, COMMAND.SPEEDTEST, COMMAND.HISTORY, COMMAND.PUSH_CLIPBOARD,
                          COMMAND.PULL_CLIPBOARD]
 
-
-class FMT(StrEnum):
-    head_fmt = f'>14sQH'  # 大端对齐，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1，H为 unsigned short，表示文件夹名长度 0~65535
-    size_fmt = 'q'
-    file_details_fmt = 'ddd'
-
-    @property
-    def size(self):
-        return struct.calcsize(self)
+# Struct 对象
+head_fmt = Struct('>14sQH')  # 大端对齐，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1，H为 unsigned short，表示文件夹名长度 0~65535
+size_fmt = Struct('q')
+file_details_fmt = Struct('ddd')
 
 
 def pack_filehead(name: str, command: str, size: int) -> bytes:
@@ -443,7 +438,7 @@ def pack_filehead(name: str, command: str, size: int) -> bytes:
     @return: 打包后的文件头
     """
     length = len(name := name.encode(utf8))
-    return struct.pack(f'{FMT.head_fmt}{length}s', command.encode(), size, length, name)
+    return head_fmt.pack(command.encode(), size, length) + name
 
 
 def recv_filehead(conn: socket.socket) -> tuple[str, str, int]:
@@ -452,7 +447,7 @@ def recv_filehead(conn: socket.socket) -> tuple[str, str, int]:
     @param conn: socket连接
     @return: 文件(夹)名等，命令，文件大小
     """
-    command, data_size, name_size = struct.unpack(FMT.head_fmt, receive_data(conn, FMT.head_fmt.size))
+    command, data_size, name_size = head_fmt.unpack(receive_data(conn, head_fmt.size))
     filename = receive_data(conn, name_size).decode(utf8) if name_size else ''
     return filename, command.strip(b'\00').decode(), data_size
 
