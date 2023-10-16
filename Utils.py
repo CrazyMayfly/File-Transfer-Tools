@@ -100,8 +100,7 @@ class Logger:
     def close(self):
         if self.log_file.closed:
             return
-        if self.__writing_buffer:
-            self.log_file.writelines(self.__writing_buffer)
+        self.flush()
         self.log_file.close()
 
 
