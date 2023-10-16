@@ -129,17 +129,17 @@ def send_clipboard(conn, logger: Logger, ftc=True):
     if content_length == 0 or content_length > 65535:
         logger.warning(f'剪切板为空或过大({get_size(content_length)})，无法发送')
         if not ftc:
-            conn.send(pack_filehead('', '', content_length))
+            conn.send(pack_head('', '', content_length))
         return
     logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
-    conn.send(pack_filehead(content, COMMAND.PUSH_CLIPBOARD, content_length))
+    conn.send(pack_head(content, COMMAND.PUSH_CLIPBOARD, content_length))
 
 
 def get_clipboard(conn, logger: Logger, content=None, command=None, length=None, ftc=True):
     # 获取对方剪切板的内容
     if ftc:
-        conn.send(pack_filehead('', COMMAND.PULL_CLIPBOARD, 0))
-        content, command, length = recv_filehead(conn)
+        conn.send(pack_head('', COMMAND.PULL_CLIPBOARD, 0))
+        content, command, length = recv_head(conn)
     if command != COMMAND.PUSH_CLIPBOARD:
         logger.warning(f'对方剪切板为空或过大({get_size(length)})，无法发送')
         return
@@ -424,12 +424,12 @@ commands: Final[list] = [COMMAND.SYSINFO, COMMAND.COMPARE, COMMAND.SPEEDTEST, CO
                          COMMAND.PULL_CLIPBOARD]
 
 # Struct 对象
-head_fmt = Struct('>14sQH')  # 大端对齐，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1，H为 unsigned short，表示文件夹名长度 0~65535
-size_fmt = Struct('q')
-file_details_fmt = Struct('ddd')
+head_struct = Struct('>14sQH')  # 大端对齐，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1，H为 unsigned short，表示文件夹名长度 0~65535
+size_struct = Struct('q')
+file_details_struct = Struct('ddd')
 
 
-def pack_filehead(name: str, command: str, size: int) -> bytes:
+def pack_head(name: str, command: str, size: int) -> bytes:
     """
     打包文件头 14字节的命令类型 + 8字节的文件大小 + 2字节的文件夹名长度 + 文件夹名
     @param name: 文件(夹)名等
@@ -438,16 +438,16 @@ def pack_filehead(name: str, command: str, size: int) -> bytes:
     @return: 打包后的文件头
     """
     length = len(name := name.encode(utf8))
-    return head_fmt.pack(command.encode(), size, length) + name
+    return head_struct.pack(command.encode(), size, length) + name
 
 
-def recv_filehead(conn: socket.socket) -> tuple[str, str, int]:
+def recv_head(conn: socket.socket) -> tuple[str, str, int]:
     """
     接收文件头
     @param conn: socket连接
     @return: 文件(夹)名等，命令，文件大小
     """
-    command, data_size, name_size = head_fmt.unpack(receive_data(conn, head_fmt.size))
+    command, data_size, name_size = head_struct.unpack(receive_data(conn, head_struct.size))
     filename = receive_data(conn, name_size).decode(utf8) if name_size else ''
     return filename, command.strip(b'\00').decode(), data_size
 

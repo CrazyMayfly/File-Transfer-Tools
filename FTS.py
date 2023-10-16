@@ -129,20 +129,20 @@ class FTS:
         # 将数组拼接成字符串发送到客户端
         relative_filename = json.dumps(get_relative_filename_from_basedir(dir_name), ensure_ascii=True).encode()
         # 先发送字符串的大小
-        conn.sendall(size_fmt.pack(len(relative_filename)))
+        conn.sendall(size_struct.pack(len(relative_filename)))
         # 再发送字符串
         conn.sendall(relative_filename)
         if receive_data(conn, 8)[0] != CONTROL.CONTINUE:
             self.logger.log("不继续比对Hash")
             return
         self.logger.log("继续对比文件Hash")
-        str_len = size_fmt.unpack(receive_data(conn, size_fmt.size))[0]
+        str_len = size_struct.unpack(receive_data(conn, size_struct.size))[0]
         file_size_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
         # 得到文件相对路径名: hash值字典
         results = {filename: get_file_md5(Path(dir_name, filename)) for filename in
                    file_size_and_name_both_equal}
         data = json.dumps(results, ensure_ascii=True).encode()
-        conn.sendall(size_fmt.pack(len(data)))
+        conn.sendall(size_struct.pack(len(data)))
         conn.sendall(data)
         self.logger.log("Hash 比对结束。")
 
@@ -162,7 +162,7 @@ class FTS:
         info = get_sys_info()
         data = json.dumps(info, ensure_ascii=True).encode()
         # 发送数据长度
-        str_len = size_fmt.pack(len(data))
+        str_len = size_struct.pack(len(data))
         conn.sendall(str_len)
         # 发送数据
         conn.sendall(data)
@@ -207,18 +207,18 @@ class FTS:
         file_path = Path(base_dir, filename)
         if self.__avoid_file_duplicate and file_path.exists():
             # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
-            conn.sendall(size_fmt.pack(CONTROL.CANCEL))
+            conn.sendall(size_struct.pack(CONTROL.CANCEL))
             return
         cur_download_file, fp = (original_file := avoid_filename_duplication(str(file_path))) + '.ftsdownload', None
         try:
             fp = open(cur_download_file, 'ab')
             size = os.path.getsize(cur_download_file)
-            conn.sendall(size_fmt.pack(CONTROL.CONTINUE + size))
-            command = size_fmt.unpack(receive_data(conn, size_fmt.size))
+            conn.sendall(size_struct.pack(CONTROL.CONTINUE + size))
+            command = size_struct.unpack(receive_data(conn, size_struct.size))
             if command == CONTROL.FAIL2OPEN:
                 self.logger.warning('对方文件发送失败 {}'.format(original_file))
                 return
-            timestamps = file_details_fmt.unpack(receive_data(conn, file_details_fmt.size))
+            timestamps = file_details_struct.unpack(receive_data(conn, file_details_struct.size))
             rest_size = temp = file_size - size
             relpath = os.path.relpath(original_file, base_dir)
             begin = time.time()
@@ -245,7 +245,7 @@ class FTS:
             self.logger.warning(f'文件重命名失败：{err}')
         except FileNotFoundError:
             self.logger.error(f'文件新建/打开失败，无法接收: {original_file}', highlight=1)
-            conn.sendall(size_fmt.pack(CONTROL.FAIL2OPEN))
+            conn.sendall(size_struct.pack(CONTROL.FAIL2OPEN))
         except TimeoutError:
             self.logger.warning(f'客户端传输超时，传输失败文件 {original_file}')
         finally:
@@ -263,7 +263,7 @@ class FTS:
         peer_host, peer_port = conn.getpeername()
         conn.settimeout(2)
         try:
-            password, command, session_id = recv_filehead(conn)
+            password, command, session_id = recv_head(conn)
         except (socket.timeout, struct.error) as exception:
             conn.close()
             self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(exception, socket.timeout)
@@ -276,7 +276,7 @@ class FTS:
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
         session_id = uuid4().node if session_id == 0 else session_id
-        conn.sendall(pack_filehead(msg, COMMAND.BEFORE_WORKING, session_id))
+        conn.sendall(pack_head(msg, COMMAND.BEFORE_WORKING, session_id))
         if password != self.__password:
             conn.close()
             self.logger.warning(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接')
@@ -313,7 +313,7 @@ class FTS:
         """
         try:
             while True:
-                filename, command, file_size = recv_filehead(conn)
+                filename, command, file_size = recv_head(conn)
                 if command == COMMAND.SEND_FILE:
                     self.__recv_single_file(conn, filename, file_size, base_dir)
                 elif command == FINISH:
@@ -338,7 +338,7 @@ class FTS:
         self.logger.info(f'客户端连接 {get_hostname_by_ip(addr[0])}, {addr[0]}:{addr[1]}')
         try:
             while True:
-                filename, command, file_size = recv_filehead(conn)
+                filename, command, file_size = recv_head(conn)
                 cur_base_dir = self.__base_dir
                 match command:
                     case COMMAND.SEND_FILES_IN_DIR:

@@ -135,7 +135,7 @@ class FTC:
             self.logger.warning('本地文件夹不存在')
             return
 
-        file_head = pack_filehead(peer_dir, COMMAND.COMPARE_DIR, 0)
+        file_head = pack_head(peer_dir, COMMAND.COMPARE_DIR, 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             if receive_data(conn, len(DIRISCORRECT)).decode() != DIRISCORRECT:
@@ -145,8 +145,8 @@ class FTC:
             # 获取本地的文件名
             local_filenames = local_dict.keys()
             # 获取本次字符串大小
-            data_size = receive_data(conn, size_fmt.size)
-            data_size = size_fmt.unpack(data_size)[0]
+            data_size = receive_data(conn, size_struct.size)
+            data_size = size_struct.unpack(data_size)[0]
             # 接收字符串
             data = receive_data(conn, data_size).decode()
             # 将字符串转化为dict
@@ -180,23 +180,23 @@ class FTC:
                 extra_print2file(print_filename_if_exits, arg, self.logger.log_file)
 
             if not file_size_and_name_both_equal:
-                conn.sendall(size_fmt.pack(CONTROL.CANCEL))
+                conn.sendall(size_struct.pack(CONTROL.CANCEL))
                 return
             if input("Continue to compare hash for filename and size both equal set?(y/n): ") != 'y':
-                conn.sendall(size_fmt.pack(CONTROL.CANCEL))
+                conn.sendall(size_struct.pack(CONTROL.CANCEL))
                 return
             # 发送继续请求
-            conn.sendall(size_fmt.pack(CONTROL.CONTINUE))
+            conn.sendall(size_struct.pack(CONTROL.CONTINUE))
             # 发送相同的文件名称大小
             data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
-            conn.sendall(size_fmt.pack(len(data_to_send)))
+            conn.sendall(size_struct.pack(len(data_to_send)))
             # 发送字符串
             conn.sendall(data_to_send)
             results = {filename: get_file_md5(Path(local_dir, filename)) for filename in
                        file_size_and_name_both_equal}
             # 获取本次字符串大小
-            data_size = receive_data(conn, size_fmt.size)
-            data_size = size_fmt.unpack(data_size)[0]
+            data_size = receive_data(conn, size_struct.size)
+            data_size = size_struct.unpack(data_size)[0]
             # 接收字符串
             data = receive_data(conn, data_size).decode()
             # 将字符串转化为dict
@@ -228,7 +228,7 @@ class FTC:
             return
         command = self.__command_prefix + command
         with self.__connections as conn:
-            file_head = pack_filehead(command, COMMAND.EXECUTE_COMMAND, len(command.encode(utf8)))
+            file_head = pack_head(command, COMMAND.EXECUTE_COMMAND, len(command.encode(utf8)))
             conn.sendall(file_head)
             self.logger.flush()
             self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command}\n'))
@@ -240,14 +240,14 @@ class FTC:
 
     def __compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
-        file_head = pack_filehead('', COMMAND.SYSINFO, 0)
+        file_head = pack_head('', COMMAND.SYSINFO, 0)
         with self.__connections as conn:
             conn.sendall(file_head)
             # 异步获取自己的系统信息
             thread = MyThread(get_sys_info)
             thread.start()
             # 接收对方的系统信息
-            data_length = size_fmt.unpack(receive_data(conn, size_fmt.size))[0]
+            data_length = size_struct.unpack(receive_data(conn, size_struct.size))[0]
             data = receive_data(conn, data_length).decode()
         peer_sysinfo = json.loads(data)
         self.logger.flush()
@@ -265,7 +265,7 @@ class FTC:
         times = int(times)
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
-        file_head = pack_filehead('', COMMAND.SPEEDTEST, data_size)
+        file_head = pack_head('', COMMAND.SPEEDTEST, data_size)
         with self.__connections as conn:
             conn.sendall(file_head)
             start = time.time()
@@ -296,7 +296,7 @@ class FTC:
     def __send_files_in_dir(self, filepath):
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         data = json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode()
-        self.__connections.main_conn.sendall(pack_filehead('', COMMAND.SEND_FILES_IN_DIR, len(data)))
+        self.__connections.main_conn.sendall(pack_head('', COMMAND.SEND_FILES_IN_DIR, len(data)))
         self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}'.format(filepath, len(all_dir_name)))
         self.logger.flush()
         self.__connections.main_conn.sendall(data)
@@ -333,7 +333,7 @@ class FTC:
         success_recv = set()
         try:
             success_recv = set([result.get() for result in results])
-            file_head = pack_filehead('', FINISH, 0)
+            file_head = pack_head('', FINISH, 0)
             for conn in self.__connections.connections:
                 conn.sendall(file_head)
         except ssl.SSLEOFError:
@@ -365,8 +365,8 @@ class FTC:
         file_size = os.path.getsize(real_path := os.path.normcase(Path(self.__base_dir, filepath)))
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
-            conn.sendall(pack_filehead(filepath, COMMAND.SEND_FILE, file_size))
-            flag = size_fmt.unpack(receive_data(conn, size_fmt.size))[0]
+            conn.sendall(pack_head(filepath, COMMAND.SEND_FILE, file_size))
+            flag = size_struct.unpack(receive_data(conn, size_struct.size))[0]
             if flag == CONTROL.CANCEL:
                 self.__update_global_pbar(file_size, decrease=True)
             elif flag != CONTROL.FAIL2OPEN:
@@ -374,14 +374,14 @@ class FTC:
                     fp = open(real_path, 'rb')
                 except FileNotFoundError:
                     self.logger.error(f'文件打开失败，无法发送: {real_path}', highlight=1)
-                    conn.sendall(size_fmt.pack(CONTROL.FAIL2OPEN))
+                    conn.sendall(size_struct.pack(CONTROL.FAIL2OPEN))
                     return
                 # 服务端已有的文件大小
                 fp.seek(exist_size := flag, 0)
-                conn.sendall(size_fmt.pack(CONTROL.CONTINUE))
+                conn.sendall(size_struct.pack(CONTROL.CONTINUE))
                 # 发送文件的创建、访问、修改时间戳
-                conn.sendall(file_details_fmt.pack(os.path.getctime(real_path), os.path.getmtime(real_path),
-                                                   os.path.getatime(real_path)))
+                conn.sendall(file_details_struct.pack(os.path.getctime(real_path), os.path.getmtime(real_path),
+                                                      os.path.getatime(real_path)))
                 rest_size = file_size - exist_size
                 if rest_size > unit:
                     position, leave = (self.__position.popleft(), False) if self.__pbar else (0, True)
@@ -406,8 +406,8 @@ class FTC:
         return filepath
 
     def __validate_password(self, conn):
-        conn.sendall(pack_filehead(self.__password, COMMAND.BEFORE_WORKING, self.__session_id))
-        msg, _, session_id = recv_filehead(conn)
+        conn.sendall(pack_head(self.__password, COMMAND.BEFORE_WORKING, self.__session_id))
+        msg, _, session_id = recv_head(conn)
         return msg, session_id
 
     def __before_working(self):
@@ -465,7 +465,7 @@ class FTC:
         if self.__thread_pool:
             self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
-        close_info = pack_filehead('', COMMAND.CLOSE, 0)
+        close_info = pack_head('', COMMAND.CLOSE, 0)
         self.logger.info('断开与 {0}:{1} 的连接'.format(self.__host, config.server_port))
         try:
             for conn in self.__connections.connections:
