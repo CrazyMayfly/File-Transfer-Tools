@@ -125,7 +125,7 @@ optional arguments:
 2. 输入`sysinfo`，则会显示双方的系统信息
 3. 输入`speedtest n`，则会测试网速，其中n为本次测试的数据量，单位MB。注意，在**计算机网络**中，1 GB = 1000 MB = 1000000 KB.
 4. 输入`compare local_dir dest_dir`来比较本机文件夹和服务器文件夹中文件的差别。
-5. 输入`clip pull/push` 或 `clip get/send`来同步客户端和服务器的剪切板内容
+5. 输入`get clipboard` 或 `send clipboard`来同步客户端和服务器的剪切板内容
 6. 输入其他内容时作为指令让服务器执行，并且实时返回结果。
 
 #### 运行截图
@@ -137,6 +137,7 @@ optional arguments:
 ![startup](assets/startup.png)
 
 传输文件
+
 ![file](assets/file.png)
 
 执行命令：sysinfo
@@ -162,6 +163,7 @@ optional arguments:
 ### FTS
 
 `FTS`是服务器端，用于接收并存储文件，执行客户端发来的指令。
+接收单个文件时，若文件已存在，则使用新的名称接收；接收文件夹中的文件时，若文件已存在，则不会接收和更改原有文件。
 
 ```
 usage: FTS.py [-h] [-d base_dir] [-p password] [--plaintext] [--avoid]
@@ -171,11 +173,10 @@ File Transfer Server, used to RECEIVE files and EXECUTE instructions.
 optional arguments:
   -h, --help            show this help message and exit
   -d base_dir, --dest base_dir
-                        File storage location (default: C:\Users\admin/Desktop)
+                        File storage location (default: C:\Users\admin\Desktop)
   -p password, --password password
                         Set a password for the host.
   --plaintext           Use plaintext transfer (default: use ssl)
-  --avoid               Do not continue the transfer when the file name is repeated.
 ```
 
 #### 参数说明
@@ -185,8 +186,6 @@ optional arguments:
 `-p, --password`: 为服务器设置一个密码，防止恶意连接。
 
 `--plaintext`: 显式指定数据明文传输，默认使用ssl加密传输。
-
-`--avoid`：开启时，如果目录下已经有同名文件，分两种情况，若接收端的文件大小大于等于发送端则**阻止**该文件的传输，否则接收并**覆写**该文件；此功能主要用于一次传输大量文件被中断后的重传，类似断点重传，其他情况请**谨慎使用**。未开启时，如果存在的文件名为`a.txt`，则传输过来的文件会按照 `a (1).txt`、`a (2).txt`依次命名。
 
 #### 运行截图
 

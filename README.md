@@ -160,6 +160,8 @@ Execute command line commands
 ### FTS
 
 `FTS` is the server, used to receive and store files, and execute the instructions sent by the client.
+When receiving a single file, if the file already exists, it will be received under a new name; 
+When receiving files in a folder, if the file already exists, the original file will not be received or changed.
 
 ```
 usage: FTS.py [-h] [-d base_dir] [-p password] [--plaintext] [--avoid]
@@ -169,11 +171,10 @@ File Transfer Server, used to RECEIVE files and EXECUTE instructions.
 optional arguments:
    -h, --help show this help message and exit
    -d base_dir, --dest base_dir
-                         File storage location (default: C:\Users\admin/Desktop)
+                         File storage location (default: C:\Users\admin\Desktop)
    -p password, --password password
                          Set a password for the host.
    --plaintext Use plaintext transfer (default: use ssl)
-   --avoid Do not continue the transfer when the file name is repeated.
 ```
 
 #### Parameters Description
@@ -183,8 +184,6 @@ optional arguments:
 `-p, --password`: Set a password for the server to prevent malicious connections.
 
 `--plaintext`: Explicitly specify data transmission in plain text, and use ssl encrypted transmission by default.
-
-`--avoid`: When this option is open, If the file with the same name already exists in the directory, there are two cases: If the size of the file on the receiving end is greater than or equal to that on the sending end, transmission of the file will be **prevented**; otherwise, the file is received and **overwritten**. This function is mainly used for retransmission of a large number of files that are interrupted at a time. It is similar to breakpoint retransmission. In other situations, please **use this function with caution**. When this function is not enabled, if the file name is `a.txt`, the transferred files are named after `a (1).txt` and `a (2).txt` and so on.
 
 #### Screenshots of the runtime
 
