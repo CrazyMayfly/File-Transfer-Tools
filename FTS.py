@@ -213,17 +213,11 @@ class FTS:
         try:
             fp = open(cur_download_file, 'ab')
             size = os.path.getsize(cur_download_file)
-            conn.sendall(size_struct.pack(CONTROL.CONTINUE + size))
-            command = size_struct.unpack(receive_data(conn, size_struct.size))
-            if command == CONTROL.FAIL2OPEN:
-                self.logger.warning('对方文件发送失败 {}'.format(original_file))
-                return
-            timestamps = file_details_struct.unpack(receive_data(conn, file_details_struct.size))
-            rest_size = temp = file_size - size
-            relpath = os.path.relpath(original_file, base_dir)
-            begin = time.time()
+            conn.sendall(size_struct.pack(size))
+            rest_size = file_size - size
             self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
-                              '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(relpath, *calcu_size(rest_size)))
+                              '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(
+                os.path.relpath(original_file, base_dir), *calcu_size(rest_size)))
             conn.settimeout(5)
             while rest_size > 4096:
                 data = conn.recv(4096)
@@ -234,10 +228,9 @@ class FTS:
                     raise ConnectionDisappearedError
             fp.write(receive_data(conn, rest_size))
             fp.close()
-            avg_speed = temp / 1000000 / time_cost if (time_cost := time.time() - begin) else 0
-            self.logger.success(
-                f'{relpath} 接收成功，耗时：{time_cost:.2f} s，平均速度 {avg_speed :.2f} MB/s', highlight=1)
             os.rename(cur_download_file, original_file)
+            self.logger.success(f'文件接收成功：{original_file}', highlight=1)
+            timestamps = file_details_struct.unpack(receive_data(conn, file_details_struct.size))
             modify_file_time(original_file, self.logger, *timestamps)
         except ConnectionDisappearedError:
             self.logger.warning(f'客户端连接意外中止，文件接收失败：{original_file}')

@@ -370,18 +370,9 @@ class FTC:
             if flag == CONTROL.CANCEL:
                 self.__update_global_pbar(file_size, decrease=True)
             elif flag != CONTROL.FAIL2OPEN:
-                try:
-                    fp = open(real_path, 'rb')
-                except FileNotFoundError:
-                    self.logger.error(f'文件打开失败，无法发送: {real_path}', highlight=1)
-                    conn.sendall(size_struct.pack(CONTROL.FAIL2OPEN))
-                    return
+                fp = open(real_path, 'rb')
                 # 服务端已有的文件大小
                 fp.seek(exist_size := flag, 0)
-                conn.sendall(size_struct.pack(CONTROL.CONTINUE))
-                # 发送文件的创建、访问、修改时间戳
-                conn.sendall(file_details_struct.pack(os.path.getctime(real_path), os.path.getmtime(real_path),
-                                                      os.path.getatime(real_path)))
                 rest_size = file_size - exist_size
                 if rest_size > unit:
                     position, leave = (self.__position.popleft(), False) if self.__pbar else (0, True)
@@ -399,6 +390,9 @@ class FTC:
                     conn.sendall(data := fp.read(unit))
                     self.__update_global_pbar(len(data))
                 fp.close()
+                # 发送文件的创建、访问、修改时间戳
+                conn.sendall(file_details_struct.pack(os.path.getctime(real_path), os.path.getmtime(real_path),
+                                                      os.path.getatime(real_path)))
                 self.__update_global_pbar(exist_size, decrease=True)
             else:
                 self.logger.error(f'对方接收文件失败：{real_path}', highlight=1)
