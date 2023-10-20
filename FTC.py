@@ -307,7 +307,7 @@ class FTC:
         conn.sendall(pack_head(Path(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0))
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         # 发送文件夹数据
-        send_data_with_size(conn,json.dumps(list(all_dir_name)).encode())
+        send_data_with_size(conn, json.dumps(list(all_dir_name)).encode())
         self.logger.flush()
         # 将发送的文件夹信息写入日志
         self.logger.info(f'开始发送 {filepath} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
@@ -495,8 +495,8 @@ class FTC:
         @param nums: 需要扩充到的连接数
         @return:
         """
-        additional_connections_nums = nums - len(self.__connections.connections)
-        if additional_connections_nums <= 0:
+        additional_conn_nums = nums - len(self.__connections.connections)
+        if additional_conn_nums <= 0:
             return
         try:
             context = None
@@ -505,32 +505,28 @@ class FTC:
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 # 加载信任根证书
                 context.load_verify_locations(Path(config.cert_dir, 'ca.crt'))
-            for i in range(0, additional_connections_nums):
-                try:
-                    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    # 连接至服务器
-                    client_socket.connect((self.__host, config.server_port))
-                    # 将socket包装为securitySocket
-                    if self.__use_ssl:
-                        client_socket = context.wrap_socket(client_socket, server_hostname='FTS')
-                    # 验证密码
-                    if not self.__first_connect:
-                        self.__validate_password(client_socket)
-                    # client_socket = context.wrap_socket(s, server_hostname='Server')
-                    self.__connections.add(client_socket)
-                except ssl.SSLError as e:
-                    self.logger.error(f'连接至 {self.__host} 失败，{e.verify_message}', highlight=1)
-                    sys.exit(-1)
-            if self.__first_connect:
-                self.logger.success(f'成功连接至服务器 {self.__host}:{config.server_port}')
-                self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning(
-                    '当前数据未进行加密传输')
-                self.__first_connect = False
-            else:
-                self.logger.info(f'将连接数扩充至: {nums}')
-        except socket.error as msg:
+            for i in range(0, additional_conn_nums):
+                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                # 连接至服务器
+                client_socket.connect((self.__host, config.server_port))
+                # 将socket包装为securitySocket
+                if self.__use_ssl:
+                    client_socket = context.wrap_socket(client_socket, server_hostname='FTS')
+                # 验证密码
+                if not self.__first_connect:
+                    self.__validate_password(client_socket)
+                # client_socket = context.wrap_socket(s, server_hostname='Server')
+                self.__connections.add(client_socket)
+        except (ssl.SSLError, socket.error) as msg:
             self.logger.error(f'连接至 {self.__host} 失败, {msg}')
             sys.exit(-1)
+        if self.__first_connect:
+            self.logger.success(f'成功连接至服务器 {self.__host}:{config.server_port}')
+            self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning(
+                '当前数据未进行加密传输')
+            self.__first_connect = False
+        else:
+            self.logger.info(f'将连接数扩充至: {nums}')
 
     def start(self):
         self.__probe_server()
