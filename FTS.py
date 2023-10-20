@@ -37,6 +37,10 @@ def modify_file_time(file_path: str, logger: Logger, create_timestamp: float,
         logger.warning(f'{file_path}文件时间修改失败，{e}')
 
 
+def compact_host_port(host, port):
+    return socket.inet_aton(host).hex() + hex(port)[2:]
+
+
 def avoid_filename_duplication(filename: str):
     """
     当文件重复时另取新的文件名
@@ -106,12 +110,27 @@ class FTS:
             self.main_conn = conn
             self.conns: set[socket.socket] = set()
             self.alive = True
+            self.base_dir = Path()
+            self.cur_rel_dir = Path()
             self.host = host
             self.file2size = {}
             self.__lock = threading.Lock()
 
+        @property
+        def cur_dir(self):
+            return Path(self.base_dir, self.cur_rel_dir)
+
+        @property
+        def files(self):
+            return list(self.file2size.keys())
+
         def add_conn(self, conn):
             self.conns.add(conn)
+
+        def reset(self):
+            self.base_dir = Path()
+            self.cur_rel_dir = Path()
+            self.file2size.clear()
 
         def destroy(self):
             with self.__lock:
@@ -123,10 +142,6 @@ class FTS:
                 self.conns.clear()
                 self.file2size.clear()
                 return True
-
-        @property
-        def files(self):
-            return list(self.file2size.keys())
 
     def __change_base_dir(self):
         """
@@ -161,14 +176,12 @@ class FTS:
             self.logger.log("不继续比对Hash")
             return
         self.logger.log("继续对比文件Hash")
-        str_len = size_struct.unpack(receive_data(conn, size_struct.size))[0]
-        file_size_and_name_both_equal = receive_data(conn, str_len).decode(utf8).split("|")
+        file_size_and_name_both_equal = json.loads(receive_data(conn, recv_size(conn)).decode())
         # 得到文件相对路径名: hash值字典
         results = {filename: get_file_md5(Path(dir_name, filename)) for filename in
                    file_size_and_name_both_equal}
         data = json.dumps(results, ensure_ascii=True).encode()
-        conn.sendall(size_struct.pack(len(data)))
-        conn.sendall(data)
+        send_data_with_size(conn, data)
         self.logger.log("Hash 比对结束。")
 
     def __execute_command(self, conn: socket.socket, command):
@@ -185,10 +198,7 @@ class FTS:
     def __compare_sysinfo(self, conn: socket.socket):
         self.logger.log("目标获取系统信息")
         data = json.dumps(get_sys_info(), ensure_ascii=True).encode()
-        # 发送数据长度
-        conn.sendall(size_struct.pack(len(data)))
-        # 发送数据
-        conn.sendall(data)
+        send_data_with_size(conn, data)
 
     def __speedtest(self, conn: socket.socket, data_size):
         self.logger.log(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
@@ -202,9 +212,7 @@ class FTS:
             conn.sendall(os.urandom(data_unit))
         show_bandwidth('上传速度测试完毕', data_size, interval=time.time() - download_over, logger=self.logger)
 
-    def __makedirs(self, conn, base_dir):
-        size = size_struct.unpack(receive_data(conn, size_struct.size))[0]
-        data = json.loads(receive_data(conn, size).decode())
+    def __makedirs(self, data, base_dir):
         # 处理文件夹
         self.logger.info(f'开始创建文件夹，文件夹个数为 {len(data)}')
         for dir_name in data:
@@ -216,29 +224,26 @@ class FTS:
             except FileNotFoundError:
                 self.logger.error(f'文件夹创建失败 {dir_name}', highlight=1)
 
-    def __recv_files_in_dir(self, session: Session, dir_name, base_dir):
-        self.logger.info(f'准备接收 {dir_name} 文件夹下的文件')
-        real_dir = Path(base_dir, dir_name)
-        if real_dir.exists():
-            session.file2size = get_relative_filename_from_basedir(str(real_dir), prefix=dir_name)
-
+    def __recv_files_in_dir(self, session: Session):
+        self.logger.info(f'准备接收 {session.cur_rel_dir} 文件夹下的文件')
+        if session.cur_dir.exists():
+            session.file2size = get_relative_filename_from_basedir(str(session.cur_dir))
         main_conn = session.main_conn
-        self.__makedirs(main_conn, base_dir)
+        dir_data = json.loads(receive_data(main_conn, recv_size(main_conn)).decode())
+        self.__makedirs(dir_data, session.cur_dir)
         # 发送已存在的文件名
-        main_conn.sendall(size_struct.pack(len(data := json.dumps(session.files, ensure_ascii=True).encode())))
-        main_conn.sendall(data)
-        conns = session.conns
-        threads = [threading.Thread(name=socket.inet_aton(conn.getpeername()[0]).hex() + hex(conn.getpeername()[1])[2:],
-                                    target=self.__slave_work, args=(conn, base_dir, session)) for conn in conns]
+        send_data_with_size(main_conn, json.dumps(session.files, ensure_ascii=True).encode())
+        threads = [threading.Thread(name=compact_host_port(session.host, conn.getpeername()[1]),
+                                    target=self.__slave_work, args=(conn, session)) for conn in session.conns]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        session.file2size = {}
+        session.reset()
 
-    def __recv_single_file(self, conn: socket.socket, filename, file_size, base_dir, session: Session):
-        file_path = Path(base_dir, filename)
-        cur_download_file, fp = (original_file := avoid_filename_duplication(str(file_path))) + '.ftsdownload', None
+    def __recv_single_file(self, conn: socket.socket, filename, file_size, session: Session):
+        real_path = Path(session.cur_dir, filename)
+        cur_download_file, fp = (original_file := avoid_filename_duplication(str(real_path))) + '.ftsdownload', None
         try:
             fp = open(cur_download_file, 'ab')
             rel_filename = filename + '.ftsdownload'
@@ -247,7 +252,7 @@ class FTS:
             rest_size = file_size - size
             self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
                               '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(
-                os.path.relpath(original_file, base_dir), *calcu_size(rest_size)))
+                os.path.relpath(original_file, session.base_dir), *calcu_size(rest_size)))
             conn.settimeout(5)
             while rest_size > 4096:
                 data = conn.recv(4096)
@@ -326,19 +331,18 @@ class FTS:
                 self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
                 sk.sendto(content, (target_ip, int(target_port)))  # 单播
 
-    def __slave_work(self, conn, base_dir, session):
+    def __slave_work(self, conn, session):
         """
         从连接的工作，只用于处理多文件接收
 
         @param conn: 从连接
-        @param base_dir: 文件保存位置
         @param session: 本次会话
         """
         try:
             while True:
                 filename, command, file_size = recv_head(conn)
                 if command == COMMAND.SEND_FILE:
-                    self.__recv_single_file(conn, filename, file_size, base_dir, session)
+                    self.__recv_single_file(conn, filename, file_size, session)
                 elif command == COMMAND.FINISH:
                     break
         except ConnectionError:
@@ -347,38 +351,37 @@ class FTS:
             if session.destroy():
                 self.logger.warning(f'{session.host} 数据流异常，连接断开')
 
-    def __master_work(self, conn, session, host, port):
+    def __master_work(self, session):
         """
         主连接的工作
-        @param conn: 主连接
         @param session: 本次会话
-        @param host: 客户端主机
-        @param port: 客户端端口
         """
-        self.logger.info(f'客户端连接 {get_hostname_by_ip(host)}, {host}:{port}')
+        self.logger.info(f'客户端连接 {get_hostname_by_ip(session.host)}({session.host})')
+        main_conn = session.main_conn
         while session.alive:
-            filename, command, file_size = recv_head(conn)
-            cur_base_dir = Path.cwd() / self.__base_dir
+            filename, command, file_size = recv_head(main_conn)
+            session.base_dir = Path.cwd() / self.__base_dir
             match command:
                 case COMMAND.SEND_FILES_IN_DIR:
-                    self.__recv_files_in_dir(session, filename, cur_base_dir)
+                    session.cur_rel_dir = filename
+                    self.__recv_files_in_dir(session)
                 case COMMAND.SEND_FILE:
-                    self.__recv_single_file(conn, filename, file_size, cur_base_dir, session)
+                    self.__recv_single_file(main_conn, filename, file_size, session)
                 case COMMAND.COMPARE_DIR:
-                    self.__compare_dir(conn, filename)
+                    self.__compare_dir(main_conn, filename)
                 case COMMAND.EXECUTE_COMMAND:
-                    self.__execute_command(conn, filename)
+                    self.__execute_command(main_conn, filename)
                 case COMMAND.SYSINFO:
-                    self.__compare_sysinfo(conn)
+                    self.__compare_sysinfo(main_conn)
                 case COMMAND.SPEEDTEST:
-                    self.__speedtest(conn, file_size)
+                    self.__speedtest(main_conn, file_size)
                 case COMMAND.PULL_CLIPBOARD:
-                    send_clipboard(conn, self.logger, ftc=False)
+                    send_clipboard(main_conn, self.logger, ftc=False)
                 case COMMAND.PUSH_CLIPBOARD:
-                    get_clipboard(conn, self.logger, filename, command, file_size, ftc=False)
+                    get_clipboard(main_conn, self.logger, filename, command, file_size, ftc=False)
                 case COMMAND.CLOSE:
                     if session.destroy():
-                        self.logger.info(f'终止与客户端 {host}:{port} 的连接')
+                        self.logger.info(f'终止与客户端 {session.host} 的连接')
 
     def __route(self, conn: socket.socket, host, port):
         """
@@ -396,7 +399,7 @@ class FTS:
         if flag:
             session = self.__sessions[session_id]
             try:
-                self.__master_work(conn, session, host, port)
+                self.__master_work(session)
             except ConnectionDisappearedError as e:
                 self.logger.warning(f'{host}:{port} {e}')
             except ConnectionResetError as e:
@@ -431,7 +434,7 @@ class FTS:
         while True:
             try:
                 conn, (host, port) = server_socket.accept()
-                threading.Thread(name=socket.inet_aton(host).hex() + hex(port)[2:], target=self.__route,
+                threading.Thread(name=compact_host_port(host, port), target=self.__route,
                                  args=(conn, host, port)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')

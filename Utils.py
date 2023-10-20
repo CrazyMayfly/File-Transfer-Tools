@@ -171,33 +171,13 @@ def get_log_msg(msg):
     return f'{now} {threading.current_thread().name:12} {msg}'
 
 
-def get_relative_filename_from_basedir(base_dir, prefix=Path('')):
+def get_relative_filename_from_basedir(base_dir):
     results = {}
     for path, _, file_list in os.walk(base_dir):
         for file in file_list:
             # 将文件路径风格统一至Linux
-            results[Path(prefix, Path(path).relative_to(base_dir), file).as_posix()] = os.path.getsize(Path(path, file))
+            results[Path(Path(path).relative_to(base_dir), file).as_posix()] = os.path.getsize(Path(path, file))
     return results
-
-
-def get_dir_file_name(filepath):
-    """
-    获取某文件路径下的所有文件夹和文件的相对路径
-    :param filepath: 文件路径
-    :return :返回该文件路径下的所有文件夹、文件的相对路径
-    """
-    all_dir_name = set()
-    all_file_name = []
-    # 获取上一级文件夹名称
-    back_dir = os.path.dirname(filepath)
-    for path, _, file_list in os.walk(filepath):
-        # 获取相对路径
-        path = os.path.relpath(path, back_dir)
-        all_dir_name.add(path)
-        # 去除重复的路径，防止多次创建，降低效率
-        all_dir_name.discard(os.path.dirname(path))
-        all_file_name += [Path(path, file).as_posix() for file in file_list]
-    return all_dir_name, all_file_name
 
 
 def get_ip_and_hostname() -> (str, str):
@@ -424,6 +404,15 @@ commands: Final[list] = [COMMAND.SYSINFO, COMMAND.COMPARE, COMMAND.SPEEDTEST, CO
 head_struct = Struct('>14sQH')  # 大端对齐，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1，H为 unsigned short，表示文件夹名长度 0~65535
 size_struct = Struct('q')
 file_details_struct = Struct('ddd')
+
+
+def recv_size(conn: socket.socket):
+    return size_struct.unpack(receive_data(conn, size_struct.size))[0]
+
+
+def send_data_with_size(conn, data):
+    conn.sendall(size_struct.pack(len(data)))
+    conn.sendall(data)
 
 
 def pack_head(name: str, command: str, size: int) -> bytes:

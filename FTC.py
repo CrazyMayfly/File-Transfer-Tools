@@ -46,6 +46,25 @@ def read_line_setup() -> Path:
     return history_filename
 
 
+def get_dir_file_name(filepath):
+    """
+    获取某文件路径下的所有文件夹和文件的相对路径
+    :param filepath: 文件路径
+    :return :返回该文件路径下的所有文件夹、文件的相对路径
+    """
+    all_dir_name = set()
+    all_file_name = []
+    # 获取上一级文件夹名称
+    for path, _, file_list in os.walk(filepath):
+        # 获取相对路径
+        path = os.path.relpath(path, filepath)
+        all_dir_name.add(path)
+        # 去除重复的路径，防止多次创建，降低效率
+        all_dir_name.discard(os.path.dirname(path))
+        all_file_name += [Path(path, file).as_posix() for file in file_list]
+    return all_dir_name, all_file_name
+
+
 def get_args() -> Namespace:
     """
     获取命令行参数解析器
@@ -145,11 +164,8 @@ class FTC:
             local_dict = get_relative_filename_from_basedir(local_dir)
             # 获取本地的文件名
             local_filenames = local_dict.keys()
-            # 获取本次字符串大小
-            data_size = receive_data(conn, size_struct.size)
-            data_size = size_struct.unpack(data_size)[0]
             # 接收字符串
-            data = receive_data(conn, data_size).decode()
+            data = receive_data(conn, recv_size(conn)).decode()
             # 将字符串转化为dict
             peer_dict: dict = json.loads(data)
             # 求各种集合
@@ -188,20 +204,12 @@ class FTC:
                 return
             # 发送继续请求
             conn.sendall(size_struct.pack(CONTROL.CONTINUE))
-            # 发送相同的文件名称大小
-            data_to_send = "|".join(file_size_and_name_both_equal).encode(utf8)
-            conn.sendall(size_struct.pack(len(data_to_send)))
-            # 发送字符串
-            conn.sendall(data_to_send)
+            # 发送相同的文件名称
+            send_data_with_size(conn, json.dumps(file_size_and_name_both_equal).encode())
             results = {filename: get_file_md5(Path(local_dir, filename)) for filename in
                        file_size_and_name_both_equal}
             # 获取本次字符串大小
-            data_size = receive_data(conn, size_struct.size)
-            data_size = size_struct.unpack(data_size)[0]
-            # 接收字符串
-            data = receive_data(conn, data_size).decode()
-            # 将字符串转化为dict
-            peer_dict = json.loads(data)
+            peer_dict = json.loads(receive_data(conn, recv_size(conn)).decode())
             hash_not_matching = [filename for filename in results.keys() if
                                  results[filename] != peer_dict[filename]]
             extra_print2file(print_filename_if_exits, ("hash not matching: ", hash_not_matching), self.logger.log_file)
@@ -248,8 +256,7 @@ class FTC:
             thread = MyThread(get_sys_info)
             thread.start()
             # 接收对方的系统信息
-            data_length = size_struct.unpack(receive_data(conn, size_struct.size))[0]
-            data = receive_data(conn, data_length).decode()
+            data = receive_data(conn, recv_size(conn)).decode()
         peer_sysinfo = json.loads(data)
         self.logger.flush()
         self.logger.log_file.write('[INFO   ] ' + get_log_msg("对比双方系统信息：\n"))
@@ -295,28 +302,26 @@ class FTC:
             func(conn, self.logger)
 
     def __prepare_to_send(self, filepath, conn):
-        self.__base_dir = os.path.dirname(filepath)
+        self.__base_dir = filepath
         # 发送文件夹命令
         conn.sendall(pack_head(Path(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0))
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         # 发送文件夹数据
-        conn.sendall(size_struct.pack(len(data := json.dumps(list(all_dir_name)).encode())))
-        conn.sendall(data)
+        send_data_with_size(conn,json.dumps(list(all_dir_name)).encode())
         self.logger.flush()
         # 将发送的文件夹信息写入日志
         self.logger.info(f'开始发送 {filepath} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
         for name in all_dir_name:
-            self.logger.log_file.write(f'{Path(self.__base_dir, name)}\n')
+            self.logger.log_file.write(f'{Path(filepath, name)}\n')
         # 接收对方已有的文件名
-        data_size = size_struct.unpack(receive_data(conn, size_struct.size))[0]
-        peer_file_names = set(json.loads(receive_data(conn, data_size).decode()))
+        peer_file_names = set(json.loads(receive_data(conn, recv_size(conn)).decode()))
         total_size = 0
         # 计算出对方没有的文件
         all_file_name = list(set(all_file_name) - peer_file_names)
         # 将待发送的文件打印到日志，计算待发送的文件总大小
         self.logger.log_file.write('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
         for filename in all_file_name:
-            real_path = Path(self.__base_dir, filename)
+            real_path = Path(filepath, filename)
             file_size = os.path.getsize(real_path)
             # 记录每个文件大小
             self.__file2size[filename] = file_size
@@ -380,7 +385,7 @@ class FTC:
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.sendall(pack_head(filepath, COMMAND.SEND_FILE, file_size))
-            flag = size_struct.unpack(receive_data(conn, size_struct.size))[0]
+            flag = recv_size(conn)
             if flag == CONTROL.FAIL2OPEN:
                 self.logger.error(f'对方接收文件失败：{real_path}', highlight=1)
                 return
