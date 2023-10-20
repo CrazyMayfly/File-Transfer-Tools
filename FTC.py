@@ -300,8 +300,7 @@ class FTC:
         conn.sendall(pack_head(Path(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0))
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         # 发送文件夹数据
-        conn.sendall(size_struct.pack(
-            len(data := json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode())))
+        conn.sendall(size_struct.pack(len(data := json.dumps(list(all_dir_name)).encode())))
         conn.sendall(data)
         self.logger.flush()
         # 将发送的文件夹信息写入日志

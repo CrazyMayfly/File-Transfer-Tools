@@ -206,8 +206,8 @@ class FTS:
         size = size_struct.unpack(receive_data(conn, size_struct.size))[0]
         data = json.loads(receive_data(conn, size).decode())
         # 处理文件夹
-        self.logger.info(f'开始创建文件夹，文件夹个数为 {data["num"]}')
-        for dir_name in data['dir_names'].split('|'):
+        self.logger.info(f'开始创建文件夹，文件夹个数为 {len(data)}')
+        for dir_name in data:
             cur_dir = Path(base_dir, dir_name)
             if cur_dir.exists():
                 continue
@@ -439,8 +439,8 @@ class FTS:
 
 if __name__ == '__main__':
     args = get_args()
-    fts = FTS(base_dir=Path(args.dest), use_ssl=not args.plaintext, password=args.password)
-    if not create_dir_if_not_exist(Path(args.dest), fts.logger):
+    fts = FTS(base_dir=args.dest, use_ssl=not args.plaintext, password=args.password)
+    if not create_dir_if_not_exist(args.dest, fts.logger):
         sys.exit(-1)
     handle_ctrl_event(logger=fts.logger)
     fts.start()
