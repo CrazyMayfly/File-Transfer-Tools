@@ -34,7 +34,7 @@ def modify_file_time(file_path: str, logger: Logger, create_timestamp: float,
         elif platform_ == LINUX:
             os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
     except Exception as e:
-        logger.warning(f'{file_path}修改失败，{e}')
+        logger.warning(f'{file_path}文件时间修改失败，{e}')
 
 
 def avoid_filename_duplication(filename: str):
@@ -44,11 +44,12 @@ def avoid_filename_duplication(filename: str):
     @param filename: 原文件名
     @return: 新文件名
     """
-    i = 1
-    base, extension = os.path.splitext(filename)
-    while os.path.exists(filename):
-        filename = f"{base}({i}){extension}"
-        i += 1
+    if os.path.exists(filename):
+        i = 1
+        base, extension = os.path.splitext(filename)
+        while os.path.exists(filename):
+            filename = f"{base}({i}){extension}"
+            i += 1
     return filename
 
 
@@ -83,25 +84,49 @@ def get_args() -> Namespace:
                         help='Set a password for the host.', default='')
     parser.add_argument('--plaintext', action='store_true',
                         help='Use plaintext transfer (default: use ssl)')
-    parser.add_argument('--repeated', action='store_true',
-                        help='Continue receive the file when file name already exists (cancel by default).')
     return parser.parse_args()
 
 
 class FTS:
-    def __init__(self, base_dir, use_ssl, repeated, password=''):
+    def __init__(self, base_dir, use_ssl, password=''):
         self.__password = password
         self.__ip = ''
-        self.__base_dir: Path = base_dir
+        self.__base_dir: Path = Path(base_dir)
         self.__use_ssl = use_ssl
+        self.__sessions = {}
         self.__sessions_lock = threading.Lock()
-        self.__sessions: dict[int:set[socket.socket]] = {}
-        self.__avoid_file_duplicate = not repeated
         self.logger = Logger(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
         self.logger.log(f'本次服务器密码: {password if password else "无"}')
         # 进行日志归档
         threading.Thread(name='ArchThread', target=compress_log_files,
                          args=(config.log_dir, 'server', self.logger)).start()
+
+    class Session:
+        def __init__(self, conn, host):
+            self.main_conn = conn
+            self.conns: set[socket.socket] = set()
+            self.alive = True
+            self.host = host
+            self.file2size = {}
+            self.__lock = threading.Lock()
+
+        def add_conn(self, conn):
+            self.conns.add(conn)
+
+        def destroy(self):
+            with self.__lock:
+                if not self.alive:
+                    return False
+                self.alive = False
+                for conn in self.conns:
+                    conn.close()
+                self.conns.clear()
+                self.file2size.clear()
+                return True
+
+        @property
+        def files(self):
+            return list(self.file2size.keys())
 
     def __change_base_dir(self):
         """
@@ -159,11 +184,9 @@ class FTS:
 
     def __compare_sysinfo(self, conn: socket.socket):
         self.logger.log("目标获取系统信息")
-        info = get_sys_info()
-        data = json.dumps(info, ensure_ascii=True).encode()
+        data = json.dumps(get_sys_info(), ensure_ascii=True).encode()
         # 发送数据长度
-        str_len = size_struct.pack(len(data))
-        conn.sendall(str_len)
+        conn.sendall(size_struct.pack(len(data)))
         # 发送数据
         conn.sendall(data)
 
@@ -179,7 +202,8 @@ class FTS:
             conn.sendall(os.urandom(data_unit))
         show_bandwidth('上传速度测试完毕', data_size, interval=time.time() - download_over, logger=self.logger)
 
-    def __makedirs(self, conn, base_dir, size):
+    def __makedirs(self, conn, base_dir):
+        size = size_struct.unpack(receive_data(conn, size_struct.size))[0]
         data = json.loads(receive_data(conn, size).decode())
         # 处理文件夹
         self.logger.info(f'开始创建文件夹，文件夹个数为 {data["num"]}')
@@ -191,28 +215,34 @@ class FTS:
                 os.makedirs(cur_dir)
             except FileNotFoundError:
                 self.logger.error(f'文件夹创建失败 {dir_name}', highlight=1)
-        conn.sendall(OVER)
 
-    def __recv_files_in_dir(self, session_id, base_dir):
-        with self.__sessions_lock:
-            conns = self.__sessions.get(session_id)
+    def __recv_files_in_dir(self, session: Session, dir_name, base_dir):
+        self.logger.info(f'准备接收 {dir_name} 文件夹下的文件')
+        real_dir = Path(base_dir, dir_name)
+        if real_dir.exists():
+            session.file2size = get_relative_filename_from_basedir(str(real_dir), prefix=dir_name)
+
+        main_conn = session.main_conn
+        self.__makedirs(main_conn, base_dir)
+        # 发送已存在的文件名
+        main_conn.sendall(size_struct.pack(len(data := json.dumps(session.files, ensure_ascii=True).encode())))
+        main_conn.sendall(data)
+        conns = session.conns
         threads = [threading.Thread(name=socket.inet_aton(conn.getpeername()[0]).hex() + hex(conn.getpeername()[1])[2:],
-                                    target=self.__slave_work, args=(conn, base_dir, session_id)) for conn in conns]
+                                    target=self.__slave_work, args=(conn, base_dir, session)) for conn in conns]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
+        session.file2size = {}
 
-    def __recv_single_file(self, conn: socket.socket, filename, file_size, base_dir):
+    def __recv_single_file(self, conn: socket.socket, filename, file_size, base_dir, session: Session):
         file_path = Path(base_dir, filename)
-        if self.__avoid_file_duplicate and file_path.exists():
-            # self.logger.warning('{} 文件重复，取消接收'.format(shorten_path(file_path, pbar_width)))
-            conn.sendall(size_struct.pack(CONTROL.CANCEL))
-            return
         cur_download_file, fp = (original_file := avoid_filename_duplication(str(file_path))) + '.ftsdownload', None
         try:
             fp = open(cur_download_file, 'ab')
-            size = os.path.getsize(cur_download_file)
+            rel_filename = filename + '.ftsdownload'
+            size = session.file2size.get(rel_filename, 0) if session.file2size else os.path.getsize(cur_download_file)
             conn.sendall(size_struct.pack(size))
             rest_size = file_size - size
             self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
@@ -254,7 +284,7 @@ class FTS:
         @return: 若成功连接则返回本次连接的 session_id
         """
         peer_host, peer_port = conn.getpeername()
-        conn.settimeout(2)
+        conn.settimeout(4)
         try:
             password, command, session_id = recv_head(conn)
         except (socket.timeout, struct.error) as exception:
@@ -296,93 +326,89 @@ class FTS:
                 self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
                 sk.sendto(content, (target_ip, int(target_port)))  # 单播
 
-    def __slave_work(self, conn, base_dir, session_id):
+    def __slave_work(self, conn, base_dir, session):
         """
-        从连接的工作，只用于处理多文件接受
+        从连接的工作，只用于处理多文件接收
 
         @param conn: 从连接
         @param base_dir: 文件保存位置
-        @param session_id: 本次会话id
+        @param session: 本次会话
         """
         try:
             while True:
                 filename, command, file_size = recv_head(conn)
                 if command == COMMAND.SEND_FILE:
-                    self.__recv_single_file(conn, filename, file_size, base_dir)
-                elif command == FINISH:
+                    self.__recv_single_file(conn, filename, file_size, base_dir, session)
+                elif command == COMMAND.FINISH:
                     break
         except ConnectionError:
             return
         except UnicodeDecodeError:
-            self.logger.warning(f'数据流异常，连接断开')
-            conn.close()
-        else:
-            # 首次工作结束后将连接添加到session里面
-            with self.__sessions_lock:
-                self.__sessions[session_id].add(conn)
+            if session.destroy():
+                self.logger.warning(f'{session.host} 数据流异常，连接断开')
 
-    def __master_work(self, conn, addr, session_id):
+    def __master_work(self, conn, session, host, port):
         """
         主连接的工作
         @param conn: 主连接
-        @param addr: 客户端地址
-        @param session_id: 本次会话id
+        @param session: 本次会话
+        @param host: 客户端主机
+        @param port: 客户端端口
         """
-        self.logger.info(f'客户端连接 {get_hostname_by_ip(addr[0])}, {addr[0]}:{addr[1]}')
-        try:
-            while True:
-                filename, command, file_size = recv_head(conn)
-                cur_base_dir = self.__base_dir
-                match command:
-                    case COMMAND.SEND_FILES_IN_DIR:
-                        self.__makedirs(conn, base_dir=cur_base_dir, size=file_size)
-                        self.__recv_files_in_dir(session_id, cur_base_dir)
-                    case COMMAND.SEND_FILE:
-                        self.__recv_single_file(conn, filename, file_size, cur_base_dir)
-                    case COMMAND.COMPARE_DIR:
-                        self.__compare_dir(conn, filename)
-                    case COMMAND.EXECUTE_COMMAND:
-                        self.__execute_command(conn, filename)
-                    case COMMAND.SYSINFO:
-                        self.__compare_sysinfo(conn)
-                    case COMMAND.SPEEDTEST:
-                        self.__speedtest(conn, file_size)
-                    case COMMAND.PULL_CLIPBOARD:
-                        send_clipboard(conn, self.logger, ftc=False)
-                    case COMMAND.PUSH_CLIPBOARD:
-                        get_clipboard(conn, self.logger, filename, command, file_size, ftc=False)
-                    case COMMAND.CLOSE:
-                        for conn in self.__sessions[session_id]:
-                            conn.close()
-                        self.logger.info(f'终止与客户端 {addr[0]}:{addr[1]} 的连接')
-                        break
-        except ConnectionDisappearedError as e:
-            self.logger.warning(f'{addr[0]}:{addr[1]} {e}')
-        except ConnectionResetError as e:
-            self.logger.warning(f'{addr[0]}:{addr[1]} {e.strerror}')
-        except UnicodeDecodeError:
-            self.logger.warning(f'{addr[0]}:{addr[1]} 数据流异常，连接断开')
-            for conn in self.__sessions[session_id]:
-                conn.close()
-        except ssl.SSLEOFError as e:
-            self.logger.warning(e)
-        finally:
-            with self.__sessions_lock:
-                self.__sessions.pop(session_id)
+        self.logger.info(f'客户端连接 {get_hostname_by_ip(host)}, {host}:{port}')
+        while session.alive:
+            filename, command, file_size = recv_head(conn)
+            cur_base_dir = Path.cwd() / self.__base_dir
+            match command:
+                case COMMAND.SEND_FILES_IN_DIR:
+                    self.__recv_files_in_dir(session, filename, cur_base_dir)
+                case COMMAND.SEND_FILE:
+                    self.__recv_single_file(conn, filename, file_size, cur_base_dir, session)
+                case COMMAND.COMPARE_DIR:
+                    self.__compare_dir(conn, filename)
+                case COMMAND.EXECUTE_COMMAND:
+                    self.__execute_command(conn, filename)
+                case COMMAND.SYSINFO:
+                    self.__compare_sysinfo(conn)
+                case COMMAND.SPEEDTEST:
+                    self.__speedtest(conn, file_size)
+                case COMMAND.PULL_CLIPBOARD:
+                    send_clipboard(conn, self.logger, ftc=False)
+                case COMMAND.PUSH_CLIPBOARD:
+                    get_clipboard(conn, self.logger, filename, command, file_size, ftc=False)
+                case COMMAND.CLOSE:
+                    if session.destroy():
+                        self.logger.info(f'终止与客户端 {host}:{port} 的连接')
 
-    def __route(self, conn: socket.socket, addr):
+    def __route(self, conn: socket.socket, host, port):
         """
         根据会话是否存在判断一个连接是否为主连接并进行路由
         """
         session_id = self.__before_working(conn)
         if not session_id:
             return
-        if session_id not in self.__sessions.keys():
-            with self.__sessions_lock:
-                self.__sessions[session_id] = {conn}
-            self.__master_work(conn, addr, session_id)
-        else:
-            self.__slave_work(conn, self.__base_dir, session_id)
+        flag = False
+        with self.__sessions_lock:
+            if session_id not in self.__sessions.keys():
+                self.__sessions[session_id] = self.Session(conn, host)
+                flag = True
+            self.__sessions[session_id].add_conn(conn)
+        if flag:
+            session = self.__sessions[session_id]
+            try:
+                self.__master_work(conn, session, host, port)
+            except ConnectionDisappearedError as e:
+                self.logger.warning(f'{host}:{port} {e}')
+            except ConnectionResetError as e:
+                self.logger.warning(f'{host}:{port} {e.strerror}')
+            except UnicodeDecodeError:
+                if session.destroy():
+                    self.logger.warning(f'{host} 数据流异常，连接断开')
+            except ssl.SSLEOFError as e:
+                self.logger.warning(e)
+            finally:
+                with self.__sessions_lock:
+                    self.__sessions.pop(session_id)
 
     def start(self):
         self.__ip, host = get_ip_and_hostname()
@@ -404,16 +430,16 @@ class FTS:
             server_socket = context.wrap_socket(server_socket, server_side=True)
         while True:
             try:
-                conn, addr = server_socket.accept()
-                threading.Thread(name=socket.inet_aton(addr[0]).hex() + hex(addr[1])[2:], target=self.__route,
-                                 args=(conn, addr)).start()
+                conn, (host, port) = server_socket.accept()
+                threading.Thread(name=socket.inet_aton(host).hex() + hex(port)[2:], target=self.__route,
+                                 args=(conn, host, port)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
 
 
 if __name__ == '__main__':
     args = get_args()
-    fts = FTS(base_dir=Path(args.dest), use_ssl=not args.plaintext, repeated=args.repeated, password=args.password)
+    fts = FTS(base_dir=Path(args.dest), use_ssl=not args.plaintext, password=args.password)
     if not create_dir_if_not_exist(Path(args.dest), fts.logger):
         sys.exit(-1)
     handle_ctrl_event(logger=fts.logger)

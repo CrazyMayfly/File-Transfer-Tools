@@ -75,6 +75,7 @@ class FTC:
         self.__base_dir = ''
         self.__session_id = 0
         self.__first_connect = True
+        self.__file2size = {}
         self.__command_prefix = ''
         self.logger = Logger(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
         self.__thread_pool = None
@@ -102,7 +103,7 @@ class FTC:
 
         @property
         def connections(self) -> set[socket.socket]:
-            return set(self.__thread_conn_dict.values())
+            return set(list(self.__thread_conn_dict.values()) + self.__conn_pool)
 
         @property
         def main_conn(self) -> socket.socket:
@@ -293,37 +294,49 @@ class FTC:
         with self.__connections as conn:
             func(conn, self.logger)
 
-    def __send_files_in_dir(self, filepath):
-        all_dir_name, all_file_name = get_dir_file_name(filepath)
-        data = json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode()
-        self.__connections.main_conn.sendall(pack_head('', COMMAND.SEND_FILES_IN_DIR, len(data)))
-        self.logger.info('开始发送 {} 路径下所有文件夹，文件夹个数为 {}'.format(filepath, len(all_dir_name)))
-        self.logger.flush()
-        self.__connections.main_conn.sendall(data)
-        del data
+    def __prepare_to_send(self, filepath, conn):
         self.__base_dir = os.path.dirname(filepath)
-        for dir_name in all_dir_name:
-            self.logger.log_file.write(f'{Path(self.__base_dir, dir_name)}\n')
-        # 将待发送的文件打印到日志
-        self.logger.log_file.write('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
+        # 发送文件夹命令
+        conn.sendall(pack_head(Path(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0))
+        all_dir_name, all_file_name = get_dir_file_name(filepath)
+        # 发送文件夹数据
+        conn.sendall(size_struct.pack(
+            len(data := json.dumps({'num': len(all_dir_name), 'dir_names': '|'.join(all_dir_name)}).encode())))
+        conn.sendall(data)
+        self.logger.flush()
+        # 将发送的文件夹信息写入日志
+        self.logger.info(f'开始发送 {filepath} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
+        for name in all_dir_name:
+            self.logger.log_file.write(f'{Path(self.__base_dir, name)}\n')
+        # 接收对方已有的文件名
+        data_size = size_struct.unpack(receive_data(conn, size_struct.size))[0]
+        peer_file_names = set(json.loads(receive_data(conn, data_size).decode()))
         total_size = 0
+        # 计算出对方没有的文件
+        all_file_name = list(set(all_file_name) - peer_file_names)
+        # 将待发送的文件打印到日志，计算待发送的文件总大小
+        self.logger.log_file.write('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
         for filename in all_file_name:
             real_path = Path(self.__base_dir, filename)
             file_size = os.path.getsize(real_path)
+            # 记录每个文件大小
+            self.__file2size[filename] = file_size
             sz1, sz2 = calcu_size(file_size)
             self.logger.log_file.write(f"{real_path}, 约{sz1}, {sz2}\n")
             total_size += file_size
         self.logger.log_file.write('\n')
         self.logger.log_file.flush()
-        # 打乱列表以避免多个小文件聚簇在一起，影响效率
-        random.shuffle(all_file_name)
+        return all_file_name, total_size
+
+    def __send_files_in_dir(self, filepath):
         # 扩充连接和初始化线程池
         self.__connect(self.__threads)
+        all_file_name, total_size = self.__prepare_to_send(filepath, self.__connections.main_conn)
+        # 打乱列表以避免多个小文件聚簇在一起，影响效率
+        random.shuffle(all_file_name)
         if self.__thread_pool is None:
             self.__thread_pool = ThreadPool(self.__threads)
-        # 等待文件夹发送完成
-        receive_data(self.__connections.main_conn, 1)
-        self.logger.info('开始发送 {} 路径下所有文件，文件个数为 {}'.format(filepath, len(all_file_name)))
+        self.logger.info(f'开始发送 {filepath} 路径下所有文件，文件个数为 {len(all_file_name)}')
         # 初始化总进度条
         self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
@@ -333,12 +346,13 @@ class FTC:
         success_recv = set()
         try:
             success_recv = set([result.get() for result in results])
-            file_head = pack_head('', FINISH, 0)
+            file_head = pack_head('', COMMAND.FINISH, 0)
             for conn in self.__connections.connections:
                 conn.sendall(file_head)
         except ssl.SSLEOFError:
             self.logger.warning('文件传输超时')
         finally:
+            self.__file2size = {}
             fails = set(all_file_name) - success_recv
             if fails:
                 self.__pbar.colour = '#F44336'
@@ -362,41 +376,40 @@ class FTC:
 
     def __send_file(self, filepath):
         # 定义文件头信息，包含文件名和文件大小
-        file_size = os.path.getsize(real_path := os.path.normcase(Path(self.__base_dir, filepath)))
+        real_path = Path(self.__base_dir, filepath)
+        file_size = self.__file2size[filepath] if self.__file2size else os.path.getsize(real_path)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.sendall(pack_head(filepath, COMMAND.SEND_FILE, file_size))
             flag = size_struct.unpack(receive_data(conn, size_struct.size))[0]
-            if flag == CONTROL.CANCEL:
-                self.__update_global_pbar(file_size, decrease=True)
-            elif flag != CONTROL.FAIL2OPEN:
-                fp = open(real_path, 'rb')
-                # 服务端已有的文件大小
-                fp.seek(exist_size := flag, 0)
-                rest_size = file_size - exist_size
-                if rest_size > unit:
-                    position, leave = (self.__position.popleft(), False) if self.__pbar else (0, True)
-                    pbar_width = get_terminal_size().columns / 4
-                    pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
-                                mininterval=1, position=position, leave=leave)
-                    while data := fp.read(unit):
-                        conn.sendall(data)
-                        pbar.update(data_size := len(data))
-                        self.__update_global_pbar(data_size)
-                    pbar.close()
-                    self.__position.append(position)
-                else:
-                    # 小文件
-                    conn.sendall(data := fp.read(unit))
-                    self.__update_global_pbar(len(data))
-                fp.close()
-                # 发送文件的创建、访问、修改时间戳
-                conn.sendall(file_details_struct.pack(os.path.getctime(real_path), os.path.getmtime(real_path),
-                                                      os.path.getatime(real_path)))
-                self.__update_global_pbar(exist_size, decrease=True)
-            else:
+            if flag == CONTROL.FAIL2OPEN:
                 self.logger.error(f'对方接收文件失败：{real_path}', highlight=1)
                 return
+            fp = open(real_path, 'rb')
+            # 服务端已有的文件大小
+            fp.seek(exist_size := flag, 0)
+            rest_size = file_size - exist_size
+            if rest_size > unit:
+                position, leave = (self.__position.popleft(), False) if self.__pbar else (0, True)
+                pbar_width = get_terminal_size().columns / 4
+                pbar = tqdm(total=rest_size, desc=shorten_path(filepath, pbar_width), unit='bytes', unit_scale=True,
+                            mininterval=1, position=position, leave=leave)
+                while data := fp.read(min(rest_size, unit)):
+                    conn.sendall(data)
+                    pbar.update(data_size := len(data))
+                    rest_size -= data_size
+                    self.__update_global_pbar(data_size)
+                pbar.close()
+                self.__position.append(position)
+            else:
+                # 小文件
+                conn.sendall(data := fp.read(rest_size))
+                self.__update_global_pbar(len(data))
+            fp.close()
+            # 发送文件的创建、访问、修改时间戳
+            conn.sendall(file_details_struct.pack(os.path.getctime(real_path), os.path.getmtime(real_path),
+                                                  os.path.getatime(real_path)))
+            self.__update_global_pbar(exist_size, decrease=True)
         return filepath
 
     def __validate_password(self, conn):
@@ -460,7 +473,7 @@ class FTC:
             self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
         close_info = pack_head('', COMMAND.CLOSE, 0)
-        self.logger.info('断开与 {0}:{1} 的连接'.format(self.__host, config.server_port))
+        self.logger.info(f'断开与 {self.__host}:{config.server_port} 的连接')
         try:
             for conn in self.__connections.connections:
                 if send_close_info:
@@ -502,7 +515,7 @@ class FTC:
                     # client_socket = context.wrap_socket(s, server_hostname='Server')
                     self.__connections.add(client_socket)
                 except ssl.SSLError as e:
-                    self.logger.error('连接至 {0} 失败，{1}'.format(self.__host, e.verify_message), highlight=1)
+                    self.logger.error(f'连接至 {self.__host} 失败，{e.verify_message}', highlight=1)
                     sys.exit(-1)
             if self.__first_connect:
                 self.logger.success(f'成功连接至服务器 {self.__host}:{config.server_port}')
@@ -518,7 +531,7 @@ class FTC:
     def start(self):
         self.__probe_server()
         self.__connect()
-        self.logger.info('当前线程数：{}'.format(self.__threads))
+        self.logger.info(f'当前线程数：{self.__threads}')
         self.__before_working()
         while True:
             command = input('>>> ').strip()
@@ -547,8 +560,8 @@ class FTC:
                         1].isdigit() else print_history()
                 else:
                     self.__execute_command(command)
-            except ConnectionResetError as e:
-                self.logger.error(e.strerror, highlight=1)
+            except ConnectionError as e:
+                self.logger.error(e.strerror if e.strerror else e, highlight=1)
                 self.logger.close()
                 if packaging:
                     os.system('pause')

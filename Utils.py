@@ -171,14 +171,12 @@ def get_log_msg(msg):
     return f'{now} {threading.current_thread().name:12} {msg}'
 
 
-def get_relative_filename_from_basedir(base_dir):
+def get_relative_filename_from_basedir(base_dir, prefix=Path('')):
     results = {}
-    basedir_length = len(base_dir) + 1
     for path, _, file_list in os.walk(base_dir):
         for file in file_list:
             # 将文件路径风格统一至Linux
-            real_path = os.path.normcase(Path(path, file).as_posix())
-            results[real_path[basedir_length:]] = os.path.getsize(real_path)
+            results[Path(prefix, Path(path).relative_to(base_dir), file).as_posix()] = os.path.getsize(Path(path, file))
     return results
 
 
@@ -198,7 +196,7 @@ def get_dir_file_name(filepath):
         all_dir_name.add(path)
         # 去除重复的路径，防止多次创建，降低效率
         all_dir_name.discard(os.path.dirname(path))
-        all_file_name += [os.path.join(path, file) for file in file_list]
+        all_file_name += [Path(path, file).as_posix() for file in file_list]
     return all_dir_name, all_file_name
 
 
@@ -403,6 +401,7 @@ class COMMAND(StrEnum):
     CLOSE: Final[str] = 'close'
     HISTORY: Final[str] = 'history'
     COMPARE: Final[str] = "compare"
+    FINISH: Final[str] = 'finish'
     PUSH_CLIPBOARD: Final[str] = 'send clipboard'
     PULL_CLIPBOARD: Final[str] = 'get clipboard'
 
@@ -411,7 +410,6 @@ class COMMAND(StrEnum):
 FAIL: Final[str] = 'fail'
 GET: Final[str] = 'get'
 SEND: Final[str] = 'send'
-FINISH: Final[str] = 'finish'
 OVER: Final[bytes] = b'\00'
 DIRISCORRECT: Final[str] = "DIC"
 utf8: Final[str] = 'utf-8'
