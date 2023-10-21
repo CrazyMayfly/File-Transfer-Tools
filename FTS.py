@@ -296,9 +296,9 @@ class FTS:
         conn.settimeout(4)
         try:
             password, command, session_id = conn.recv_head()
-        except (socket.timeout, struct.error) as exception:
+        except (TimeoutError, struct.error) as exception:
             conn.close()
-            self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(exception, socket.timeout)
+            self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(exception, TimeoutError)
                                  else '服务器遭遇不明连接 {}:{}').format(peer_host, peer_port))
             return
         conn.settimeout(None)

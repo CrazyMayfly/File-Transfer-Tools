@@ -164,10 +164,8 @@ class FTC:
             local_dict = get_relative_filename_from_basedir(local_dir)
             # 获取本地的文件名
             local_filenames = local_dict.keys()
-            # 接收字符串
-            data = conn.receive_data(conn.recv_size()).decode()
             # 将字符串转化为dict
-            peer_dict: dict = json.loads(data)
+            peer_dict: dict = json.loads(conn.receive_data(conn.recv_size()).decode())
             # 求各种集合
             file_in_local_smaller_than_peer = []
             file_in_peer_smaller_than_local = []
@@ -452,7 +450,7 @@ class FTC:
         while time.time() - begin < wait:
             try:
                 data = sk.recv(1024).decode(utf8).split('_')
-            except socket.timeout:
+            except TimeoutError:
                 break
             if data[0] == 'HI-I-AM-FTS':
                 ip_use_ssl[data[1]] = data[2] == 'True'
@@ -517,7 +515,7 @@ class FTC:
                 if not self.__first_connect:
                     self.__validate_password(client_socket)
                 self.__connections.add(client_socket)
-        except (ssl.SSLError, socket.error) as msg:
+        except (ssl.SSLError, OSError) as msg:
             self.logger.error(f'连接至 {self.__host} 失败, {msg}')
             sys.exit(-1)
         if self.__first_connect:

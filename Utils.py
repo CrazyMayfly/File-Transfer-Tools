@@ -126,6 +126,7 @@ class ESocket:
         return self.__conn.getpeername()
 
     def close(self):
+        self.__conn.shutdown(socket.SHUT_RDWR)
         self.__conn.close()
 
     def settimeout(self, value: float | None):
