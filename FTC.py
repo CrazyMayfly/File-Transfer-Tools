@@ -308,9 +308,9 @@ class FTC:
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         # 发送文件夹数据
         conn.send_data_with_size(json.dumps(list(all_dir_name)).encode())
-        self.logger.flush()
-        # 将发送的文件夹信息写入日志
         self.logger.info(f'开始发送 {filepath} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
+        # 将发送的文件夹信息写入日志
+        self.logger.flush()
         for name in all_dir_name:
             self.logger.log_file.write(f'{Path(filepath, name)}\n')
         # 接收对方已有的文件名

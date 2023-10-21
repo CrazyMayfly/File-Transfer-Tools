@@ -133,7 +133,7 @@ class ESocket:
 
     def receive_data(self, size: int):
         # 避免粘包
-        result = b''
+        result = bytearray()
         while size > 0:
             data = self.__conn.recv(min(self.MAX_BUFFER_SIZE, size))
             if data:
@@ -158,6 +158,9 @@ class ESocket:
         command, data_size, name_size = head_struct.unpack(self.receive_data(head_struct.size))
         filename = self.receive_data(name_size).decode(utf8) if name_size else ''
         return filename, command.strip(b'\00').decode(), data_size
+
+    # def __getattr__(self, name):
+    #     return getattr(self.__conn, name)
 
 
 def send_clipboard(conn: ESocket, logger: Logger, ftc=True):
