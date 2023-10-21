@@ -8,6 +8,7 @@ from argparse import ArgumentParser, Namespace
 from multiprocessing.pool import ThreadPool
 from tqdm import tqdm
 from Utils import *
+from functools import cached_property
 from sys_info import *
 from collections import deque
 
@@ -107,25 +108,24 @@ class FTC:
     class __Connections:
         def __init__(self):
             self.__conn_pool = []
-            self.__thread_conn_dict: dict[str:socket.socket] = {}
+            self.__thread_conn_dict: dict[int:ESocket] = {}
             self.__lock = threading.Lock()
 
-        def __enter__(self):
+        def __enter__(self) -> ESocket:
             # 从空闲的conn中取出一个使用
             conn = self.__thread_conn_dict.get(threading.current_thread().ident, None)
             if not conn:
                 with self.__lock:
-                    conn = self.__conn_pool.pop() if len(self.__conn_pool) > 0 else self.__thread_conn_dict.get(
-                        threading.main_thread().ident)
+                    conn = self.__conn_pool.pop() if len(self.__conn_pool) > 0 else self.main_conn
                     self.__thread_conn_dict[threading.current_thread().ident] = conn
             return conn
 
         @property
-        def connections(self) -> set[socket.socket]:
+        def connections(self) -> set[ESocket]:
             return set(list(self.__thread_conn_dict.values()) + self.__conn_pool)
 
-        @property
-        def main_conn(self) -> socket.socket:
+        @cached_property
+        def main_conn(self) -> ESocket:
             return self.__thread_conn_dict[threading.main_thread().ident]
 
         def add(self, conn):
@@ -158,14 +158,14 @@ class FTC:
         file_head = pack_head(peer_dir, COMMAND.COMPARE_DIR, 0)
         with self.__connections as conn:
             conn.sendall(file_head)
-            if receive_data(conn, len(DIRISCORRECT)).decode() != DIRISCORRECT:
+            if conn.receive_data(len(DIRISCORRECT)).decode() != DIRISCORRECT:
                 self.logger.warning(f"目标文件夹 {peer_dir} 不存在")
                 return
             local_dict = get_relative_filename_from_basedir(local_dir)
             # 获取本地的文件名
             local_filenames = local_dict.keys()
             # 接收字符串
-            data = receive_data(conn, recv_size(conn)).decode()
+            data = conn.receive_data(conn.recv_size()).decode()
             # 将字符串转化为dict
             peer_dict: dict = json.loads(data)
             # 求各种集合
@@ -205,11 +205,11 @@ class FTC:
             # 发送继续请求
             conn.sendall(size_struct.pack(CONTROL.CONTINUE))
             # 发送相同的文件名称
-            send_data_with_size(conn, json.dumps(file_size_and_name_both_equal).encode())
+            conn.send_data_with_size(json.dumps(file_size_and_name_both_equal).encode())
             results = {filename: get_file_md5(Path(local_dir, filename)) for filename in
                        file_size_and_name_both_equal}
             # 获取本次字符串大小
-            peer_dict = json.loads(receive_data(conn, recv_size(conn)).decode())
+            peer_dict = json.loads(conn.receive_data(conn.recv_size()).decode())
             hash_not_matching = [filename for filename in results.keys() if
                                  results[filename] != peer_dict[filename]]
             extra_print2file(print_filename_if_exits, ("hash not matching: ", hash_not_matching), self.logger.log_file)
@@ -242,7 +242,7 @@ class FTC:
             self.logger.flush()
             self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command}\n'))
             # 接收返回结果
-            while (result := receive_data(conn, 8).decode('UTF-32')) != '\00' * 2:
+            while (result := conn.receive_data(8).decode('UTF-32')) != '\00' * 2:
                 print(result, end='')
                 self.logger.log_file.write(result)
             self.logger.log_file.flush()
@@ -256,7 +256,7 @@ class FTC:
             thread = MyThread(get_sys_info)
             thread.start()
             # 接收对方的系统信息
-            data = receive_data(conn, recv_size(conn)).decode()
+            data = conn.receive_data(conn.recv_size()).decode()
         peer_sysinfo = json.loads(data)
         self.logger.flush()
         self.logger.log_file.write('[INFO   ] ' + get_log_msg("对比双方系统信息：\n"))
@@ -286,7 +286,7 @@ class FTC:
             upload_over = time.time()
             with tqdm(total=data_size, desc='speedtest_download', unit='bytes', unit_scale=True, mininterval=1) as pbar:
                 for i in range(times):
-                    receive_data(conn, data_unit)
+                    conn.receive_data(data_unit)
                     pbar.update(data_unit)
             show_bandwidth('下载速度测试完毕', data_size, interval=time.time() - upload_over, logger=self.logger)
 
@@ -301,20 +301,20 @@ class FTC:
         with self.__connections as conn:
             func(conn, self.logger)
 
-    def __prepare_to_send(self, filepath, conn):
+    def __prepare_to_send(self, filepath, conn: ESocket):
         self.__base_dir = filepath
         # 发送文件夹命令
         conn.sendall(pack_head(Path(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0))
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         # 发送文件夹数据
-        send_data_with_size(conn, json.dumps(list(all_dir_name)).encode())
+        conn.send_data_with_size(json.dumps(list(all_dir_name)).encode())
         self.logger.flush()
         # 将发送的文件夹信息写入日志
         self.logger.info(f'开始发送 {filepath} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
         for name in all_dir_name:
             self.logger.log_file.write(f'{Path(filepath, name)}\n')
         # 接收对方已有的文件名
-        peer_file_names = set(json.loads(receive_data(conn, recv_size(conn)).decode()))
+        peer_file_names = set(json.loads(conn.receive_data(conn.recv_size()).decode()))
         total_size = 0
         # 计算出对方没有的文件
         all_file_name = list(set(all_file_name) - peer_file_names)
@@ -385,7 +385,7 @@ class FTC:
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
             conn.sendall(pack_head(filepath, COMMAND.SEND_FILE, file_size))
-            flag = recv_size(conn)
+            flag = conn.recv_size()
             if flag == CONTROL.FAIL2OPEN:
                 self.logger.error(f'对方接收文件失败：{real_path}', highlight=1)
                 return
@@ -416,9 +416,9 @@ class FTC:
             self.__update_global_pbar(exist_size, decrease=True)
         return filepath
 
-    def __validate_password(self, conn):
+    def __validate_password(self, conn: ESocket):
         conn.sendall(pack_head(self.__password, COMMAND.BEFORE_WORKING, self.__session_id))
-        msg, _, session_id = recv_head(conn)
+        msg, _, session_id = conn.recv_head()
         return msg, session_id
 
     def __before_working(self):
@@ -433,7 +433,7 @@ class FTC:
             self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
             self.__session_id = session_id
 
-    def __probe_server(self, wait=1):
+    def __find_server(self, wait=1):
         if self.__host:
             splits = self.__host.split(":")
             if len(splits) == 2:
@@ -512,10 +512,10 @@ class FTC:
                 # 将socket包装为securitySocket
                 if self.__use_ssl:
                     client_socket = context.wrap_socket(client_socket, server_hostname='FTS')
+                client_socket = ESocket(client_socket)
                 # 验证密码
                 if not self.__first_connect:
                     self.__validate_password(client_socket)
-                # client_socket = context.wrap_socket(s, server_hostname='Server')
                 self.__connections.add(client_socket)
         except (ssl.SSLError, socket.error) as msg:
             self.logger.error(f'连接至 {self.__host} 失败, {msg}')
@@ -529,7 +529,7 @@ class FTC:
             self.logger.info(f'将连接数扩充至: {nums}')
 
     def start(self):
-        self.__probe_server()
+        self.__find_server()
         self.__connect()
         self.logger.info(f'当前线程数：{self.__threads}')
         self.__before_working()

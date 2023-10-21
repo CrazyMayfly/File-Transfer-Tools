@@ -115,22 +115,23 @@ def get_sys_info():
 def print_sysinfo(info):
     user, system, cpu, memory, network, battery, disks, disks_io = info['user'], info['system'], info['cpu'], info[
         'memory'], info['network'], info['battery'], info['disks'], info['disks']['io']
-    print(f"用户: {user['username']}, 主机: {user['host']} 的系统信息如下: ")
-    print(f"\t系统信息 : {system['platform']} {system['version']} {system['architecture']}")
-    print(f"\t运行时间 : {info['boot time']}")
-    print(f"\t处理器  : 利用率:{cpu['percentage']} \n\t\t\t {cpu['manufacturer']} {cpu['count']}核 "
-          f"{cpu['logic_count']}线程 {cpu['frequency']} {cpu['info']}")
-    print(f"\t内存    : {memory['used']}/{memory['total']} 利用率:{memory['percentage']}")
-    print(f"\t网络    : {network['download']}⬇ {network['upload']}⬆")
-    print(f"\t硬盘    : 读命中 {disks_io['read_count']} 写命中 {disks_io['write_count']} "
-          f"读取速度 {disks_io['read_bytes']} 写入速度 {disks_io['write_bytes']}")
+    diskinfo, blank = [], '      '
     for disk in disks['info']:
-        print(f"\t\t\t {disk['device']} 可用 {disk['free']:9}，共{disk['total']:9} "
-              f"已使用 {disk['percent']} 类型 {disk['fstype']}")
-    print("\t电池    :",
-          f"当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}"
-          if battery else "未检测到电池")
-    print()
+        diskinfo.append(
+            f"{blank}{disk['device']} 可用 {disk['free']:9}，共{disk['total']:9} 已使用 {disk['percent']} 类型 {disk['fstype']}")
+    diskinfo = ('\n' + blank).join(diskinfo)
+    battery_info = f"当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}" if battery else "未检测到电池"
+    print(f"""用户: {user['username']}, 主机: {user['host']} 的系统信息如下: 
+     系统信息 : {system['platform']} {system['version']} {system['architecture']}
+     运行时间 : {info['boot time']}
+     处理器  : 利用率:{cpu['percentage']} {cpu['manufacturer']} {cpu['count']}核 {cpu['logic_count']}线程 {cpu['frequency']}
+              {cpu['info']}
+     内存    : {memory['used']}/{memory['total']} 利用率:{memory['percentage']}
+     网络    : {network['download']}⬇ {network['upload']}⬆
+     硬盘    : 读命中 {disks_io['read_count']} 写命中 {disks_io['write_count']} 读取速度 {disks_io['read_bytes']} 写入速度 {disks_io['write_bytes']}
+      {diskinfo}
+     电池    : {battery_info}
+     """)
 
 
 if __name__ == '__main__':

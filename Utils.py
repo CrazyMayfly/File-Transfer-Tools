@@ -108,37 +108,76 @@ class ConnectionDisappearedError(ConnectionError):
     pass
 
 
-def receive_data(connection: socket.socket, size: int):
-    # 避免粘包
-    result = b''
-    while size > 0:
-        data = connection.recv(min(4096, size))
-        if data:
-            size -= len(data)
-            result += data
-        else:
-            raise ConnectionDisappearedError('连接意外中止')
-    return result
+class ESocket:
+    MAX_BUFFER_SIZE = 4096
+
+    def __init__(self, conn: socket.socket):
+        if conn is None:
+            raise ValueError('connection can not be None')
+        self.__conn = conn
+
+    def sendall(self, data: bytes):
+        self.__conn.sendall(data)
+
+    def recv(self):
+        return self.__conn.recv(self.MAX_BUFFER_SIZE)
+
+    def getpeername(self):
+        return self.__conn.getpeername()
+
+    def close(self):
+        self.__conn.close()
+
+    def settimeout(self, value: float | None):
+        self.__conn.settimeout(value)
+
+    def receive_data(self, size: int):
+        # 避免粘包
+        result = b''
+        while size > 0:
+            data = self.__conn.recv(min(self.MAX_BUFFER_SIZE, size))
+            if data:
+                size -= len(data)
+                result += data
+            else:
+                raise ConnectionDisappearedError('连接意外中止')
+        return result
+
+    def recv_size(self) -> int:
+        return size_struct.unpack(self.receive_data(size_struct.size))[0]
+
+    def send_data_with_size(self, data):
+        self.__conn.sendall(size_struct.pack(len(data)))
+        self.__conn.sendall(data)
+
+    def recv_head(self) -> tuple[str, str, int]:
+        """
+        接收文件头
+        @return: 文件(夹)名等，命令，文件大小
+        """
+        command, data_size, name_size = head_struct.unpack(self.receive_data(head_struct.size))
+        filename = self.receive_data(name_size).decode(utf8) if name_size else ''
+        return filename, command.strip(b'\00').decode(), data_size
 
 
-def send_clipboard(conn, logger: Logger, ftc=True):
+def send_clipboard(conn: ESocket, logger: Logger, ftc=True):
     # 读取并编码剪切板的内容
     content = pyperclip.paste()
     content_length = len(content.encode(utf8))
     if content_length == 0 or content_length > 65535:
         logger.warning(f'剪切板为空或过大({get_size(content_length)})，无法发送')
         if not ftc:
-            conn.send(pack_head('', '', content_length))
+            conn.sendall(pack_head('', '', content_length))
         return
     logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
-    conn.send(pack_head(content, COMMAND.PUSH_CLIPBOARD, content_length))
+    conn.sendall(pack_head(content, COMMAND.PUSH_CLIPBOARD, content_length))
 
 
-def get_clipboard(conn, logger: Logger, content=None, command=None, length=None, ftc=True):
+def get_clipboard(conn: ESocket, logger: Logger, content=None, command=None, length=None, ftc=True):
     # 获取对方剪切板的内容
     if ftc:
-        conn.send(pack_head('', COMMAND.PULL_CLIPBOARD, 0))
-        content, command, length = recv_head(conn)
+        conn.sendall(pack_head('', COMMAND.PULL_CLIPBOARD, 0))
+        content, command, length = conn.recv_head()
     if command != COMMAND.PUSH_CLIPBOARD:
         logger.warning(f'对方剪切板为空或过大({get_size(length)})，无法发送')
         return
@@ -406,15 +445,6 @@ size_struct = Struct('q')
 file_details_struct = Struct('ddd')
 
 
-def recv_size(conn: socket.socket):
-    return size_struct.unpack(receive_data(conn, size_struct.size))[0]
-
-
-def send_data_with_size(conn, data):
-    conn.sendall(size_struct.pack(len(data)))
-    conn.sendall(data)
-
-
 def pack_head(name: str, command: str, size: int) -> bytes:
     """
     打包文件头 14字节的命令类型 + 8字节的文件大小 + 2字节的文件夹名长度 + 文件夹名
@@ -425,17 +455,6 @@ def pack_head(name: str, command: str, size: int) -> bytes:
     """
     length = len(name := name.encode(utf8))
     return head_struct.pack(command.encode(), size, length) + name
-
-
-def recv_head(conn: socket.socket) -> tuple[str, str, int]:
-    """
-    接收文件头
-    @param conn: socket连接
-    @return: 文件(夹)名等，命令，文件大小
-    """
-    command, data_size, name_size = head_struct.unpack(receive_data(conn, head_struct.size))
-    filename = receive_data(conn, name_size).decode(utf8) if name_size else ''
-    return filename, command.strip(b'\00').decode(), data_size
 
 
 class CONTROL(IntFlag):

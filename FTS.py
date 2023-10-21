@@ -107,24 +107,24 @@ class FTS:
 
     class Session:
         def __init__(self, conn, host):
-            self.main_conn = conn
-            self.conns: set[socket.socket] = set()
-            self.alive = True
-            self.base_dir = Path()
-            self.cur_rel_dir = Path()
-            self.host = host
-            self.file2size = {}
+            self.main_conn: ESocket = conn
+            self.conns: set[ESocket] = set()
+            self.alive: bool = True
+            self.base_dir: Path = Path()
+            self.cur_rel_dir: Path = Path()
+            self.host: str = host
+            self.file2size: dict[str:int] = {}
             self.__lock = threading.Lock()
 
         @property
-        def cur_dir(self):
+        def cur_dir(self) -> Path:
             return Path(self.base_dir, self.cur_rel_dir)
 
         @property
-        def files(self):
+        def files(self) -> list[str]:
             return list(self.file2size.keys())
 
-        def add_conn(self, conn):
+        def add_conn(self, conn: ESocket):
             self.conns.add(conn)
 
         def reset(self):
@@ -132,7 +132,11 @@ class FTS:
             self.cur_rel_dir = Path()
             self.file2size.clear()
 
-        def destroy(self):
+        def destroy(self) -> bool:
+            """
+            销毁会话
+            @return: 销毁前会话状态
+            """
             with self.__lock:
                 if not self.alive:
                     return False
@@ -159,7 +163,7 @@ class FTS:
                 self.__base_dir = new_base_dir
                 self.logger.success(f'已将文件保存位置更改为: {self.__base_dir}')
 
-    def __compare_dir(self, conn: socket.socket, dir_name):
+    def __compare_dir(self, conn: ESocket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
         if not os.path.exists(dir_name):
             # 发送目录不存在
@@ -172,19 +176,19 @@ class FTS:
         conn.sendall(size_struct.pack(len(relative_filename)))
         # 再发送字符串
         conn.sendall(relative_filename)
-        if receive_data(conn, 8)[0] != CONTROL.CONTINUE:
+        if conn.receive_data(8)[0] != CONTROL.CONTINUE:
             self.logger.log("不继续比对Hash")
             return
         self.logger.log("继续对比文件Hash")
-        file_size_and_name_both_equal = json.loads(receive_data(conn, recv_size(conn)).decode())
+        file_size_and_name_both_equal = json.loads(conn.receive_data(conn.recv_size()).decode())
         # 得到文件相对路径名: hash值字典
         results = {filename: get_file_md5(Path(dir_name, filename)) for filename in
                    file_size_and_name_both_equal}
         data = json.dumps(results, ensure_ascii=True).encode()
-        send_data_with_size(conn, data)
+        conn.send_data_with_size(data)
         self.logger.log("Hash 比对结束。")
 
-    def __execute_command(self, conn: socket.socket, command):
+    def __execute_command(self, conn: ESocket, command):
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT).stdout
         output = ''
@@ -195,27 +199,27 @@ class FTS:
         conn.sendall(OVER * 8)
         self.logger.log(f"执行命令：{command}\n{output}")
 
-    def __compare_sysinfo(self, conn: socket.socket):
+    def __compare_sysinfo(self, conn: ESocket):
         self.logger.log("目标获取系统信息")
         data = json.dumps(get_sys_info(), ensure_ascii=True).encode()
-        send_data_with_size(conn, data)
+        conn.send_data_with_size(data)
 
-    def __speedtest(self, conn: socket.socket, data_size):
+    def __speedtest(self, conn: ESocket, data_size):
         self.logger.log(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
         start = time.time()
         data_unit = 1000 * 1000
         for i in range(0, int(data_size / data_unit)):
-            receive_data(conn, data_unit)
+            conn.receive_data(data_unit)
         show_bandwidth('下载速度测试完毕', data_size, interval=time.time() - start, logger=self.logger)
         download_over = time.time()
         for i in range(0, int(data_size / data_unit)):
             conn.sendall(os.urandom(data_unit))
         show_bandwidth('上传速度测试完毕', data_size, interval=time.time() - download_over, logger=self.logger)
 
-    def __makedirs(self, data, base_dir):
+    def __makedirs(self, dir_names, base_dir):
         # 处理文件夹
-        self.logger.info(f'开始创建文件夹，文件夹个数为 {len(data)}')
-        for dir_name in data:
+        self.logger.info(f'开始创建文件夹，文件夹个数为 {len(dir_names)}')
+        for dir_name in dir_names:
             cur_dir = Path(base_dir, dir_name)
             if cur_dir.exists():
                 continue
@@ -229,10 +233,10 @@ class FTS:
         if session.cur_dir.exists():
             session.file2size = get_relative_filename_from_basedir(str(session.cur_dir))
         main_conn = session.main_conn
-        dir_data = json.loads(receive_data(main_conn, recv_size(main_conn)).decode())
+        dir_data = json.loads(main_conn.receive_data(main_conn.recv_size()).decode())
         self.__makedirs(dir_data, session.cur_dir)
         # 发送已存在的文件名
-        send_data_with_size(main_conn, json.dumps(session.files, ensure_ascii=True).encode())
+        main_conn.send_data_with_size(json.dumps(session.files, ensure_ascii=True).encode())
         threads = [threading.Thread(name=compact_host_port(session.host, conn.getpeername()[1]),
                                     target=self.__slave_work, args=(conn, session)) for conn in session.conns]
         for t in threads:
@@ -241,7 +245,7 @@ class FTS:
             t.join()
         session.reset()
 
-    def __recv_single_file(self, conn: socket.socket, filename, file_size, session: Session):
+    def __recv_single_file(self, conn: ESocket, filename, file_size, session: Session):
         real_path = Path(session.cur_dir, filename)
         cur_download_file, fp = (original_file := avoid_filename_duplication(str(real_path))) + '.ftsdownload', None
         try:
@@ -255,17 +259,17 @@ class FTS:
                 os.path.relpath(original_file, session.base_dir), *calcu_size(rest_size)))
             conn.settimeout(5)
             while rest_size > 4096:
-                data = conn.recv(4096)
+                data = conn.recv()
                 if data:
                     rest_size -= len(data)
                     fp.write(data)
                 else:
                     raise ConnectionDisappearedError
-            fp.write(receive_data(conn, rest_size))
+            fp.write(conn.receive_data(rest_size))
             fp.close()
             os.rename(cur_download_file, original_file)
             self.logger.success(f'文件接收成功：{original_file}', highlight=1)
-            timestamps = file_details_struct.unpack(receive_data(conn, file_details_struct.size))
+            timestamps = file_details_struct.unpack(conn.receive_data(file_details_struct.size))
             modify_file_time(original_file, self.logger, *timestamps)
         except ConnectionDisappearedError:
             self.logger.warning(f'客户端连接意外中止，文件接收失败：{original_file}')
@@ -281,7 +285,7 @@ class FTS:
             if fp and not fp.closed:
                 fp.close()
 
-    def __before_working(self, conn: socket.socket):
+    def __before_working(self, conn: ESocket):
         """
         在传输之前的预处理
 
@@ -291,7 +295,7 @@ class FTS:
         peer_host, peer_port = conn.getpeername()
         conn.settimeout(4)
         try:
-            password, command, session_id = recv_head(conn)
+            password, command, session_id = conn.recv_head()
         except (socket.timeout, struct.error) as exception:
             conn.close()
             self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(exception, socket.timeout)
@@ -331,7 +335,7 @@ class FTS:
                 self.logger.info('收到来自 {0} 的探测请求'.format(target_ip))
                 sk.sendto(content, (target_ip, int(target_port)))  # 单播
 
-    def __slave_work(self, conn, session):
+    def __slave_work(self, conn: ESocket, session):
         """
         从连接的工作，只用于处理多文件接收
 
@@ -340,7 +344,7 @@ class FTS:
         """
         try:
             while True:
-                filename, command, file_size = recv_head(conn)
+                filename, command, file_size = conn.recv_head()
                 if command == COMMAND.SEND_FILE:
                     self.__recv_single_file(conn, filename, file_size, session)
                 elif command == COMMAND.FINISH:
@@ -359,7 +363,7 @@ class FTS:
         self.logger.info(f'客户端连接 {get_hostname_by_ip(session.host)}({session.host})')
         main_conn = session.main_conn
         while session.alive:
-            filename, command, file_size = recv_head(main_conn)
+            filename, command, file_size = main_conn.recv_head()
             session.base_dir = Path.cwd() / self.__base_dir
             match command:
                 case COMMAND.SEND_FILES_IN_DIR:
@@ -383,7 +387,7 @@ class FTS:
                     if session.destroy():
                         self.logger.info(f'终止与客户端 {session.host} 的连接')
 
-    def __route(self, conn: socket.socket, host, port):
+    def __route(self, conn: ESocket, host, port):
         """
         根据会话是否存在判断一个连接是否为主连接并进行路由
         """
@@ -435,7 +439,7 @@ class FTS:
             try:
                 conn, (host, port) = server_socket.accept()
                 threading.Thread(name=compact_host_port(host, port), target=self.__route,
-                                 args=(conn, host, port)).start()
+                                 args=(ESocket(conn), host, port)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
 
