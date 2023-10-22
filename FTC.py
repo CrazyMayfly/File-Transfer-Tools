@@ -134,9 +134,9 @@ class FTC:
         def __exit__(self, exc_type, exc_val, exc_tb):
             pass
 
-    def __add_history(self, history: str):
-        readline.add_history(history)
-        self.__history_file.write(history + '\n')
+    def __add_history(self, command: str):
+        readline.add_history(command)
+        self.__history_file.write(command + '\n')
         self.__history_file.flush()
 
     def __compare_dir(self, local_dir, peer_dir):
@@ -155,9 +155,8 @@ class FTC:
             self.logger.warning('本地文件夹不存在')
             return
 
-        file_head = pack_head(peer_dir, COMMAND.COMPARE_DIR, 0)
         with self.__connections as conn:
-            conn.sendall(file_head)
+            conn.send_head(peer_dir, COMMAND.COMPARE_DIR, 0)
             if conn.receive_data(len(DIRISCORRECT)).decode() != DIRISCORRECT:
                 self.logger.warning(f"目标文件夹 {peer_dir} 不存在")
                 return
@@ -235,21 +234,21 @@ class FTC:
             return
         command = self.__command_prefix + command
         with self.__connections as conn:
-            file_head = pack_head(command, COMMAND.EXECUTE_COMMAND, len(command.encode(utf8)))
-            conn.sendall(file_head)
+            conn.send_head(command, COMMAND.EXECUTE_COMMAND, 0)
             self.logger.flush()
             self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command}\n'))
             # 接收返回结果
-            while (result := conn.receive_data(8).decode('UTF-32')) != '\00' * 2:
+            result, command, _ = conn.recv_head()
+            while command == COMMAND.EXECUTE_RESULT:
                 print(result, end='')
                 self.logger.log_file.write(result)
+                result, command, _ = conn.recv_head()
             self.logger.log_file.flush()
 
     def __compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
-        file_head = pack_head('', COMMAND.SYSINFO, 0)
         with self.__connections as conn:
-            conn.sendall(file_head)
+            conn.send_head('', COMMAND.SYSINFO, 0)
             # 异步获取自己的系统信息
             thread = MyThread(get_sys_info)
             thread.start()
@@ -271,9 +270,8 @@ class FTC:
         times = int(times)
         data_unit = 1000 * 1000  # 1MB
         data_size = times * data_unit
-        file_head = pack_head('', COMMAND.SPEEDTEST, data_size)
         with self.__connections as conn:
-            conn.sendall(file_head)
+            conn.send_head('', COMMAND.SPEEDTEST, data_size)
             start = time.time()
             with tqdm(total=data_size, desc='speedtest_upload', unit='bytes', unit_scale=True, mininterval=1) as pbar:
                 for i in range(times):
@@ -302,7 +300,7 @@ class FTC:
     def __prepare_to_send(self, filepath, conn: ESocket):
         self.__base_dir = filepath
         # 发送文件夹命令
-        conn.sendall(pack_head(Path(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0))
+        conn.send_head(Path(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0)
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         # 发送文件夹数据
         conn.send_data_with_size(json.dumps(list(all_dir_name)).encode())
@@ -348,9 +346,8 @@ class FTC:
         success_recv = set()
         try:
             success_recv = set([result.get() for result in results])
-            file_head = pack_head('', COMMAND.FINISH, 0)
             for conn in self.__connections.connections:
-                conn.sendall(file_head)
+                conn.send_head('', COMMAND.FINISH, 0)
         except ssl.SSLEOFError:
             self.logger.warning('文件传输超时')
         finally:
@@ -382,7 +379,7 @@ class FTC:
         file_size = self.__file2size[filepath] if self.__file2size else os.path.getsize(real_path)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:
-            conn.sendall(pack_head(filepath, COMMAND.SEND_FILE, file_size))
+            conn.send_head(filepath, COMMAND.SEND_FILE, file_size)
             flag = conn.recv_size()
             if flag == CONTROL.FAIL2OPEN:
                 self.logger.error(f'对方接收文件失败：{real_path}', highlight=1)
@@ -415,7 +412,7 @@ class FTC:
         return filepath
 
     def __validate_password(self, conn: ESocket):
-        conn.sendall(pack_head(self.__password, COMMAND.BEFORE_WORKING, self.__session_id))
+        conn.send_head(self.__password, COMMAND.BEFORE_WORKING, self.__session_id)
         msg, _, session_id = conn.recv_head()
         return msg, session_id
 
@@ -472,12 +469,11 @@ class FTC:
     def shutdown(self, send_close_info=True):
         if self.__thread_pool:
             self.__thread_pool.terminate()
-        close_info = pack_head('', COMMAND.CLOSE, 0)
         # self.logger.info(f'断开与 {self.__host}:{config.server_port} 的连接')
         try:
             for conn in self.__connections.connections:
                 if send_close_info:
-                    conn.sendall(close_info)
+                    conn.send_head('', COMMAND.CLOSE, 0)
                 conn.close()
         finally:
             self.logger.close()
@@ -537,11 +533,11 @@ class FTC:
                     self.__send_files_in_dir(command)
                 elif os.path.isfile(command) and os.path.exists(command):
                     self.__send_single_file(command)
-                elif command == COMMAND.SYSINFO:
+                elif command == sysinfo:
                     self.__compare_sysinfo()
-                elif command.startswith(COMMAND.SPEEDTEST):
+                elif command.startswith(speedtest):
                     self.__speedtest(times=command[10:])
-                elif command.startswith(COMMAND.COMPARE):
+                elif command.startswith(compare):
                     local_dir, destination_dir = split_dir(command)
                     if not destination_dir or not local_dir:
                         self.logger.warning('本地文件夹且远程文件夹不能为空')
@@ -549,7 +545,7 @@ class FTC:
                     self.__compare_dir(local_dir, destination_dir)
                 elif command.endswith('clipboard'):
                     self.__exchange_clipboard(command.split()[0])
-                elif command.startswith(COMMAND.HISTORY):
+                elif command.startswith(history):
                     print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
                         1].isdigit() else print_history()
                 else:

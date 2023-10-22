@@ -155,9 +155,21 @@ class ESocket:
         接收文件头
         @return: 文件(夹)名等，命令，文件大小
         """
-        command, data_size, name_size = head_struct.unpack(self.receive_data(head_struct.size))
+        command, data_size, name_size = head_struct.unpack(self.receive_data(11))
         filename = self.receive_data(name_size).decode(utf8) if name_size else ''
-        return filename, command.strip(b'\00').decode(), data_size
+        return filename, command, data_size
+
+    def send_head(self, name: str, command: int, size: int):
+        """
+        打包文件头 14字节的命令类型 + 8字节的文件大小 + 2字节的文件夹名长度 + 文件夹名
+        @param name: 文件(夹)名等
+        @param command: 命令
+        @param size: 文件大小
+        @return: 打包后的文件头
+        """
+        length = len(name := name.encode(utf8))
+        self.__conn.sendall(head_struct.pack(command, size, length))
+        self.__conn.sendall(name)
 
     # def __getattr__(self, name):
     #     return getattr(self.__conn, name)
@@ -170,16 +182,16 @@ def send_clipboard(conn: ESocket, logger: Logger, ftc=True):
     if content_length == 0 or content_length > 65535:
         logger.warning(f'剪切板为空或过大({get_size(content_length)})，无法发送')
         if not ftc:
-            conn.sendall(pack_head('', '', content_length))
+            conn.send_head('', COMMAND.NULL, content_length)
         return
     logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
-    conn.sendall(pack_head(content, COMMAND.PUSH_CLIPBOARD, content_length))
+    conn.send_head(content, COMMAND.PUSH_CLIPBOARD, content_length)
 
 
 def get_clipboard(conn: ESocket, logger: Logger, content=None, command=None, length=None, ftc=True):
     # 获取对方剪切板的内容
     if ftc:
-        conn.sendall(pack_head('', COMMAND.PULL_CLIPBOARD, 0))
+        conn.send_head('', COMMAND.PULL_CLIPBOARD, 0)
         content, command, length = conn.recv_head()
     if command != COMMAND.PUSH_CLIPBOARD:
         logger.warning(f'对方剪切板为空或过大({get_size(length)})，无法发送')
@@ -415,20 +427,22 @@ packaging = getattr(sys, 'frozen', False)
 
 
 # 命令类型
-class COMMAND(StrEnum):
-    SEND_FILE: Final[str] = "send_file"
-    SEND_FILES_IN_DIR: Final[str] = "send_files_dir"
-    COMPARE_DIR: Final[str] = "compare_dir"
-    EXECUTE_COMMAND: Final[str] = 'command'
-    SYSINFO: Final[str] = 'sysinfo'
-    SPEEDTEST: Final[str] = 'speedtest'
-    BEFORE_WORKING: Final[str] = 'before_working'
-    CLOSE: Final[str] = 'close'
-    HISTORY: Final[str] = 'history'
-    COMPARE: Final[str] = "compare"
-    FINISH: Final[str] = 'finish'
-    PUSH_CLIPBOARD: Final[str] = 'send clipboard'
-    PULL_CLIPBOARD: Final[str] = 'get clipboard'
+class COMMAND(IntFlag):
+    NULL = 0
+    SEND_FILE = 1
+    SEND_FILES_IN_DIR = 2
+    COMPARE_DIR = 3
+    EXECUTE_COMMAND = 4
+    EXECUTE_RESULT = 5
+    SYSINFO = 6
+    SPEEDTEST = 7
+    BEFORE_WORKING = 8
+    CLOSE = 9
+    HISTORY = 10
+    COMPARE = 11
+    FINISH = 12
+    PUSH_CLIPBOARD = 13
+    PULL_CLIPBOARD = 14
 
 
 # 其他常量
@@ -439,28 +453,23 @@ OVER: Final[bytes] = b'\00'
 DIRISCORRECT: Final[str] = "DIC"
 utf8: Final[str] = 'utf-8'
 unit: Final[int] = 1024 * 1024 * 2  # 2MB
-# PUSH: Final[str] = 'push'
-# PULL: Final[str] = 'pull'
-# CLIP: Final[str] = 'clipboard'
-commands: Final[list] = [COMMAND.SYSINFO, COMMAND.COMPARE, COMMAND.SPEEDTEST, COMMAND.HISTORY, COMMAND.PUSH_CLIPBOARD,
-                         COMMAND.PULL_CLIPBOARD]
+sysinfo = 'sysinfo'
+compare = "compare"
+speedtest = 'speedtest'
+history = 'history'
+clipboard_send = 'send clipboard'
+clipboard_get = 'get clipboard'
+commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, clipboard_get]
 
 # Struct 对象
-head_struct = Struct('>14sQH')  # 大端对齐，14位表示命令类型，Q为 8字节 unsigned 整数，表示文件大小 0~2^64-1，H为 unsigned short，表示文件夹名长度 0~65535
+# B为 1字节 unsigned char，0~127
+# Q为 8字节 unsigned long long， 0~2^64-1
+# q为 8字节 long long， -2^63~2^63-1
+# H为 2字节 unsigned short， 0~65535
+# d为 8字节 double， 2.3E-308~1.7E+308
+head_struct = Struct('>BQH')
 size_struct = Struct('q')
 file_details_struct = Struct('ddd')
-
-
-def pack_head(name: str, command: str, size: int) -> bytes:
-    """
-    打包文件头 14字节的命令类型 + 8字节的文件大小 + 2字节的文件夹名长度 + 文件夹名
-    @param name: 文件(夹)名等
-    @param command: 命令
-    @param size: 文件大小
-    @return: 打包后的文件头
-    """
-    length = len(name := name.encode(utf8))
-    return head_struct.pack(command.encode(), size, length) + name
 
 
 class CONTROL(IntFlag):
@@ -497,7 +506,7 @@ class ConfigOption(StrEnum):
 
 # 配置文件相关
 class Config:
-    config_file: Final[str] = 'config.txt'
+    config_file: Final[str] = 'config'
 
     @staticmethod
     def generate_config():
@@ -514,6 +523,9 @@ class Config:
 
     @staticmethod
     def load_config():
+        if not os.path.exists(Config.config_file):
+            # 生成配置文件
+            Config.generate_config()
         cnf = ConfigParser()
         cnf.read(Config.config_file, encoding=utf8)
         try:
@@ -547,11 +559,6 @@ class Config:
                             log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,
                             server_signal_port=server_signal_port, client_signal_port=client_signal_port)
 
-
-if not os.path.exists(Config.config_file):
-    print_color('未找到配置文件，采用默认配置\n', level=LEVEL.WARNING, highlight=1)
-    # 生成配置文件
-    Config.generate_config()
 
 # 加载配置
 config: Final[Configration] = Config.load_config()

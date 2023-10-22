@@ -189,13 +189,13 @@ class FTS:
     def __execute_command(self, conn: ESocket, command):
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT).stdout
-        output = bytearray()
-        while temp := out.read(1).encode("UTF-32"):
-            conn.sendall(temp)
-            output += temp
+        output = []
+        while result := out.readline():
+            conn.send_head(result, COMMAND.EXECUTE_RESULT, 0)
+            output.append(result)
         # 命令执行结束
-        conn.sendall(OVER * 8)
-        self.logger.log(f"执行命令：{command}\n{output.decode()}")
+        conn.send_head('', COMMAND.FINISH, 0)
+        self.logger.log(f"执行命令：{command}\n{''.join(output)}")
 
     def __speedtest(self, conn: ESocket, data_size):
         self.logger.log(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
@@ -295,7 +295,7 @@ class FTS:
         # 校验密码, 密码正确则发送当前平台
         msg = FAIL if password != self.__password else platform_
         session_id = uuid4().node if session_id == 0 else session_id
-        conn.sendall(pack_head(msg, COMMAND.BEFORE_WORKING, session_id))
+        conn.send_head(msg, COMMAND.BEFORE_WORKING, session_id)
         if password != self.__password:
             conn.close()
             self.logger.warning(f'客户端 {peer_host}:{peer_port} 密码("{password}")错误，断开连接')

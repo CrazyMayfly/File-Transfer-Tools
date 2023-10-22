@@ -32,9 +32,9 @@ class Build:
         if not os.path.exists(os.path.join(self.__output_dir, 'cert')):
             shutil.copytree(os.path.join(parent_dir, 'cert'), os.path.join(self.__output_dir, 'cert'))
             print('copied cert')
-        if not os.path.exists(os.path.join(self.__output_dir, 'config.txt')):
-            shutil.copy(os.path.join(parent_dir, 'config.txt'), os.path.join(self.__output_dir, 'config.txt'))
-            print('copied config.txt')
+        if not os.path.exists(os.path.join(self.__output_dir, 'config')):
+            shutil.copy(os.path.join(parent_dir, 'config'), os.path.join(self.__output_dir, 'config'))
+            print('copied config')
 
         if self.__bundle_type == '--onedir':
             # 源目录和目标目录的路径
