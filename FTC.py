@@ -426,7 +426,7 @@ class FTC:
             self.logger.error('连接至服务器的密码错误', highlight=1)
             self.shutdown(send_close_info=False)
         else:
-            self.logger.info(f'服务器所在平台: {msg}\n')
+            # self.logger.info(f'服务器所在平台: {msg}\n')
             self.__peer_platform = msg
             self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
             self.__session_id = session_id
@@ -442,7 +442,6 @@ class FTC:
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         ip, _ = get_ip_and_hostname()
         sk.bind((ip, config.client_signal_port))
-        self.logger.log(f'开始探测服务器信息，最短探测时长：{wait}s.')
         content = f'HI-I-AM-FTC_{ip}_{config.client_signal_port}'.encode(utf8)
         broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
         begin = time.time()
@@ -457,25 +456,24 @@ class FTC:
             sk.settimeout(wait)
         sk.close()
         addresses = list(ip_use_ssl.keys())
-        msg = ['当前可用主机列表：']
-        msg += [f'ip: {address}, hostname: {get_hostname_by_ip(address)}, useSSL: {ip_use_ssl.get(address)}' for
-                address in addresses]
-        self.logger.log('\n'.join(msg))
         if len(addresses) == 1:
             self.__use_ssl = ip_use_ssl.get(addresses[0])
             self.__host = addresses[0]
-            return
-        hostname = input('请输入主机名/ip: ')
-        self.__host = hostname
-        self.__use_ssl = ip_use_ssl.get(hostname) if hostname in addresses \
-            else input('开启 SSL(y/n)? ').lower() == 'y'
+        else:
+            msg = ['当前可用主机列表：']
+            msg += [f'ip: {address}, hostname: {get_hostname_by_ip(address)}, useSSL: {ip_use_ssl.get(address)}' for
+                    address in addresses]
+            self.logger.log('\n'.join(msg))
+            hostname = input('请输入主机名/ip: ')
+            self.__host = hostname
+            self.__use_ssl = ip_use_ssl.get(hostname) if hostname in addresses \
+                else input('开启 SSL(y/n)? ').lower() == 'y'
 
     def shutdown(self, send_close_info=True):
         if self.__thread_pool:
-            self.logger.info('关闭线程池')
             self.__thread_pool.terminate()
         close_info = pack_head('', COMMAND.CLOSE, 0)
-        self.logger.info(f'断开与 {self.__host}:{config.server_port} 的连接')
+        # self.logger.info(f'断开与 {self.__host}:{config.server_port} 的连接')
         try:
             for conn in self.__connections.connections:
                 if send_close_info:
@@ -523,8 +521,6 @@ class FTC:
             self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning(
                 '当前数据未进行加密传输')
             self.__first_connect = False
-        else:
-            self.logger.info(f'将连接数扩充至: {nums}')
 
     def start(self):
         self.__find_server()

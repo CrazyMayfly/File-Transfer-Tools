@@ -100,7 +100,7 @@ class FTS:
         self.__sessions = {}
         self.__sessions_lock = threading.Lock()
         self.logger = Logger(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
-        self.logger.log(f'本次服务器密码: {password if password else "无"}')
+        # self.logger.log(f'本次服务器密码: {password if password else "无"}')
         # 进行日志归档
         threading.Thread(name='ArchThread', target=compress_log_files,
                          args=(config.log_dir, 'server', self.logger)).start()
@@ -177,7 +177,6 @@ class FTS:
         # 再发送字符串
         conn.sendall(relative_filename)
         if conn.receive_data(8)[0] != CONTROL.CONTINUE:
-            self.logger.log("不继续比对Hash")
             return
         self.logger.log("继续对比文件Hash")
         file_size_and_name_both_equal = json.loads(conn.receive_data(conn.recv_size()).decode())
@@ -186,23 +185,17 @@ class FTS:
                    file_size_and_name_both_equal}
         data = json.dumps(results, ensure_ascii=True).encode()
         conn.send_data_with_size(data)
-        self.logger.log("Hash 比对结束。")
 
     def __execute_command(self, conn: ESocket, command):
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT).stdout
-        output = ''
-        while temp := out.read(1):
-            conn.sendall(temp.encode("UTF-32"))
+        output = bytearray()
+        while temp := out.read(1).encode("UTF-32"):
+            conn.sendall(temp)
             output += temp
         # 命令执行结束
         conn.sendall(OVER * 8)
-        self.logger.log(f"执行命令：{command}\n{output}")
-
-    def __compare_sysinfo(self, conn: ESocket):
-        self.logger.log("目标获取系统信息")
-        data = json.dumps(get_sys_info(), ensure_ascii=True).encode()
-        conn.send_data_with_size(data)
+        self.logger.log(f"执行命令：{command}\n{output.decode()}")
 
     def __speedtest(self, conn: ESocket, data_size):
         self.logger.log(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
@@ -217,8 +210,6 @@ class FTS:
         show_bandwidth('上传速度测试完毕', data_size, interval=time.time() - download_over, logger=self.logger)
 
     def __makedirs(self, dir_names, base_dir):
-        # 处理文件夹
-        self.logger.info(f'开始创建文件夹，文件夹个数为 {len(dir_names)}')
         for dir_name in dir_names:
             cur_dir = Path(base_dir, dir_name)
             if cur_dir.exists():
@@ -229,7 +220,6 @@ class FTS:
                 self.logger.error(f'文件夹创建失败 {dir_name}', highlight=1)
 
     def __recv_files_in_dir(self, session: Session):
-        self.logger.info(f'准备接收 {session.cur_rel_dir} 文件夹下的文件')
         if session.cur_dir.exists():
             session.file2size = get_relative_filename_from_basedir(str(session.cur_dir))
         main_conn = session.main_conn
@@ -254,9 +244,6 @@ class FTS:
             size = session.file2size.get(rel_filename, 0) if session.file2size else os.path.getsize(cur_download_file)
             conn.sendall(size_struct.pack(size))
             rest_size = file_size - size
-            self.logger.info(('准备接收文件 {0}，大小约 {1}，{2}' if size == 0 else
-                              '断点续传文件 {0}，还需接收的大小约 {1}，{2}').format(
-                os.path.relpath(original_file, session.base_dir), *calcu_size(rest_size)))
             conn.settimeout(5)
             while rest_size > 4096:
                 data = conn.recv()
@@ -268,7 +255,7 @@ class FTS:
             fp.write(conn.receive_data(rest_size))
             fp.close()
             os.rename(cur_download_file, original_file)
-            self.logger.success(f'文件接收成功：{original_file}', highlight=1)
+            self.logger.success(f'文件接收成功：{original_file}')
             timestamps = file_details_struct.unpack(conn.receive_data(file_details_struct.size))
             modify_file_time(original_file, self.logger, *timestamps)
         except ConnectionDisappearedError:
@@ -296,9 +283,9 @@ class FTS:
         conn.settimeout(4)
         try:
             password, command, session_id = conn.recv_head()
-        except (TimeoutError, struct.error) as exception:
+        except (TimeoutError, struct.error) as error:
             conn.close()
-            self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(exception, TimeoutError)
+            self.logger.warning(('客户端 {}:{} 未及时校验密码，连接断开' if isinstance(error, TimeoutError)
                                  else '服务器遭遇不明连接 {}:{}').format(peer_host, peer_port))
             return
         conn.settimeout(None)
@@ -323,7 +310,6 @@ class FTS:
             self.logger.error(f'广播主机信息服务启动失败，{e.strerror}')
             return
         content = f'HI-I-AM-FTS_{self.__ip}_{self.__use_ssl}'.encode(utf8)
-        self.logger.log('广播主机信息服务已启动')
         broadcast_to_all_interfaces(sk, config.client_signal_port, content)
         while True:
             try:
@@ -376,7 +362,7 @@ class FTS:
                 case COMMAND.EXECUTE_COMMAND:
                     self.__execute_command(main_conn, filename)
                 case COMMAND.SYSINFO:
-                    self.__compare_sysinfo(main_conn)
+                    main_conn.send_data_with_size(json.dumps(get_sys_info()).encode())
                 case COMMAND.SPEEDTEST:
                     self.__speedtest(main_conn, file_size)
                 case COMMAND.PULL_CLIPBOARD:

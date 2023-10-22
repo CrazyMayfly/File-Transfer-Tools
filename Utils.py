@@ -63,7 +63,6 @@ class Logger:
         self.__writing_lock = threading.Lock()
         self.__writing_buffer: list[str] = []
         threading.Thread(target=self.auto_flush, daemon=True).start()
-        self.log('本次日志文件存放位置为: ' + os.path.normcase(log_file_path))
 
     def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0):
         msg = get_log_msg(msg)
@@ -260,7 +259,10 @@ def broadcast_to_all_interfaces(sk: socket.socket, port: int, content: bytes):
                 broadcast_address = ipaddress.IPv4Network(f"{addr.address}/{addr.netmask}",
                                                           strict=False).broadcast_address
                 if not broadcast_address.is_loopback:
-                    sk.sendto(content, (str(broadcast_address), port))
+                    try:
+                        sk.sendto(content, (str(broadcast_address), port))
+                    except OSError:
+                        pass
 
 
 def get_file_md5(filename):
