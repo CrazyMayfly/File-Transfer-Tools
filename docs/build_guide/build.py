@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 resource_dir = os.path.normcase(os.path.join(parent_dir, 'docs/build_guide'))
@@ -29,24 +30,27 @@ class Build:
                 raise Exception('package failed!')
 
     def copy_files(self):
-        if not os.path.exists(os.path.join(self.__output_dir, 'cert')):
-            shutil.copytree(os.path.join(parent_dir, 'cert'), os.path.join(self.__output_dir, 'cert'))
-            print('copied cert')
         if not os.path.exists(os.path.join(self.__output_dir, 'config')):
             shutil.copy(os.path.join(parent_dir, 'config'), os.path.join(self.__output_dir, 'config'))
             print('copied config')
 
         if self.__bundle_type == '--onedir':
             # 源目录和目标目录的路径
-            target_dir = os.path.join(parent_dir, self.__target_dir_name)
-            ftc_dir = os.path.join(target_dir, 'FTC')
-            fts_dir = os.path.join(target_dir, 'FTS')
+            target_dir = Path(parent_dir, self.__target_dir_name)
+            ftc_dir = Path(target_dir, 'FTC')
+            fts_dir = Path(target_dir, 'FTS')
             # 获取源目录下的所有文件和子目录
+            dirs, fts_names = get_dir_file_name(fts_dir)
+            _, ftc_names = get_dir_file_name(ftc_dir)
+            file_diff = set(fts_names) - set(ftc_names)
             for item in os.listdir(ftc_dir):
-                shutil.move(os.path.join(ftc_dir, item), os.path.join(target_dir, item))
-            file_diff = set(get_all_relative_file_name(fts_dir)) - set(get_all_relative_file_name(ftc_dir))
+                shutil.move(Path(ftc_dir, item), Path(target_dir, item))
+            for item in dirs:
+                path = Path(target_dir, item)
+                if not path.exists():
+                    os.makedirs(path)
             for item in file_diff:
-                shutil.move(os.path.join(fts_dir, item), os.path.join(target_dir, item))
+                shutil.move(Path(fts_dir, item), Path(target_dir, item))
             shutil.rmtree(ftc_dir)
             shutil.rmtree(fts_dir)
             print('merge succeed')
@@ -89,18 +93,23 @@ def get_size(bytes, factor=1024, suffix="B"):
         bytes /= factor
 
 
-def get_all_relative_file_name(filepath):
+def get_dir_file_name(filepath):
     """
     获取某文件路径下的所有文件夹和文件的相对路径
     :param filepath: 文件路径
     :return :返回该文件路径下的所有文件夹、文件的相对路径
     """
+    all_dir_name = set()
     all_file_name = []
+    # 获取上一级文件夹名称
     for path, _, file_list in os.walk(filepath):
         # 获取相对路径
         path = os.path.relpath(path, filepath)
-        all_file_name += [os.path.join(path, file) for file in file_list]
-    return all_file_name
+        all_dir_name.add(path)
+        # 去除重复的路径，防止多次创建，降低效率
+        all_dir_name.discard(os.path.dirname(path))
+        all_file_name += [Path(path, file).as_posix() for file in file_list]
+    return all_dir_name, all_file_name
 
 
 if __name__ == '__main__':

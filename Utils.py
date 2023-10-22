@@ -35,7 +35,6 @@ if platform_ == WINDOWS:
 @dataclass
 class Configration:
     default_path: str
-    cert_dir: str
     log_dir: str
     log_file_archive_count: int
     log_file_archive_size: int
@@ -486,7 +485,6 @@ class ConfigOption(StrEnum):
     section_Main = 'Main'
     windows_default_path = '~/Desktop'
     linux_default_path = '~/FileTransferTool/FileRecv'
-    cert_dir = './cert'
 
     section_Log = 'Log'
     windows_log_dir = 'C:/ProgramData/logs'
@@ -531,10 +529,6 @@ class Config:
         try:
             path_name = ConfigOption.windows_default_path.name if platform_ == WINDOWS else ConfigOption.linux_default_path.name
             default_path = cnf.get(ConfigOption.section_Main, path_name)
-            if not os.path.exists(cert_dir := cnf.get(ConfigOption.section_Main, ConfigOption.cert_dir.name)):
-                cert_dir = f'{os.path.dirname(os.path.abspath(__file__))}/cert'
-            if not os.path.exists(cert_dir):
-                raise FileNotFoundError
             log_dir_name = (ConfigOption.windows_log_dir if platform_ == WINDOWS else ConfigOption.linux_log_dir).name
             if not os.path.exists(log_dir := os.path.expanduser(cnf.get(ConfigOption.section_Log, log_dir_name))):
                 os.makedirs(log_dir)
@@ -543,9 +537,6 @@ class Config:
             server_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
             server_signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_signal_port.name)
             client_signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.client_signal_port.name)
-        except FileNotFoundError:
-            print_color('未找到证书文件夹！\n', level=LEVEL.ERROR, highlight=1)
-            sys.exit(-1)
         except OSError as e:
             print_color(f'日志文件夹创建失败 {e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
@@ -555,7 +546,7 @@ class Config:
         except ValueError as e:
             print_color(f'配置错误 {e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
-        return Configration(default_path=default_path, cert_dir=cert_dir, log_dir=log_dir, server_port=server_port,
+        return Configration(default_path=default_path, log_dir=log_dir, server_port=server_port,
                             log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,
                             server_signal_port=server_signal_port, client_signal_port=client_signal_port)
 

@@ -1,10 +1,9 @@
 import os
 import shutil
 import unittest
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
-from FTC import FTC, config
+from FTC import FTC
 from tools import create_random_file
 
 
@@ -34,7 +33,7 @@ class FTCTest(unittest.TestCase):
                                   'q']
         with self.assertRaises(SystemExit) as cm:
             with self.assertWarns((ResourceWarning, DeprecationWarning)):
-                FTC(threads=6, host='127.0.0.1', use_ssl=True, password='test').start()
+                FTC(threads=6, host='127.0.0.1', password='test').start()
             self.assertEqual(cm.exception.code, 0)
 
     def tearDown(self):
@@ -44,8 +43,8 @@ class FTCTest(unittest.TestCase):
             self.assertEqual(int(os.path.getmtime(self.signal_file)), int(os.path.getmtime(fts_signal_file)))
         finally:
             shutil.rmtree(os.path.dirname(self.test_dir))
-            os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
-            os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
+            # os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
+            # os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
 
 
 if __name__ == '__main__':

@@ -18,7 +18,7 @@ class FTSTest(unittest.TestCase):
 
     def test_fts(self):
         with self.assertWarns((ResourceWarning, DeprecationWarning)):
-            fts = FTS(base_dir=self.test_dir, use_ssl=True, password='test')
+            fts = FTS(base_dir=self.test_dir, password='test')
             handle_ctrl_event(fts.logger)
             fts.start()
 

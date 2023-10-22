@@ -2,8 +2,6 @@
 # The default receive location for files
 windows_default_path = ~/Desktop
 linux_default_path = ~/FileTransferTool/FileRecv
-# Certificate storage path
-cert_dir = ./cert
 
 [Log]
 windows_log_dir = C:/ProgramData/logs

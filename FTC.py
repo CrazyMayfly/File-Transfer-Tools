@@ -78,16 +78,13 @@ def get_args() -> Namespace:
                         help='destination hostname or ip address', default='')
     parser.add_argument('-p', '--password', metavar='password', type=str,
                         help='Use a password to connect host.', default='')
-    parser.add_argument('--plaintext', action='store_true',
-                        help='Use plaintext transfer (default: use ssl)')
     return parser.parse_args()
 
 
 class FTC:
-    def __init__(self, threads, host, use_ssl, password=''):
+    def __init__(self, threads, host, password=''):
         self.__peer_platform = None
         self.__password = password
-        self.__use_ssl = use_ssl
         self.__pbar = None
         self.__host = host
         self.__threads = threads
@@ -434,37 +431,32 @@ class FTC:
             if len(splits) == 2:
                 config.server_port = int(splits[1])
                 self.__host = splits[0]
-            self.logger.log(f"目标主机: {self.__host}, 目标端口: {config.server_port}")
+            # self.logger.log(f"目标主机: {self.__host}, 目标端口: {config.server_port}")
             return
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         ip, _ = get_ip_and_hostname()
         sk.bind((ip, config.client_signal_port))
+        self.logger.log(f'开始探测服务器信息')
         content = f'HI-I-AM-FTC_{ip}_{config.client_signal_port}'.encode(utf8)
         broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
         begin = time.time()
-        ip_use_ssl = {}
+        addresses = set()
         while time.time() - begin < wait:
             try:
                 data = sk.recv(1024).decode(utf8).split('_')
             except TimeoutError:
                 break
             if data[0] == 'HI-I-AM-FTS':
-                ip_use_ssl[data[1]] = data[2] == 'True'
+                addresses.add(data[1])
             sk.settimeout(wait)
         sk.close()
-        addresses = list(ip_use_ssl.keys())
         if len(addresses) == 1:
-            self.__use_ssl = ip_use_ssl.get(addresses[0])
-            self.__host = addresses[0]
+            self.__host = addresses.pop()
         else:
             msg = ['当前可用主机列表：']
-            msg += [f'ip: {address}, hostname: {get_hostname_by_ip(address)}, useSSL: {ip_use_ssl.get(address)}' for
-                    address in addresses]
+            msg += [f'ip: {address}, hostname: {get_hostname_by_ip(address)}' for address in addresses]
             self.logger.log('\n'.join(msg))
-            hostname = input('请输入主机名/ip: ')
-            self.__host = hostname
-            self.__use_ssl = ip_use_ssl.get(hostname) if hostname in addresses \
-                else input('开启 SSL(y/n)? ').lower() == 'y'
+            self.__host = input('请输入主机名/ip: ')
 
     def shutdown(self, send_close_info=True):
         if self.__thread_pool:
@@ -491,20 +483,15 @@ class FTC:
         if additional_conn_nums <= 0:
             return
         try:
-            context = None
-            if self.__use_ssl:
-                # 生成SSL上下文
-                context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                # 加载信任根证书
-                context.load_verify_locations(Path(config.cert_dir, 'ca.crt'))
+            context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
             for i in range(0, additional_conn_nums):
                 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 # 连接至服务器
                 client_socket.connect((self.__host, config.server_port))
                 # 将socket包装为securitySocket
-                if self.__use_ssl:
-                    client_socket = context.wrap_socket(client_socket, server_hostname='FTS')
-                client_socket = ESocket(client_socket)
+                client_socket = ESocket(context.wrap_socket(client_socket, server_hostname='FTS'))
                 # 验证密码
                 if not self.__first_connect:
                     self.__validate_password(client_socket)
@@ -514,8 +501,6 @@ class FTC:
             sys.exit(-1)
         if self.__first_connect:
             self.logger.success(f'成功连接至服务器 {self.__host}:{config.server_port}')
-            self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning(
-                '当前数据未进行加密传输')
             self.__first_connect = False
 
     def start(self):
@@ -561,7 +546,7 @@ class FTC:
 if __name__ == '__main__':
     args = get_args()
     # 启动FTC服务
-    ftc = FTC(threads=args.t, host=args.host, use_ssl=not args.plaintext, password=args.password)
+    ftc = FTC(threads=args.t, host=args.host, password=args.password)
     handle_ctrl_event(logger=ftc.logger)
     ftc.start()
     if packaging:

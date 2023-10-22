@@ -1,13 +1,38 @@
 import json
 import os.path
+import random
 import struct
 import subprocess
 import pathlib
 import ssl
+import tempfile
 from uuid import uuid4
 from Utils import *
 from sys_info import *
 from argparse import ArgumentParser, Namespace
+from OpenSSL import crypto
+
+
+def generate_cert():
+    # 生成密钥对
+    key = crypto.PKey()
+    key.generate_key(crypto.TYPE_RSA, 2048)
+    # 生成自签名证书
+    cert = crypto.X509()
+    cert.get_subject().CN = "FTS"
+    cert.set_serial_number(random.randint(1, 9999))
+    cert.gmtime_adj_notBefore(0)
+    cert.gmtime_adj_notAfter(100)
+    cert.set_pubkey(key)
+    cert.sign(key, "sha256")
+    # 将密钥保存到临时文件中，确保最大的安全性
+    fp, path = tempfile.mkstemp()
+    fp = open(fp, 'wb')
+    fp.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert) +
+             crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
+    fp.close()
+    return path
+
 
 if platform_ == WINDOWS:
     from win32file import CreateFile, SetFileTime, CloseHandle, GENERIC_WRITE, OPEN_EXISTING
@@ -86,17 +111,14 @@ def get_args() -> Namespace:
                         help='File storage location (default: {})'.format(default_path), default=default_path)
     parser.add_argument('-p', '--password', metavar='password', type=str,
                         help='Set a password for the host.', default='')
-    parser.add_argument('--plaintext', action='store_true',
-                        help='Use plaintext transfer (default: use ssl)')
     return parser.parse_args()
 
 
 class FTS:
-    def __init__(self, base_dir, use_ssl, password=''):
+    def __init__(self, base_dir, password=''):
         self.__password = password
         self.__ip = ''
         self.__base_dir: Path = Path(base_dir)
-        self.__use_ssl = use_ssl
         self.__sessions = {}
         self.__sessions_lock = threading.Lock()
         self.logger = Logger(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
@@ -255,7 +277,7 @@ class FTS:
             fp.write(conn.receive_data(rest_size))
             fp.close()
             os.rename(cur_download_file, original_file)
-            self.logger.success(f'文件接收成功：{original_file}')
+            self.logger.log(f'文件接收成功：{original_file}')
             timestamps = file_details_struct.unpack(conn.receive_data(file_details_struct.size))
             modify_file_time(original_file, self.logger, *timestamps)
         except ConnectionDisappearedError:
@@ -309,7 +331,7 @@ class FTS:
         except OSError as e:
             self.logger.error(f'广播主机信息服务启动失败，{e.strerror}')
             return
-        content = f'HI-I-AM-FTS_{self.__ip}_{self.__use_ssl}'.encode(utf8)
+        content = f'HI-I-AM-FTS_{self.__ip}'.encode(utf8)
         broadcast_to_all_interfaces(sk, config.client_signal_port, content)
         while True:
             try:
@@ -409,30 +431,26 @@ class FTS:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(('0.0.0.0', config.server_port))
         server_socket.listen(9999)
-        self.logger.success('当前数据使用加密传输') if self.__use_ssl else self.logger.warning('当前数据未进行加密传输')
         self.logger.log(f'服务器 {host}({self.__ip}:{config.server_port}) 已启动，等待连接...')
         self.logger.log('当前默认文件存放位置：' + os.path.normcase(self.__base_dir))
         threading.Thread(name='SignThread', daemon=True, target=self.__signal_online).start()
         threading.Thread(name='CBDThread ', daemon=True, target=self.__change_base_dir).start()
-        if self.__use_ssl:
-            # 生成SSL上下文
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            # 加载服务器所用证书和私钥
-            context.load_cert_chain(Path(config.cert_dir, 'server.crt'),
-                                    Path(config.cert_dir, 'server_rsa_private.pem'))
-            server_socket = context.wrap_socket(server_socket, server_side=True)
+        # 加载服务器所用证书和私钥
+        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        context.load_cert_chain(cert_path := generate_cert())
+        os.remove(cert_path)
         while True:
             try:
                 conn, (host, port) = server_socket.accept()
                 threading.Thread(name=compact_host_port(host, port), target=self.__route,
-                                 args=(ESocket(conn), host, port)).start()
+                                 args=(ESocket(context.wrap_socket(conn, server_side=True)), host, port)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
 
 
 if __name__ == '__main__':
     args = get_args()
-    fts = FTS(base_dir=args.dest, use_ssl=not args.plaintext, password=args.password)
+    fts = FTS(base_dir=args.dest, password=args.password)
     if not create_dir_if_not_exist(args.dest, fts.logger):
         sys.exit(-1)
     handle_ctrl_event(logger=fts.logger)
