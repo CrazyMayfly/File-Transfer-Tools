@@ -220,7 +220,7 @@ class FTS:
         self.logger.log(f"执行命令：{command}\n{''.join(output)}")
 
     def __speedtest(self, conn: ESocket, data_size):
-        self.logger.log(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
+        self.logger.info(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
         start = time.time()
         data_unit = 1000 * 1000
         for i in range(0, int(data_size / data_unit)):
@@ -277,7 +277,7 @@ class FTS:
             fp.write(conn.receive_data(rest_size))
             fp.close()
             os.rename(cur_download_file, original_file)
-            self.logger.log(f'文件接收成功：{original_file}')
+            self.logger.success(f'文件接收成功：{original_file}')
             timestamps = file_details_struct.unpack(conn.receive_data(file_details_struct.size))
             modify_file_time(original_file, self.logger, *timestamps)
         except ConnectionDisappearedError:

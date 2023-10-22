@@ -1,9 +1,11 @@
 import os
 import shutil
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 from FTC import FTC
+from Utils import config
 from tools import create_random_file
 
 
@@ -43,8 +45,8 @@ class FTCTest(unittest.TestCase):
             self.assertEqual(int(os.path.getmtime(self.signal_file)), int(os.path.getmtime(fts_signal_file)))
         finally:
             shutil.rmtree(os.path.dirname(self.test_dir))
-            # os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
-            # os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
+            os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
+            os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
 
 
 if __name__ == '__main__':
