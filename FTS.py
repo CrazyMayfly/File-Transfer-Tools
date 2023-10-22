@@ -26,11 +26,11 @@ def generate_cert():
     cert.set_pubkey(key)
     cert.sign(key, "sha256")
     # 将密钥保存到临时文件中，确保最大的安全性
-    fp, path = tempfile.mkstemp()
-    fp = open(fp, 'wb')
-    fp.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert) +
-             crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
-    fp.close()
+    file, path = tempfile.mkstemp()
+    file = open(file, 'wb')
+    file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+    file.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
+    file.close()
     return path
 
 
