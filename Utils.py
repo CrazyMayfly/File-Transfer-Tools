@@ -1,4 +1,6 @@
 import ipaddress
+import json
+import lzma
 import os
 import re
 import signal
@@ -145,9 +147,15 @@ class ESocket:
     def recv_size(self) -> int:
         return size_struct.unpack(self.receive_data(size_struct.size))[0]
 
-    def send_data_with_size(self, data):
+    def send_data_with_size(self, data: bytes):
         self.__conn.sendall(size_struct.pack(len(data)))
         self.__conn.sendall(data)
+
+    def send_with_compress(self, data):
+        self.send_data_with_size(lzma.compress(json.dumps(data).encode(), preset=9))
+
+    def recv_with_decompress(self):
+        return json.loads(lzma.decompress(self.receive_data(self.recv_size())).decode())
 
     def recv_head(self) -> tuple[str, str, int]:
         """

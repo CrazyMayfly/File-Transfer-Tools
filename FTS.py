@@ -1,4 +1,3 @@
-import json
 import os.path
 import random
 import struct
@@ -193,20 +192,15 @@ class FTS:
             return
         conn.sendall(DIRISCORRECT.encode())
         # 将数组拼接成字符串发送到客户端
-        relative_filename = json.dumps(get_relative_filename_from_basedir(dir_name), ensure_ascii=True).encode()
-        # 先发送字符串的大小
-        conn.sendall(size_struct.pack(len(relative_filename)))
-        # 再发送字符串
-        conn.sendall(relative_filename)
+        conn.send_with_compress(get_relative_filename_from_basedir(dir_name))
         if conn.receive_data(8)[0] != CONTROL.CONTINUE:
             return
         self.logger.log("继续对比文件Hash")
-        file_size_and_name_both_equal = json.loads(conn.receive_data(conn.recv_size()).decode())
+        file_size_and_name_both_equal = conn.recv_with_decompress()
         # 得到文件相对路径名: hash值字典
         results = {filename: get_file_md5(Path(dir_name, filename)) for filename in
                    file_size_and_name_both_equal}
-        data = json.dumps(results, ensure_ascii=True).encode()
-        conn.send_data_with_size(data)
+        conn.send_with_compress(results)
 
     def __execute_command(self, conn: ESocket, command):
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
@@ -245,10 +239,9 @@ class FTS:
         if session.cur_dir.exists():
             session.file2size = get_relative_filename_from_basedir(str(session.cur_dir))
         main_conn = session.main_conn
-        dir_data = json.loads(main_conn.receive_data(main_conn.recv_size()).decode())
-        self.__makedirs(dir_data, session.cur_dir)
+        self.__makedirs(main_conn.recv_with_decompress(), session.cur_dir)
         # 发送已存在的文件名
-        main_conn.send_data_with_size(json.dumps(session.files, ensure_ascii=True).encode())
+        main_conn.send_with_compress(session.files)
         threads = [threading.Thread(name=compact_host_port(session.host, conn.getpeername()[1]),
                                     target=self.__slave_work, args=(conn, session)) for conn in session.conns]
         for t in threads:
@@ -384,7 +377,7 @@ class FTS:
                 case COMMAND.EXECUTE_COMMAND:
                     self.__execute_command(main_conn, filename)
                 case COMMAND.SYSINFO:
-                    main_conn.send_data_with_size(json.dumps(get_sys_info()).encode())
+                    main_conn.send_with_compress(get_sys_info())
                 case COMMAND.SPEEDTEST:
                     self.__speedtest(main_conn, file_size)
                 case COMMAND.PULL_CLIPBOARD:
