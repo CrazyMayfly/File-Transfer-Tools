@@ -7,7 +7,6 @@ from argparse import ArgumentParser, Namespace
 from multiprocessing.pool import ThreadPool
 from tqdm import tqdm
 from Utils import *
-from functools import cached_property
 from sys_info import *
 from collections import deque
 
@@ -105,6 +104,7 @@ class FTC:
         def __init__(self):
             self.__conn_pool = []
             self.__thread_conn_dict: dict[int:ESocket] = {}
+            self.main_conn = None
             self.__lock = threading.Lock()
 
         def __enter__(self) -> ESocket:
@@ -119,10 +119,6 @@ class FTC:
         @property
         def connections(self) -> set[ESocket]:
             return set(list(self.__thread_conn_dict.values()) + self.__conn_pool)
-
-        @cached_property
-        def main_conn(self) -> ESocket:
-            return self.__thread_conn_dict[threading.main_thread().ident]
 
         def add(self, conn):
             self.__conn_pool.append(conn)
@@ -411,18 +407,6 @@ class FTC:
         msg, _, session_id = conn.recv_head()
         return msg, session_id
 
-    def __before_working(self):
-        with self.__connections as conn:
-            msg, session_id = self.__validate_password(conn)
-        if msg == FAIL:
-            self.logger.error('连接至服务器的密码错误', highlight=1)
-            self.shutdown(send_close_info=False)
-        else:
-            # self.logger.info(f'服务器所在平台: {msg}\n')
-            self.__peer_platform = msg
-            self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
-            self.__session_id = session_id
-
     def __find_server(self, wait=1):
         if self.__host:
             splits = self.__host.split(":")
@@ -490,22 +474,31 @@ class FTC:
                 client_socket.connect((self.__host, config.server_port))
                 # 将socket包装为securitySocket
                 client_socket = ESocket(context.wrap_socket(client_socket, server_hostname='FTS'))
-                # 验证密码
-                if not self.__first_connect:
-                    self.__validate_password(client_socket)
                 self.__connections.add(client_socket)
+                if self.__connections.main_conn:
+                    # 验证密码
+                    self.__validate_password(client_socket)
+                    return
+                # 首次连接
+                self.__connections.main_conn = client_socket
+                msg, session_id = self.__validate_password(client_socket)
+                if msg == FAIL:
+                    self.logger.error('连接至服务器的密码错误', highlight=1)
+                    self.shutdown(send_close_info=False)
+                else:
+                    # self.logger.info(f'服务器所在平台: {msg}\n')
+                    self.__peer_platform = msg
+                    self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
+                    self.__session_id = session_id
+                    self.logger.success(f'成功连接至服务器 {self.__host}:{config.server_port}')
         except (ssl.SSLError, OSError) as msg:
             self.logger.error(f'连接至 {self.__host} 失败, {msg}')
             sys.exit(-1)
-        if self.__first_connect:
-            self.logger.success(f'成功连接至服务器 {self.__host}:{config.server_port}')
-            self.__first_connect = False
 
     def start(self):
         self.__find_server()
         self.__connect()
         self.logger.info(f'当前线程数：{self.__threads}')
-        self.__before_working()
         while True:
             command = input('>>> ').strip()
             self.__add_history(command)
