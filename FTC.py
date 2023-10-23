@@ -34,14 +34,14 @@ def split_dir(command):
     return dir_names if len(dir_names) == 2 else (None, None)
 
 
-def read_line_setup() -> Path:
+def read_line_setup() -> PurePath:
     """
     设置readline的补全和历史记录功能
     """
     readline.set_completer(completer)
     readline.set_history_length(1000)
     readline.parse_and_bind('tab: complete')
-    history_filename = Path(config.log_dir, 'history.txt')
+    history_filename = PurePath(config.log_dir, 'history.txt')
     readline.read_history_file(history_filename)
     return history_filename
 
@@ -61,7 +61,7 @@ def get_dir_file_name(filepath):
         all_dir_name.add(path)
         # 去除重复的路径，防止多次创建，降低效率
         all_dir_name.discard(os.path.dirname(path))
-        all_file_name += [Path(path, file).as_posix() for file in file_list]
+        all_file_name += [PurePath(path, file).as_posix() for file in file_list]
     return all_dir_name, all_file_name
 
 
@@ -93,7 +93,7 @@ class FTC:
         self.__first_connect = True
         self.__file2size = {}
         self.__command_prefix = ''
-        self.logger = Logger(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
+        self.logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
         self.__thread_pool = None
         self.__history_file = open(read_line_setup(), 'a', encoding=utf8)
         self.__position = deque(range(1, threads + 1))
@@ -199,7 +199,7 @@ class FTC:
             conn.sendall(size_struct.pack(CONTROL.CONTINUE))
             # 发送相同的文件名称
             conn.send_with_compress(file_size_and_name_both_equal)
-            results = {filename: get_file_md5(Path(local_dir, filename)) for filename in
+            results = {filename: get_file_md5(PurePath(local_dir, filename)) for filename in
                        file_size_and_name_both_equal}
             # 获取本次字符串大小
             peer_dict = conn.recv_with_decompress()
@@ -295,7 +295,7 @@ class FTC:
     def __prepare_to_send(self, filepath, conn: ESocket):
         self.__base_dir = filepath
         # 发送文件夹命令
-        conn.send_head(Path(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0)
+        conn.send_head(PurePath(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0)
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         # 发送文件夹数据
         conn.send_with_compress(list(all_dir_name))
@@ -303,7 +303,7 @@ class FTC:
         # 将发送的文件夹信息写入日志
         self.logger.flush()
         for name in all_dir_name:
-            self.logger.log_file.write(f'{Path(filepath, name)}\n')
+            self.logger.log_file.write(f'{PurePath(filepath, name).as_posix()}\n')
         # 接收对方已有的文件名
         peer_file_names = set(conn.recv_with_decompress())
         total_size = 0
@@ -312,7 +312,7 @@ class FTC:
         # 将待发送的文件打印到日志，计算待发送的文件总大小
         self.logger.log_file.write('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
         for filename in all_file_name:
-            real_path = Path(filepath, filename)
+            real_path = PurePath(filepath, filename)
             file_size = os.path.getsize(real_path)
             # 记录每个文件大小
             self.__file2size[filename] = file_size
@@ -370,7 +370,7 @@ class FTC:
 
     def __send_file(self, filepath):
         # 定义文件头信息，包含文件名和文件大小
-        real_path = Path(self.__base_dir, filepath)
+        real_path = PurePath(self.__base_dir, filepath)
         file_size = self.__file2size[filepath] if self.__file2size else os.path.getsize(real_path)
         # 从空闲的conn中取出一个使用
         with self.__connections as conn:

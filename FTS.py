@@ -2,7 +2,6 @@ import os.path
 import random
 import struct
 import subprocess
-import pathlib
 import ssl
 import tempfile
 from uuid import uuid4
@@ -10,6 +9,7 @@ from Utils import *
 from sys_info import *
 from argparse import ArgumentParser, Namespace
 from OpenSSL import crypto
+from pathlib import Path
 
 
 def generate_cert():
@@ -106,7 +106,7 @@ def get_args() -> Namespace:
     parser = ArgumentParser(
         description='File Transfer Server, used to RECEIVE files and EXECUTE instructions.')
     default_path = Path(config.default_path).expanduser()
-    parser.add_argument('-d', '--dest', metavar='base_dir', type=pathlib.Path,
+    parser.add_argument('-d', '--dest', metavar='base_dir', type=Path,
                         help='File storage location (default: {})'.format(default_path), default=default_path)
     parser.add_argument('-p', '--password', metavar='password', type=str,
                         help='Set a password for the host.', default='')
@@ -131,8 +131,8 @@ class FTS:
             self.main_conn: ESocket = conn
             self.conns: set[ESocket] = set()
             self.alive: bool = True
-            self.base_dir: Path = Path()
-            self.cur_rel_dir: Path = Path()
+            self.base_dir: PurePath = PurePath()
+            self.cur_rel_dir: PurePath = PurePath()
             self.host: str = host
             self.file2size: dict[str:int] = {}
             self.__lock = threading.Lock()
@@ -149,8 +149,8 @@ class FTS:
             self.conns.add(conn)
 
         def reset(self):
-            self.base_dir = Path()
-            self.cur_rel_dir = Path()
+            self.base_dir = PurePath()
+            self.cur_rel_dir = PurePath()
             self.file2size.clear()
 
         def destroy(self) -> bool:
@@ -179,7 +179,7 @@ class FTS:
                 break
             if not new_base_dir or new_base_dir.isspace():
                 continue
-            new_base_dir = Path.cwd() / Path(new_base_dir)
+            new_base_dir = Path.cwd() / new_base_dir
             if create_dir_if_not_exist(new_base_dir, self.logger):
                 self.__base_dir = new_base_dir
                 self.logger.success(f'已将文件保存位置更改为: {self.__base_dir}')
@@ -198,7 +198,7 @@ class FTS:
         self.logger.log("继续对比文件Hash")
         file_size_and_name_both_equal = conn.recv_with_decompress()
         # 得到文件相对路径名: hash值字典
-        results = {filename: get_file_md5(Path(dir_name, filename)) for filename in
+        results = {filename: get_file_md5(PurePath(dir_name, filename)) for filename in
                    file_size_and_name_both_equal}
         conn.send_with_compress(results)
 
@@ -251,7 +251,7 @@ class FTS:
         session.reset()
 
     def __recv_single_file(self, conn: ESocket, filename, file_size, session: Session):
-        real_path = Path(session.cur_dir, filename)
+        real_path = PurePath(session.cur_dir, filename)
         cur_download_file, fp = (original_file := avoid_filename_duplication(str(real_path))) + '.ftsdownload', None
         try:
             fp = open(cur_download_file, 'ab')
