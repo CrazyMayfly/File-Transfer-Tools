@@ -111,16 +111,11 @@ class FTS:
             self.base_dir: PurePath = PurePath()
             self.cur_rel_dir: PurePath = PurePath()
             self.host: str = host
-            self.file2size: dict[str:int] = {}
             self.__lock = threading.Lock()
 
         @property
         def cur_dir(self) -> Path:
             return Path(self.base_dir, self.cur_rel_dir)
-
-        @property
-        def files(self) -> list[str]:
-            return list(self.file2size.keys())
 
         def add_conn(self, conn: ESocket):
             self.conns.add(conn)
@@ -128,7 +123,6 @@ class FTS:
         def reset(self):
             self.base_dir = PurePath()
             self.cur_rel_dir = PurePath()
-            self.file2size.clear()
 
         def destroy(self) -> bool:
             """
@@ -142,7 +136,6 @@ class FTS:
                 for conn in self.conns:
                     conn.close()
                 self.conns.clear()
-                self.file2size.clear()
                 return True
 
     def __change_base_dir(self):
@@ -234,12 +227,14 @@ class FTS:
                 self.logger.error(f'文件夹创建失败 {dir_name}', highlight=1)
 
     def __recv_files_in_dir(self, session: Session):
+        files = []
         if session.cur_dir.exists():
-            session.file2size = get_relative_filename_from_basedir(str(session.cur_dir))
+            for path, _, file_list in os.walk(session.cur_dir):
+                files += [PurePath(PurePath(path).relative_to(session.cur_dir), file).as_posix() for file in file_list]
         main_conn = session.main_conn
         self.__makedirs(main_conn.recv_with_decompress(), session.cur_dir)
         # 发送已存在的文件名
-        main_conn.send_with_compress(session.files)
+        main_conn.send_with_compress(files)
         threads = [threading.Thread(name=compact_host_port(session.host, conn.getpeername()[1]),
                                     target=self.__slave_work, args=(conn, session)) for conn in session.conns]
         for t in threads:
@@ -253,8 +248,8 @@ class FTS:
         try:
             msgs = []
             for filename, file_size, time_info in files_info:
-                real_path = Path(cur_dir, filename)
-                real_path.write_bytes(conn.receive_data(file_size))
+                real_path, data = Path(cur_dir, filename), conn.receive_data(file_size)
+                real_path.write_bytes(data)
                 self.__modify_file_time(str(real_path), *times_struct.unpack(time_info))
                 msgs.append(f'[SUCCESS] {get_log_msg("文件接收成功")}：{real_path}\n')
             self.logger.success(f'小文件簇接收成功，个数为 {len(files_info)}')
@@ -270,11 +265,8 @@ class FTS:
         real_path = PurePath(session.cur_dir, filename)
         cur_download_file = (original_file := avoid_filename_duplication(str(real_path))) + '.ftsdownload'
         try:
-            rel_filename = filename + '.ftsdownload'
             with open(cur_download_file, 'ab') as fp:
-                size = session.file2size.get(rel_filename, 0) if session.file2size else os.path.getsize(
-                    cur_download_file)
-                rest_size = file_size - size
+                rest_size = file_size - (size := os.path.getsize(cur_download_file))
                 conn.sendall(size_struct.pack(size))
                 while rest_size > 4096:
                     data = conn.recv()
