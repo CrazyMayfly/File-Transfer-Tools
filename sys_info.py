@@ -121,7 +121,7 @@ def print_sysinfo(info):
             f"{blank}{disk['device']} 可用 {disk['free']:9}，共{disk['total']:9} 已使用 {disk['percent']} 类型 {disk['fstype']}")
     diskinfo = ('\n' + blank).join(diskinfo)
     battery_info = f"当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}" if battery else "未检测到电池"
-    print(f"""用户: {user['username']}, 主机: {user['host']} 的系统信息如下: 
+    msg = f"""用户: {user['username']}, 主机: {user['host']} 的系统信息如下: 
      系统信息 : {system['platform']} {system['version']} {system['architecture']}
      运行时间 : {info['boot time']}
      处理器  : 利用率:{cpu['percentage']} {cpu['manufacturer']} {cpu['count']}核 {cpu['logic_count']}线程 {cpu['frequency']}
@@ -131,7 +131,9 @@ def print_sysinfo(info):
      硬盘    : 读命中 {disks_io['read_count']} 写命中 {disks_io['write_count']} 读取速度 {disks_io['read_bytes']} 写入速度 {disks_io['write_bytes']}
       {diskinfo}
      电池    : {battery_info}
-     """)
+     """
+    print(msg)
+    return msg
 
 
 if __name__ == '__main__':

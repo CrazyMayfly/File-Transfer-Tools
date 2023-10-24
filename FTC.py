@@ -89,7 +89,6 @@ class FTC:
         self.__connections = self.__Connections()
         self.__base_dir = ''
         self.__session_id = 0
-        self.__first_connect = True
         self.__file2size = {}
         self.__command_prefix = ''
         self.logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
@@ -133,16 +132,14 @@ class FTC:
 
     def __compare_dir(self, local_dir, peer_dir):
         def print_filename_if_exits(prompt, filename_list):
-            print(prompt)
+            msg = [prompt]
             if filename_list:
-                for file_name in filename_list:
-                    print('\t' + file_name)
+                msg.extend([('\t' + file_name) for file_name in filename_list])
             else:
-                print('\tNone')
+                msg.append('\tNone')
+            print('\n'.join(msg))
+            return '\n'.join(msg)
 
-        self.logger.flush()
-        self.logger.log_file.write(
-            '\n[INFO   ] ' + get_log_msg(f'对比本地文件夹 {local_dir} 和目标文件夹 {peer_dir} 的差异\n'))
         if not os.path.exists(local_dir):
             self.logger.warning('本地文件夹不存在')
             return
@@ -174,17 +171,17 @@ class FTC:
                     file_size_and_name_both_equal.append(filename)
                 else:
                     file_in_peer_smaller_than_local.append(filename)
-
             tmp = file_size_and_name_both_equal[:10] + ['(more hidden...)'] if len(
                 file_size_and_name_both_equal) > 10 else file_size_and_name_both_equal
             file_not_exits_in_local = peer_dict.keys()
+            msgs = ['\n[INFO   ] ' + get_log_msg(f'对比本地文件夹 {local_dir} 和目标文件夹 {peer_dir} 的差异')]
             for arg in [("file exits in peer but not exits in local: ", file_not_exits_in_local),
                         ("file exits in local but not exits in peer: ", file_not_exits_in_peer),
                         ("file in local smaller than peer: ", file_in_local_smaller_than_peer),
                         ("file in peer smaller than local: ", file_in_peer_smaller_than_local),
                         ("file name and size both equal in two sides: ", tmp)]:
-                extra_print2file(print_filename_if_exits, arg, self.logger.log_file)
-
+                msgs.append(print_filename_if_exits(*arg))
+            self.logger.silent_write(msgs)
             if not file_size_and_name_both_equal:
                 conn.sendall(size_struct.pack(CONTROL.CANCEL))
                 return
@@ -201,7 +198,7 @@ class FTC:
             peer_dict = conn.recv_with_decompress()
             hash_not_matching = [filename for filename in results.keys() if
                                  results[filename] != peer_dict[filename]]
-            extra_print2file(print_filename_if_exits, ("hash not matching: ", hash_not_matching), self.logger.log_file)
+            self.logger.silent_write([print_filename_if_exits("hash not matching: ", hash_not_matching)])
 
     def __update_global_pbar(self, size, decrease=False):
         if size == 0 or self.__pbar is None:
@@ -227,15 +224,14 @@ class FTC:
         command = self.__command_prefix + command
         with self.__connections as conn:
             conn.send_head(command, COMMAND.EXECUTE_COMMAND, 0)
-            self.logger.flush()
-            self.logger.log_file.write('\n[INFO   ] ' + get_log_msg(f'下达指令: {command}\n'))
+            msgs = ['\n[INFO   ] ' + get_log_msg(f'下达指令: {command}')]
             # 接收返回结果
             result, command, _ = conn.recv_head()
             while command == COMMAND.EXECUTE_RESULT:
                 print(result, end='')
-                self.logger.log_file.write(result)
+                msgs.append(result)
                 result, command, _ = conn.recv_head()
-            self.logger.log_file.flush()
+            self.logger.silent_write(msgs)
 
     def __compare_sysinfo(self):
         # 发送比较系统信息的命令到FTS
@@ -246,13 +242,12 @@ class FTC:
             thread.start()
             # 接收对方的系统信息
             peer_sysinfo = conn.recv_with_decompress()
-        self.logger.flush()
-        self.logger.log_file.write('[INFO   ] ' + get_log_msg("对比双方系统信息：\n"))
-        extra_print2file(print_sysinfo, (peer_sysinfo,), self.logger.log_file)
+        msgs = ['[INFO   ] ' + get_log_msg("对比双方系统信息："), print_sysinfo(peer_sysinfo)]
         # 等待本机系统信息获取完成
         thread.join()
         local_sysinfo = thread.get_result()
-        extra_print2file(print_sysinfo, (local_sysinfo,), self.logger.log_file)
+        msgs.append(print_sysinfo(local_sysinfo))
+        self.logger.silent_write(msgs)
 
     def __speedtest(self, times):
         times = '500' if times.isspace() or not times else times
@@ -289,38 +284,35 @@ class FTC:
             func(conn, self.logger)
 
     def __prepare_to_send(self, filepath, conn: ESocket):
+        # 扩充连接
         self.__base_dir = filepath
         # 发送文件夹命令
         conn.send_head(PurePath(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0)
         all_dir_name, all_file_name = get_dir_file_name(filepath)
         # 发送文件夹数据
-        conn.send_with_compress(list(all_dir_name))
         self.logger.info(f'开始发送 {filepath} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
+        conn.send_with_compress(list(all_dir_name))
         # 将发送的文件夹信息写入日志
-        self.logger.flush()
-        for name in all_dir_name:
-            self.logger.log_file.write(f'{PurePath(filepath, name).as_posix()}\n')
+        msgs = [f'{PurePath(filepath, name).as_posix()}' for name in all_dir_name]
         # 接收对方已有的文件名
         peer_file_names = set(conn.recv_with_decompress())
         total_size = 0
         # 计算出对方没有的文件
         all_file_name = list(set(all_file_name) - peer_file_names)
         # 将待发送的文件打印到日志，计算待发送的文件总大小
-        self.logger.log_file.write('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
+        msgs.append('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
         for filename in all_file_name:
             real_path = PurePath(filepath, filename)
             file_size = os.path.getsize(real_path)
             # 记录每个文件大小
             self.__file2size[filename] = file_size
             sz1, sz2 = calcu_size(file_size)
-            self.logger.log_file.write(f"{real_path}, 约{sz1}, {sz2}\n")
+            msgs.append(f"{real_path}, 约{sz1}, {sz2}\n")
             total_size += file_size
-        self.logger.log_file.write('\n')
-        self.logger.log_file.flush()
+        self.logger.silent_write(msgs)
         return all_file_name, total_size
 
     def __send_files_in_dir(self, filepath):
-        # 扩充连接和初始化线程池
         self.__connect(self.__threads)
         all_file_name, total_size = self.__prepare_to_send(filepath, self.__connections.main_conn)
         # 打乱列表以避免多个小文件聚簇在一起，影响效率
@@ -357,8 +349,7 @@ class FTC:
                 show_bandwidth('本次全部文件正常发送', data_size, interval=interval, logger=self.logger)
 
     def __send_single_file(self, filepath):
-        self.logger.flush()
-        self.logger.log_file.write(f'[INFO   ] {get_log_msg(f"发送单个文件: {filepath}")}\n\n')
+        self.logger.silent_write([f'[INFO   ] {get_log_msg(f"发送单个文件: {filepath}")}\n'])
         self.__base_dir = os.path.dirname(filepath)
         filepath = os.path.basename(filepath)
         self.logger.success("发送成功") if filepath == self.__send_file(filepath) \
@@ -482,6 +473,8 @@ class FTC:
                 # 首次连接
                 self.__connections.main_conn = client_socket
                 msg, session_id = self.__validate_password(client_socket)
+                # with self.__connections as conn:
+                #     msg, session_id = self.__validate_password(conn)
                 if msg == FAIL:
                     self.logger.error('连接至服务器的密码错误', highlight=1)
                     self.shutdown(send_close_info=False)

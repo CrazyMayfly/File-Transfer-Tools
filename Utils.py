@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from struct import Struct
 from enum import IntFlag, StrEnum
-from typing import TextIO, Final, Callable
+from typing import TextIO, Final
 from send2trash import send2trash
 from sys_info import get_size
 
@@ -59,7 +59,7 @@ class LEVEL(StrEnum):
 # 日志类，简化日志打印
 class Logger:
     def __init__(self, log_file_path: PurePath):
-        self.log_file = open(log_file_path, 'a', encoding=utf8)
+        self.__log_file = open(log_file_path, 'a', encoding=utf8)
         self.__log_lock = threading.Lock()
         self.__writing_lock = threading.Lock()
         self.__writing_buffer: list[str] = []
@@ -88,20 +88,25 @@ class Logger:
         if self.__writing_buffer:
             with self.__writing_lock:
                 msgs, self.__writing_buffer = self.__writing_buffer, []
-            self.log_file.writelines(msgs)
+            self.__log_file.writelines(msgs)
             msgs.clear()
-            self.log_file.flush()
+            self.__log_file.flush()
 
     def auto_flush(self):
         while True:
             self.flush()
             time.sleep(1)
 
+    def silent_write(self, msgs: list):
+        self.flush()
+        with self.__writing_lock:
+            self.__writing_buffer.extend(msgs)
+
     def close(self):
-        if self.log_file.closed:
+        if self.__log_file.closed:
             return
         self.flush()
-        self.log_file.close()
+        self.__log_file.close()
 
 
 class ConnectionDisappearedError(ConnectionError):
@@ -305,19 +310,6 @@ def handle_ctrl_event(logger: Logger):
 
     from win32api import SetConsoleCtrlHandler
     SetConsoleCtrlHandler(call_back, 1)
-
-
-def extra_print2file(print_func: Callable, args: tuple, file: TextIO):
-    """
-    将print的内容同时输出到控制台和文件中
-    """
-    print_func(*args)
-    # 将输出重定向到文件
-    original_out, sys.stdout = sys.stdout, file
-    print_func(*args)
-    # 恢复原来的输出
-    sys.stdout = original_out
-    file.flush()
 
 
 def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> TextIO | None:
