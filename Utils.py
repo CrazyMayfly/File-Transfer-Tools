@@ -2,6 +2,7 @@ import ipaddress
 import json
 import lzma
 import os
+import pickle
 import re
 import signal
 import socket
@@ -17,7 +18,7 @@ from configparser import ConfigParser, NoOptionError, NoSectionError
 from dataclasses import dataclass
 from datetime import datetime
 from struct import Struct
-from enum import IntFlag, StrEnum
+from enum import StrEnum, IntEnum, auto
 from typing import TextIO, Final
 from send2trash import send2trash
 from sys_info import get_size
@@ -157,10 +158,10 @@ class ESocket:
         self.__conn.sendall(data)
 
     def send_with_compress(self, data):
-        self.send_data_with_size(lzma.compress(json.dumps(data).encode(), preset=9))
+        self.send_data_with_size(lzma.compress(pickle.dumps(data), preset=9))
 
     def recv_with_decompress(self):
-        return json.loads(lzma.decompress(self.receive_data(self.recv_size())).decode())
+        return pickle.loads(lzma.decompress(self.receive_data(self.recv_size())))
 
     def recv_head(self) -> tuple[str, str, int]:
         """
@@ -427,22 +428,24 @@ packaging = getattr(sys, 'frozen', False)
 
 
 # 命令类型
-class COMMAND(IntFlag):
-    NULL = 0
-    SEND_FILE = 1
-    SEND_FILES_IN_DIR = 2
-    COMPARE_DIR = 3
-    EXECUTE_COMMAND = 4
-    EXECUTE_RESULT = 5
-    SYSINFO = 6
-    SPEEDTEST = 7
-    BEFORE_WORKING = 8
-    CLOSE = 9
-    HISTORY = 10
-    COMPARE = 11
-    FINISH = 12
-    PUSH_CLIPBOARD = 13
-    PULL_CLIPBOARD = 14
+class COMMAND(IntEnum):
+    NULL = auto()
+    SEND_FILE = auto()
+    SEND_FILES_IN_DIR = auto()
+    SEND_SMALL_FILE = auto()
+    SEND_LARGE_FILE = auto()
+    COMPARE_DIR = auto()
+    EXECUTE_COMMAND = auto()
+    EXECUTE_RESULT = auto()
+    SYSINFO = auto()
+    SPEEDTEST = auto()
+    BEFORE_WORKING = auto()
+    CLOSE = auto()
+    HISTORY = auto()
+    COMPARE = auto()
+    FINISH = auto()
+    PUSH_CLIPBOARD = auto()
+    PULL_CLIPBOARD = auto()
 
 
 # 其他常量
@@ -469,10 +472,10 @@ commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, c
 # d为 8字节 double， 2.3E-308~1.7E+308
 head_struct = Struct('>BQH')
 size_struct = Struct('q')
-file_details_struct = Struct('ddd')
+times_struct = Struct('ddd')
 
 
-class CONTROL(IntFlag):
+class CONTROL(IntEnum):
     CONTINUE = 0
     CANCEL = -1
     FAIL2OPEN = -2

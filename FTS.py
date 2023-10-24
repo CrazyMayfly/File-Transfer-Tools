@@ -38,29 +38,6 @@ if platform_ == WINDOWS:
     import win32timezone
 
 
-def modify_file_time(file_path: str, logger: Logger, create_timestamp: float,
-                     modify_timestamp: float, access_timestamp: float):
-    """
-    用来修改文件的相关时间属性
-    :param file_path: 文件路径名
-    :param logger: 日志打印对象
-    :param create_timestamp: 创建时间戳
-    :param modify_timestamp: 修改时间戳
-    :param access_timestamp: 访问时间戳
-    """
-    try:
-        if platform_ == WINDOWS:
-            # 调用文件处理器对时间进行修改
-            handler = CreateFile(file_path, GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, 0)
-            SetFileTime(handler, datetime.fromtimestamp(create_timestamp), datetime.fromtimestamp(access_timestamp),
-                        datetime.fromtimestamp(modify_timestamp))
-            CloseHandle(handler)
-        elif platform_ == LINUX:
-            os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
-    except Exception as e:
-        logger.warning(f'{file_path}文件时间修改失败，{e}')
-
-
 def compact_host_port(host, port):
     return socket.inet_aton(host).hex() + hex(port)[2:]
 
@@ -91,7 +68,7 @@ def create_dir_if_not_exist(directory: Path, logger: Logger) -> bool:
     if directory.exists():
         return True
     try:
-        os.makedirs(directory)
+        directory.mkdir(parents=True)
     except OSError as error:
         logger.error(f'无法创建 {directory}, {error}', highlight=1)
         return False
@@ -184,6 +161,27 @@ class FTS:
                 self.__base_dir = new_base_dir
                 self.logger.success(f'已将文件保存位置更改为: {self.__base_dir}')
 
+    def __modify_file_time(self, file_path: str, create_timestamp: float, modify_timestamp: float,
+                           access_timestamp: float):
+        """
+        用来修改文件的相关时间属性
+        :param file_path: 文件路径名
+        :param create_timestamp: 创建时间戳
+        :param modify_timestamp: 修改时间戳
+        :param access_timestamp: 访问时间戳
+        """
+        try:
+            if platform_ == WINDOWS:
+                # 调用文件处理器对时间进行修改
+                handler = CreateFile(file_path, GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, 0)
+                SetFileTime(handler, datetime.fromtimestamp(create_timestamp), datetime.fromtimestamp(access_timestamp),
+                            datetime.fromtimestamp(modify_timestamp))
+                CloseHandle(handler)
+            elif platform_ == LINUX:
+                os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
+        except Exception as e:
+            self.logger.warning(f'{file_path}文件时间修改失败，{e}')
+
     def __compare_dir(self, conn: ESocket, dir_name):
         self.logger.info(f"客户端请求对比文件夹：{dir_name}")
         if not os.path.exists(dir_name):
@@ -231,7 +229,7 @@ class FTS:
             if cur_dir.exists():
                 continue
             try:
-                os.makedirs(cur_dir)
+                cur_dir.mkdir(parents=True)
             except FileNotFoundError:
                 self.logger.error(f'文件夹创建失败 {dir_name}', highlight=1)
 
@@ -250,29 +248,46 @@ class FTS:
             t.join()
         session.reset()
 
-    def __recv_single_file(self, conn: ESocket, filename, file_size, session: Session):
-        real_path = PurePath(session.cur_dir, filename)
-        cur_download_file, fp = (original_file := avoid_filename_duplication(str(real_path))) + '.ftsdownload', None
+    def __recv_small_files(self, conn: ESocket, files_info, session: Session):
+        cur_dir, real_path = session.cur_dir, Path("")
         try:
-            fp = open(cur_download_file, 'ab')
+            msgs = []
+            for filename, file_size, time_info in files_info:
+                real_path = Path(cur_dir, filename)
+                real_path.write_bytes(conn.receive_data(file_size))
+                self.__modify_file_time(str(real_path), *times_struct.unpack(time_info))
+                msgs.append(f'[SUCCESS] {get_log_msg("文件接收成功")}：{real_path}\n')
+            self.logger.success(f'小文件簇接收成功，个数为 {len(files_info)}')
+            self.logger.silent_write(msgs)
+        except ConnectionDisappearedError:
+            self.logger.warning(f'客户端连接意外中止，文件接收失败：{real_path}')
+            real_path.unlink(True)
+        except FileNotFoundError:
+            self.logger.error(f'文件新建/打开失败，无法接收: {real_path}', highlight=1)
+            real_path.unlink(True)
+
+    def __recv_large_file(self, conn: ESocket, filename, file_size, session: Session):
+        real_path = PurePath(session.cur_dir, filename)
+        cur_download_file = (original_file := avoid_filename_duplication(str(real_path))) + '.ftsdownload'
+        try:
             rel_filename = filename + '.ftsdownload'
-            size = session.file2size.get(rel_filename, 0) if session.file2size else os.path.getsize(cur_download_file)
-            conn.sendall(size_struct.pack(size))
-            rest_size = file_size - size
-            conn.settimeout(5)
-            while rest_size > 4096:
-                data = conn.recv()
-                if data:
-                    rest_size -= len(data)
-                    fp.write(data)
-                else:
-                    raise ConnectionDisappearedError
-            fp.write(conn.receive_data(rest_size))
-            fp.close()
+            with open(cur_download_file, 'ab') as fp:
+                size = session.file2size.get(rel_filename, 0) if session.file2size else os.path.getsize(
+                    cur_download_file)
+                rest_size = file_size - size
+                conn.sendall(size_struct.pack(size))
+                while rest_size > 4096:
+                    data = conn.recv()
+                    if data:
+                        rest_size -= len(data)
+                        fp.write(data)
+                    else:
+                        raise ConnectionDisappearedError
+                fp.write(conn.receive_data(rest_size))
             os.rename(cur_download_file, original_file)
             self.logger.success(f'文件接收成功：{original_file}')
-            timestamps = file_details_struct.unpack(conn.receive_data(file_details_struct.size))
-            modify_file_time(original_file, self.logger, *timestamps)
+            timestamps = times_struct.unpack(conn.receive_data(times_struct.size))
+            self.__modify_file_time(original_file, *timestamps)
         except ConnectionDisappearedError:
             self.logger.warning(f'客户端连接意外中止，文件接收失败：{original_file}')
         except PermissionError as err:
@@ -280,12 +295,6 @@ class FTS:
         except FileNotFoundError:
             self.logger.error(f'文件新建/打开失败，无法接收: {original_file}', highlight=1)
             conn.sendall(size_struct.pack(CONTROL.FAIL2OPEN))
-        except TimeoutError:
-            self.logger.warning(f'客户端传输超时，传输失败文件 {original_file}')
-        finally:
-            conn.settimeout(None)
-            if fp and not fp.closed:
-                fp.close()
 
     def __before_working(self, conn: ESocket):
         """
@@ -346,8 +355,10 @@ class FTS:
         try:
             while True:
                 filename, command, file_size = conn.recv_head()
-                if command == COMMAND.SEND_FILE:
-                    self.__recv_single_file(conn, filename, file_size, session)
+                if command == COMMAND.SEND_LARGE_FILE:
+                    self.__recv_large_file(conn, filename, file_size, session)
+                elif command == COMMAND.SEND_SMALL_FILE:
+                    self.__recv_small_files(conn, conn.recv_with_decompress(), session)
                 elif command == COMMAND.FINISH:
                     break
         except ConnectionError:
@@ -370,8 +381,8 @@ class FTS:
                 case COMMAND.SEND_FILES_IN_DIR:
                     session.cur_rel_dir = filename
                     self.__recv_files_in_dir(session)
-                case COMMAND.SEND_FILE:
-                    self.__recv_single_file(main_conn, filename, file_size, session)
+                case COMMAND.SEND_LARGE_FILE:
+                    self.__recv_large_file(main_conn, filename, file_size, session)
                 case COMMAND.COMPARE_DIR:
                     self.__compare_dir(main_conn, filename)
                 case COMMAND.EXECUTE_COMMAND:
