@@ -1,5 +1,4 @@
 import ipaddress
-import json
 import lzma
 import os
 import pickle
@@ -430,7 +429,6 @@ packaging = getattr(sys, 'frozen', False)
 # 命令类型
 class COMMAND(IntEnum):
     NULL = auto()
-    SEND_FILE = auto()
     SEND_FILES_IN_DIR = auto()
     SEND_SMALL_FILE = auto()
     SEND_LARGE_FILE = auto()
