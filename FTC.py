@@ -278,7 +278,7 @@ class FTC:
         self.logger.info(f'开始发送 {dir_name} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
         conn.send_with_compress(list(all_dir_name))
         # 将发送的文件夹信息写入日志
-        msgs = [f'{PurePath(dir_name, name).as_posix()}' for name in all_dir_name]
+        msgs = [f'{PurePath(dir_name, name).as_posix()}\n' for name in all_dir_name]
         # 接收对方已有的文件名并计算出对方没有的文件
         all_file_name = list(set(all_file_name) - set(conn.recv_with_decompress()))
         # 将待发送的文件打印到日志，计算待发送的文件总大小
