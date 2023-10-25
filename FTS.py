@@ -150,7 +150,7 @@ class FTS:
                 break
             if not new_base_dir or new_base_dir.isspace():
                 continue
-            new_base_dir = Path.cwd() / new_base_dir
+            new_base_dir = Path(new_base_dir).expanduser().absolute()
             if create_dir_if_not_exist(new_base_dir, self.logger):
                 self.__base_dir = new_base_dir
                 self.logger.success(f'已将文件保存位置更改为: {self.__base_dir}')
