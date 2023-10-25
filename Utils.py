@@ -98,9 +98,9 @@ class Logger:
             time.sleep(1)
 
     def silent_write(self, msgs: list):
-        self.flush()
         with self.__writing_lock:
             self.__writing_buffer.extend(msgs)
+        self.flush()
 
     def close(self):
         if self.__log_file.closed:
@@ -157,7 +157,7 @@ class ESocket:
         self.__conn.sendall(data)
 
     def send_with_compress(self, data):
-        self.send_data_with_size(lzma.compress(pickle.dumps(data), preset=9))
+        self.send_data_with_size(lzma.compress(pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL), preset=9))
 
     def recv_with_decompress(self):
         return pickle.loads(lzma.decompress(self.receive_data(self.recv_size())))
