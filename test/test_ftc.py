@@ -44,6 +44,7 @@ class FTCTest(unittest.TestCase):
             self.assertEqual(int(os.path.getctime(self.signal_file)), int(os.path.getctime(fts_signal_file)))
             self.assertEqual(int(os.path.getmtime(self.signal_file)), int(os.path.getmtime(fts_signal_file)))
         finally:
+            os.remove('config')
             shutil.rmtree(os.path.dirname(self.test_dir))
             os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
             os.startfile(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
