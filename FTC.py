@@ -68,17 +68,17 @@ def get_dir_file_name(filepath):
     return all_dir_name, all_file_name
 
 
-def split_by_threshold(sorted_info):
+def split_by_threshold(info):
     result = []
     current_sum = last_idx = 0
-    for idx, (_, size, _) in enumerate(sorted_info, start=1):
+    for idx, (_, size, _) in enumerate(info, start=1):
         current_sum += size
         if current_sum > SMALL_FILE_CHUNK_SIZE:
-            result.append((current_sum, idx - last_idx, sorted_info[last_idx:idx]))
+            result.append((current_sum, idx - last_idx, info[last_idx:idx]))
             last_idx = idx
             current_sum = 0
-    if (rest := len(sorted_info) - last_idx) > 0:
-        result.append((current_sum, rest, sorted_info[last_idx:]))
+    if (rest := len(info) - last_idx) > 0:
+        result.append((current_sum, rest, info[last_idx:]))
     return result
 
 
