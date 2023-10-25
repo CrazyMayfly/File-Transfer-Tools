@@ -1,23 +1,25 @@
 import os
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePath
+import platform
 
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 resource_dir = os.path.normcase(os.path.join(parent_dir, 'docs/build_guide'))
 
 
 class Build:
-    def __init__(self, folder=False, target_dir_name='FTT'):
+    def __init__(self, folder=False, target_dir_name='FTT', version=''):
         self.__bundle_type = '--onedir' if folder else '--onefile'
         self.__target_dir_name = target_dir_name
-        self.__output_dir = os.path.join(parent_dir, target_dir_name)
+        self.__output_dir: Path = Path(parent_dir, target_dir_name)
         self.__log_level = 'INFO'
-        self.__build_dir = os.path.join(parent_dir, 'build')
+        self.__version = version
+        self.__build_dir: Path = Path(parent_dir, 'build')
 
     def package(self):
-        if not os.path.exists(self.__build_dir):
-            os.mkdir(self.__build_dir)
+        if not self.__build_dir.exists():
+            self.__build_dir.mkdir()
         processes = []
         for program in ['FTC', 'FTS']:
             cmd = f'pyinstaller {self.__bundle_type} --icon="{resource_dir}/{program}.png" --specpath "./build" --upx-dir="{resource_dir}/" --distpath "./{self.__target_dir_name}" --console --log-level {self.__log_level}  ./{program}.py'
@@ -30,8 +32,8 @@ class Build:
                 raise Exception('package failed!')
 
     def copy_files(self):
-        if not os.path.exists(os.path.join(self.__output_dir, 'config')):
-            shutil.copy(os.path.join(parent_dir, 'config'), os.path.join(self.__output_dir, 'config'))
+        if not Path(self.__output_dir, 'config').exists():
+            shutil.copy(PurePath(parent_dir, 'config'), PurePath(self.__output_dir, 'config'))
             print('copied config')
 
         if self.__bundle_type == '--onedir':
@@ -48,7 +50,7 @@ class Build:
             for item in dirs:
                 path = Path(target_dir, item)
                 if not path.exists():
-                    os.makedirs(path)
+                    path.mkdir(parents=True)
             for item in file_diff:
                 shutil.move(Path(fts_dir, item), Path(target_dir, item))
             shutil.rmtree(ftc_dir)
@@ -56,17 +58,22 @@ class Build:
             print('merge succeed')
 
     def archive(self):
+        system, machine = platform.system().lower(), platform.machine().lower()
         print('archiving')
-        shutil.make_archive(self.__output_dir, 'zip', self.__output_dir)
-        output_file = self.__output_dir + '.zip'
+        if self.__version:
+            output_file = f'{self.__output_dir}-{self.__version}-{system}-{machine}'
+        else:
+            output_file = f'{self.__output_dir}-{system}-{machine}'
+        shutil.make_archive(output_file, 'zip', self.__output_dir)
+        output_file = output_file + '.zip'
         print(f'Output file {output_file}, size: {get_size(os.path.getsize(output_file))}')
-        os.startfile(os.path.dirname(self.__output_dir), 'explore')
+        os.startfile(self.__output_dir.parent, 'explore')
 
     def clean(self):
         print('cleaning')
-        if os.path.exists(self.__output_dir):
+        if self.__output_dir.exists():
             shutil.rmtree(self.__output_dir)
-        if os.path.exists(self.__build_dir):
+        if self.__build_dir.exists():
             shutil.rmtree(self.__build_dir)
 
     def main(self):
@@ -113,5 +120,6 @@ def get_dir_file_name(filepath):
 
 
 if __name__ == '__main__':
-    build = Build(folder=True, target_dir_name='FTT')
+    # version = '2.4.0'
+    build = Build(folder=True, target_dir_name='FTT', version='')
     build.main()
