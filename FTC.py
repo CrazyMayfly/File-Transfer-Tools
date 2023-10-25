@@ -11,8 +11,8 @@ from Utils import *
 from sys_info import *
 from collections import deque
 
-SMALL_FILE_CHUNK_SIZE = 1024 * 1024 * 10
 LARGE_FILE_SIZE_THRESHOLD = 1024 * 1024
+SMALL_FILE_CHUNK_SIZE = 1024 * 1024 * 2
 
 
 def print_history(nums=10):
@@ -201,7 +201,6 @@ class FTC:
                 self.__pbar.total -= size
 
     def __execute_command(self, command):
-        # 防止命令将输入端交给服务器
         if len(command) == 0:
             return
         if self.__peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
@@ -232,11 +231,9 @@ class FTC:
         thread.start()
         # 接收对方的系统信息
         peer_sysinfo = self.__main_conn.recv_with_decompress()
-        msgs = ['[INFO   ] ' + get_log_msg("对比双方系统信息："), print_sysinfo(peer_sysinfo)]
+        msgs = ['[INFO   ] ' + get_log_msg("对比双方系统信息："), print_sysinfo(peer_sysinfo),
+                print_sysinfo(thread.get_result())]
         # 等待本机系统信息获取完成
-        thread.join()
-        local_sysinfo = thread.get_result()
-        msgs.append(print_sysinfo(local_sysinfo))
         self.logger.silent_write(msgs)
 
     def __speedtest(self, times):
@@ -271,17 +268,17 @@ class FTC:
         func = get_clipboard if command == GET else send_clipboard
         func(self.__main_conn, self.logger)
 
-    def __prepare_to_send(self, filepath, conn: ESocket):
+    def __prepare_to_send(self, dir_name, conn: ESocket):
         # 扩充连接
-        self.__base_dir = filepath
+        self.__base_dir = dir_name
         # 发送文件夹命令
-        conn.send_head(PurePath(filepath).name, COMMAND.SEND_FILES_IN_DIR, 0)
-        all_dir_name, all_file_name = get_dir_file_name(filepath)
+        conn.send_head(PurePath(dir_name).name, COMMAND.SEND_FILES_IN_DIR, 0)
+        all_dir_name, all_file_name = get_dir_file_name(dir_name)
         # 发送文件夹数据
-        self.logger.info(f'开始发送 {filepath} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
+        self.logger.info(f'开始发送 {dir_name} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
         conn.send_with_compress(list(all_dir_name))
         # 将发送的文件夹信息写入日志
-        msgs = [f'{PurePath(filepath, name).as_posix()}' for name in all_dir_name]
+        msgs = [f'{PurePath(dir_name, name).as_posix()}' for name in all_dir_name]
         # 接收对方已有的文件名并计算出对方没有的文件
         all_file_name = list(set(all_file_name) - set(conn.recv_with_decompress()))
         # 将待发送的文件打印到日志，计算待发送的文件总大小
@@ -290,7 +287,7 @@ class FTC:
         total_size = 0
         large_file_info, small_file_info = [], []
         for filename in all_file_name:
-            real_path = Path(filepath, filename)
+            real_path = Path(dir_name, filename)
             file_size = (file_stat := real_path.stat()).st_size
             time_info = times_struct.pack(file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
             info = filename, file_size, time_info
@@ -313,7 +310,7 @@ class FTC:
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
         # 发送文件
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.__threads) as executor:
-            futures = [executor.submit(self.__send_file, conn, idx) for idx, conn in
+            futures = [executor.submit(self.__send_file, conn, position) for position, conn in
                        enumerate(self.__connections, start=1)]
             concurrent.futures.wait(futures)
         try:
@@ -391,7 +388,7 @@ class FTC:
         idx, real_path, files_info = 0, Path(""), []
         while len(self.__small_file_info):
             try:
-                total_size, num, files_info = self.__small_file_info.popleft()
+                total_size, num, files_info = self.__small_file_info.pop()
                 conn.send_head('', COMMAND.SEND_SMALL_FILE, total_size)
                 conn.send_with_compress(files_info)
                 with tqdm(total=total_size, desc='发送小文件簇', unit='bytes', unit_scale=True,
@@ -450,8 +447,7 @@ class FTC:
         if len(addresses) == 1:
             self.__host = addresses.pop()
         else:
-            msg = ['当前可用主机列表：']
-            msg += [f'ip: {address}, hostname: {get_hostname_by_ip(address)}' for address in addresses]
+            msg = ['当前可用主机列表：'] + [f'ip: {address}, hostname: {get_hostname_by_ip(address)}' for address in addresses]
             self.logger.log('\n'.join(msg))
             self.__host = input('请输入主机名/ip: ')
 
@@ -490,7 +486,7 @@ class FTC:
                 if self.__main_conn:
                     # 验证密码
                     self.__validate_password(client_socket)
-                    return
+                    continue
                 # 首次连接
                 self.__main_conn = client_socket
                 msg, session_id = self.__validate_password(client_socket)

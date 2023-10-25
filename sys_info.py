@@ -50,6 +50,7 @@ class MyThread(Thread):
         self.result = self.func(*self.args)
 
     def get_result(self):
+        self.join()
         return self.result
 
 
@@ -80,8 +81,6 @@ def get_sys_info():
     threads = [MyThread(method) for method in (get_net_io, get_cpu_percent, get_disk_io)]
     for thread in threads:
         thread.start()
-    for thread in threads:
-        thread.join()
     net_io, cpu_percent, disk_io = [thread.get_result() for thread in threads]
     # 整合信息
     info = {

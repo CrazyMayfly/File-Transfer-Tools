@@ -4,6 +4,7 @@ import struct
 import subprocess
 import ssl
 import tempfile
+import concurrent.futures
 from uuid import uuid4
 from Utils import *
 from sys_info import *
@@ -38,8 +39,8 @@ if platform_ == WINDOWS:
     import win32timezone
 
 
-def compact_host_port(host, port):
-    return socket.inet_aton(host).hex() + hex(port)[2:]
+def compact_host(host, appendix=''):
+    return str(socket.inet_aton(host).hex()) + appendix
 
 
 def avoid_filename_duplication(filename: str):
@@ -203,13 +204,13 @@ class FTS:
     def __execute_command(self, conn: ESocket, command):
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT).stdout
-        output = []
+        output = [f'[LOG    ] {get_log_msg("执行命令")}：{command}']
         while result := out.readline():
             conn.send_head(result, COMMAND.EXECUTE_RESULT, 0)
             output.append(result)
         # 命令执行结束
         conn.send_head('', COMMAND.FINISH, 0)
-        self.logger.log(f"执行命令：{command}\n{''.join(output)}")
+        self.logger.silent_write(output)
 
     def __speedtest(self, conn: ESocket, data_size):
         self.logger.info(f"客户端请求速度测试，数据量: {get_size(2 * data_size, factor=1000)}")
@@ -240,12 +241,10 @@ class FTS:
         self.__makedirs(main_conn.recv_with_decompress(), session.cur_dir)
         # 发送已存在的文件名
         main_conn.send_with_compress(session.files)
-        threads = [threading.Thread(name=compact_host_port(session.host, conn.getpeername()[1]),
-                                    target=self.__slave_work, args=(conn, session)) for conn in session.conns]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        with concurrent.futures.ThreadPoolExecutor(thread_name_prefix=compact_host(session.host),
+                                                   max_workers=len(session.conns)) as executor:
+            futures = [executor.submit(self.__slave_work, conn, session) for conn in session.conns]
+            concurrent.futures.wait(futures)
         session.reset()
 
     def __recv_small_files(self, conn: ESocket, files_info, session: Session):
@@ -263,7 +262,7 @@ class FTS:
             self.logger.warning(f'客户端连接意外中止，文件接收失败：{real_path}')
             real_path.unlink(True)
         except FileNotFoundError:
-            self.logger.error(f'文件新建/打开失败，无法接收: {real_path}', highlight=1)
+            self.logger.warning(f'文件新建/打开失败，无法接收: {real_path}', highlight=1)
             real_path.unlink(True)
 
     def __recv_large_file(self, conn: ESocket, filename, file_size, session: Session):
@@ -293,7 +292,7 @@ class FTS:
         except PermissionError as err:
             self.logger.warning(f'文件重命名失败：{err}')
         except FileNotFoundError:
-            self.logger.error(f'文件新建/打开失败，无法接收: {original_file}', highlight=1)
+            self.logger.warning(f'文件新建/打开失败，无法接收: {original_file}', highlight=1)
             conn.sendall(size_struct.pack(CONTROL.FAIL2OPEN))
 
     def __before_working(self, conn: ESocket):
@@ -446,7 +445,7 @@ class FTS:
         while True:
             try:
                 conn, (host, port) = server_socket.accept()
-                threading.Thread(name=compact_host_port(host, port), target=self.__route,
+                threading.Thread(name=compact_host(host, 'ma'), target=self.__route,
                                  args=(ESocket(context.wrap_socket(conn, server_side=True)), host, port)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
