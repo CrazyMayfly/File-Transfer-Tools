@@ -37,15 +37,16 @@ def split_dir(command):
     return dir_names if len(dir_names) == 2 else (None, None)
 
 
-def read_line_setup() -> PurePath:
+def read_line_setup() -> Path:
     """
     设置readline的补全和历史记录功能
     """
     readline.set_completer(completer)
     readline.set_history_length(1000)
     readline.parse_and_bind('tab: complete')
-    history_filename = PurePath(config.log_dir, 'history.txt')
-    readline.read_history_file(history_filename)
+    history_filename = Path(config.log_dir, 'history.txt')
+    if history_filename.exists():
+        readline.read_history_file(history_filename)
     return history_filename
 
 
