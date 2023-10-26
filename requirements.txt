@@ -3,5 +3,4 @@ psutil~=5.9.5
 Send2Trash~=1.8.0
 pyperclip~=1.8.2
 pyOpenSSL~=23.2.0
-pywin32; sys_platform == "win32"
 pyreadline3; sys_platform == "win32"
