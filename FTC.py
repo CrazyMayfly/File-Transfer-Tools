@@ -55,16 +55,14 @@ def get_dir_file_name(filepath):
     :param filepath: 文件路径
     :return :返回该文件路径下的所有文件夹、文件的相对路径
     """
-    all_dir_name = set()
+    all_dir_name = {}
     all_file_name = []
     # 获取上一级文件夹名称
     for path, _, file_list in os.walk(filepath):
         # 获取相对路径
-        path = os.path.relpath(path, filepath)
-        all_dir_name.add(path)
-        # 去除重复的路径，防止多次创建，降低效率
-        all_dir_name.discard(os.path.dirname(path))
-        all_file_name += [PurePath(path, file).as_posix() for file in file_list]
+        rel_path = os.path.relpath(path, filepath)
+        all_dir_name[rel_path] = os.path.getatime(path), os.path.getmtime(path)
+        all_file_name += [PurePath(rel_path, file).as_posix() for file in file_list]
     return all_dir_name, all_file_name
 
 
@@ -276,9 +274,9 @@ class FTC:
         all_dir_name, all_file_name = get_dir_file_name(dir_name)
         # 发送文件夹数据
         self.logger.info(f'开始发送 {dir_name} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
-        conn.send_with_compress(list(all_dir_name))
+        conn.send_with_compress(all_dir_name)
         # 将发送的文件夹信息写入日志
-        msgs = [f'{PurePath(dir_name, name).as_posix()}\n' for name in all_dir_name]
+        msgs = [f'{PurePath(dir_name, name).as_posix()}\n' for name in all_dir_name.keys()]
         # 接收对方已有的文件名并计算出对方没有的文件
         all_file_name = list(set(all_file_name) - set(conn.recv_with_decompress()))
         # 将待发送的文件打印到日志，计算待发送的文件总大小
@@ -289,8 +287,7 @@ class FTC:
         for filename in all_file_name:
             real_path = Path(dir_name, filename)
             file_size = (file_stat := real_path.stat()).st_size
-            time_info = times_struct.pack(file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
-            info = filename, file_size, time_info
+            info = filename, file_size, (file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
             # 记录每个文件大小
             small_file_info.append(info) if file_size < LARGE_FILE_SIZE_THRESHOLD else large_file_info.append(info)
             total_size += file_size
@@ -309,7 +306,7 @@ class FTC:
         self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
         # 发送文件
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.__threads) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.__threads, thread_name_prefix='Slave') as executor:
             futures = [executor.submit(self.__send_file, conn, position) for position, conn in
                        enumerate(self.__connections, start=1)]
             concurrent.futures.wait(futures)
@@ -333,12 +330,17 @@ class FTC:
                 data_size, interval = self.__pbar.total, time.time() - self.__pbar.start_t
                 self.__pbar.close()
                 show_bandwidth('本次全部文件正常发送', data_size, interval=interval, logger=self.logger)
+            exceptions = [future.exception() for future in futures]
+            if exceptions.count(None) != len(exceptions):
+                exceptions = '\n'.join(
+                    [f'Thread-{idx}: {exception}' for idx, exception in enumerate(exceptions) if exception is not None])
+                self.logger.error(f"本次发送中出现的异常：\n{exceptions}", highlight=1)
 
     def __send_single_file(self, filename: Path):
         self.logger.silent_write([f'\n[INFO   ] {get_log_msg(f"发送单个文件: {filename}")}\n'])
         self.__base_dir = filename.parent
         file_size = (file_stat := filename.stat()).st_size
-        time_info = times_struct.pack(file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
+        time_info = file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime
         self.__large_file_info.append((filename.name, file_size, time_info))
         pbar_width = get_terminal_size().columns / 4
         self.__pbar = tqdm(total=file_size, desc=shorten_path(filename.name, pbar_width), unit='bytes',
@@ -376,7 +378,7 @@ class FTC:
                         self.__update_global_pbar(data_size)
                 fp.close()
                 # 发送文件的创建、访问、修改时间戳
-                conn.sendall(time_info)
+                conn.sendall(times_struct.pack(*time_info))
                 self.__update_global_pbar(peer_exist_size, decrease=True)
                 self.__finished_files.append(filename)
             except (ssl.SSLError, ConnectionError) as error:

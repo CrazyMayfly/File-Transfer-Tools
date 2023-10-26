@@ -35,8 +35,7 @@ def generate_cert():
 
 
 if platform_ == WINDOWS:
-    from win32file import CreateFile, SetFileTime, CloseHandle, GENERIC_WRITE, OPEN_EXISTING
-    import win32timezone
+    from win_set_time import set_times
 
 
 def compact_host(host, appendix=''):
@@ -166,11 +165,7 @@ class FTS:
         """
         try:
             if platform_ == WINDOWS:
-                # 调用文件处理器对时间进行修改
-                handler = CreateFile(file_path, GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, 0)
-                SetFileTime(handler, datetime.fromtimestamp(create_timestamp), datetime.fromtimestamp(access_timestamp),
-                            datetime.fromtimestamp(modify_timestamp))
-                CloseHandle(handler)
+                set_times(file_path, create_timestamp, modify_timestamp, access_timestamp)
             elif platform_ == LINUX:
                 os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
         except Exception as e:
@@ -223,9 +218,9 @@ class FTS:
             if cur_dir.exists():
                 continue
             try:
-                cur_dir.mkdir(parents=True)
+                cur_dir.mkdir()
             except FileNotFoundError:
-                self.logger.error(f'文件夹创建失败 {dir_name}', highlight=1)
+                self.logger.error(f'文件夹创建失败 {cur_dir}', highlight=1)
 
     def __recv_files_in_dir(self, session: Session):
         files = []
@@ -233,13 +228,20 @@ class FTS:
             for path, _, file_list in os.walk(session.cur_dir):
                 files += [PurePath(PurePath(path).relative_to(session.cur_dir), file).as_posix() for file in file_list]
         main_conn = session.main_conn
-        self.__makedirs(main_conn.recv_with_decompress(), session.cur_dir)
+        dirs_info: dict = main_conn.recv_with_decompress()
+        self.__makedirs(dirs_info.keys(), session.cur_dir)
         # 发送已存在的文件名
         main_conn.send_with_compress(files)
         with concurrent.futures.ThreadPoolExecutor(thread_name_prefix=compact_host(session.host),
                                                    max_workers=len(session.conns)) as executor:
             futures = [executor.submit(self.__slave_work, conn, session) for conn in session.conns]
             concurrent.futures.wait(futures)
+        for dir_name, times in dirs_info.items():
+            cur_dir = PurePath(session.cur_dir, dir_name)
+            try:
+                os.utime(path=cur_dir, times=times)
+            except Exception as error:
+                self.logger.warning(f'文件夹 {cur_dir} 时间修改失败，{error}', highlight=1)
         session.reset()
 
     def __recv_small_files(self, conn: ESocket, files_info, session: Session):
@@ -249,7 +251,7 @@ class FTS:
             for filename, file_size, time_info in files_info:
                 real_path, data = Path(cur_dir, filename), conn.receive_data(file_size)
                 real_path.write_bytes(data)
-                self.__modify_file_time(str(real_path), *times_struct.unpack(time_info))
+                self.__modify_file_time(str(real_path), *time_info)
                 msgs.append(f'[SUCCESS] {get_log_msg("文件接收成功")}：{real_path}\n')
             self.logger.success(f'小文件簇接收成功，个数为 {len(files_info)}')
             self.logger.silent_write(msgs)
@@ -357,6 +359,8 @@ class FTS:
         except UnicodeDecodeError:
             if session.destroy():
                 self.logger.warning(f'{session.host} 数据流异常，连接断开')
+        except Exception as error:
+            self.logger.error(f'{error}', highlight=1)
 
     def __master_work(self, session):
         """
