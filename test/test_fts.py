@@ -2,7 +2,7 @@ import os.path
 import unittest
 from pathlib import Path
 
-from FTS import FTS, handle_ctrl_event
+from FTS import FTS
 from tools import create_random_file
 
 
@@ -19,7 +19,6 @@ class FTSTest(unittest.TestCase):
     def test_fts(self):
         with self.assertWarns((ResourceWarning, DeprecationWarning)):
             fts = FTS(base_dir=self.test_dir, password='test')
-            handle_ctrl_event(fts.logger)
             fts.start()
 
 

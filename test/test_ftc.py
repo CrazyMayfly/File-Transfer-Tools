@@ -33,10 +33,8 @@ class FTCTest(unittest.TestCase):
                                   self.batch_send_dir, 'sysinfo', f'compare {self.test_dir} {self.fts_test_dir}', 'y',
                                   self.signal_file, self.batch_send_dir, 'speedtest 50', 'history 15',
                                   'q']
-        with self.assertRaises(SystemExit) as cm:
-            with self.assertWarns((ResourceWarning, DeprecationWarning)):
-                FTC(threads=6, host='127.0.0.1', password='test').start()
-            self.assertEqual(cm.exception.code, 0)
+        with self.assertWarns((ResourceWarning, DeprecationWarning)):
+            FTC(threads=6, host='127.0.0.1', password='test').start()
 
     def tearDown(self):
         fts_signal_file = Path(self.fts_test_dir, 'signal_test_file.txt')
