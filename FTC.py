@@ -1,15 +1,16 @@
-import os.path
-import random
-from pathlib import Path
-import concurrent.futures
-import readline
 import ssl
+import select
+import random
+import os.path
+import readline
+import concurrent.futures
+from Utils import *
+from tqdm import tqdm
+from sys_info import *
+from pathlib import Path
+from collections import deque
 from shutil import get_terminal_size
 from argparse import ArgumentParser, Namespace
-from tqdm import tqdm
-from Utils import *
-from sys_info import *
-from collections import deque
 
 LARGE_FILE_SIZE_THRESHOLD = 1024 * 1024
 SMALL_FILE_CHUNK_SIZE = 1024 * 1024 * 2
@@ -428,7 +429,6 @@ class FTC:
             if len(splits) == 2:
                 config.server_port = int(splits[1])
                 self.__host = splits[0]
-            # self.logger.log(f"目标主机: {self.__host}, 目标端口: {config.server_port}")
             return
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         ip, _ = get_ip_and_hostname()
@@ -436,17 +436,20 @@ class FTC:
         self.logger.log(f'开始探测服务器信息')
         content = f'HI-I-AM-FTC_{ip}_{config.client_signal_port}'.encode(utf8)
         broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
-        begin = time.time()
+        start = time.time()
         addresses = set()
-        while time.time() - begin < wait:
-            try:
+        try:
+            while not addresses or (time.time() - start) < wait:
+                if not select.select([sk], [], [], 0.2)[0]:
+                    continue
                 data = sk.recv(1024).decode(utf8).split('_')
-            except TimeoutError:
-                break
-            if data[0] == 'HI-I-AM-FTS':
-                addresses.add(data[1])
-            sk.settimeout(wait)
-        sk.close()
+                if data[0] == 'HI-I-AM-FTS':
+                    addresses.add(data[1])
+            sk.close()
+        except KeyboardInterrupt:
+            self.logger.close()
+            self.__history_file.close()
+            sys.exit(0)
         if len(addresses) == 1:
             self.__host = addresses.pop()
         else:
@@ -460,10 +463,11 @@ class FTC:
                 if send_close_info:
                     conn.send_head('', COMMAND.CLOSE, 0)
                 conn.close()
+        except (ssl.SSLEOFError, ConnectionError):
+            pass
         finally:
             self.logger.close()
             self.__history_file.close()
-            sys.exit(0)
 
     def __connect(self, nums=1):
         """
@@ -510,12 +514,13 @@ class FTC:
         self.__find_server()
         self.__connect()
         self.logger.info(f'当前线程数：{self.__threads}')
-        while True:
-            command = input('>>> ').strip()
-            self.__add_history(command)
-            try:
+        try:
+            while True:
+                command = input('>>> ').strip()
+                self.__add_history(command)
                 if command in ['q', 'quit', 'exit']:
                     self.shutdown()
+                    return
                 elif os.path.isdir(command) and os.path.exists(command):
                     self.__send_files_in_dir(command)
                 elif os.path.isfile(command) and os.path.exists(command):
@@ -537,19 +542,18 @@ class FTC:
                         1].isdigit() else print_history()
                 else:
                     self.__execute_command(command)
-            except (ssl.SSLError, ConnectionError) as e:
-                self.logger.error(e.strerror if e.strerror else e, highlight=1)
-                self.logger.close()
-                if packaging:
-                    os.system('pause')
-                sys.exit(-1)
+        except (ssl.SSLError, ConnectionError) as e:
+            self.logger.error(e.strerror if e.strerror else e, highlight=1)
+            self.logger.close()
+            self.__history_file.close()
+        except KeyboardInterrupt:
+            self.shutdown()
 
 
 if __name__ == '__main__':
     args = get_args()
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, password=args.password)
-    handle_ctrl_event(logger=ftc.logger)
     ftc.start()
     if packaging:
         os.system('pause')

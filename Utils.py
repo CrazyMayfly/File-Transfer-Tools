@@ -3,24 +3,23 @@ import lzma
 import os
 import pickle
 import re
-import signal
 import socket
 import sys
 import threading
 import time
 import tarfile
 import psutil
-from pathlib import PurePath
-from platform import system
 from hashlib import md5
-from configparser import ConfigParser, NoOptionError, NoSectionError
-from dataclasses import dataclass
-from datetime import datetime
 from struct import Struct
-from enum import StrEnum, IntEnum, auto
-from typing import TextIO, Final
-from send2trash import send2trash
+from platform import system
+from pathlib import PurePath
 from sys_info import get_size
+from datetime import datetime
+from typing import TextIO, Final
+from dataclasses import dataclass
+from send2trash import send2trash
+from enum import StrEnum, IntEnum, auto
+from configparser import ConfigParser, NoOptionError, NoSectionError
 
 # 获取当前平台
 platform_: Final[str] = system()
@@ -296,20 +295,6 @@ def get_file_md5(filename):
         while data := fp.read(unit):
             file_hash.update(data)
     return file_hash.hexdigest()
-
-
-def handle_ctrl_event(logger: Logger):
-    # determine platform, to fix ^c doesn't work on Windows
-    if platform_ != WINDOWS:
-        return
-
-    def call_back(ctrl_type):
-        if ctrl_type in (signal.CTRL_C_EVENT, signal.CTRL_BREAK_EVENT):
-            logger.close()
-            os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
-
-    from win32api import SetConsoleCtrlHandler
-    SetConsoleCtrlHandler(call_back, 1)
 
 
 def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> TextIO | None:

@@ -4,13 +4,14 @@ import struct
 import subprocess
 import ssl
 import tempfile
+import signal
 import concurrent.futures
-from uuid import uuid4
 from Utils import *
 from sys_info import *
-from argparse import ArgumentParser, Namespace
-from OpenSSL import crypto
+from uuid import uuid4
 from pathlib import Path
+from OpenSSL import crypto
+from argparse import ArgumentParser, Namespace
 
 
 def generate_cert():
@@ -145,7 +146,9 @@ class FTS:
         while True:
             try:
                 new_base_dir = input('>>> ')
-            except EOFError:
+            except (EOFError, UnicodeDecodeError):
+                self.logger.close()
+                os.kill(os.getpid(), signal.SIGINT)
                 break
             if not new_base_dir or new_base_dir.isspace():
                 continue
@@ -452,5 +455,4 @@ if __name__ == '__main__':
     fts = FTS(base_dir=args.dest, password=args.password)
     if not create_dir_if_not_exist(args.dest, fts.logger):
         sys.exit(-1)
-    handle_ctrl_event(logger=fts.logger)
     fts.start()
