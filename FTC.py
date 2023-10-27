@@ -28,6 +28,16 @@ def completer(text, state):
     return options[state] if state < len(options) else None
 
 
+def print_filename_if_exits(prompt, filename_list):
+    msg = [prompt]
+    if filename_list:
+        msg.extend([('\t' + file_name) for file_name in filename_list])
+    else:
+        msg.append('\tNone')
+    print('\n'.join(msg))
+    return '\n'.join(msg)
+
+
 def split_dir(command):
     """
     将命令分割为两个目录名
@@ -123,26 +133,28 @@ class FTC:
         self.__history_file.write(command + '\n')
         self.__history_file.flush()
 
-    def __compare_dir(self, local_dir, peer_dir):
-        def print_filename_if_exits(prompt, filename_list):
-            msg = [prompt]
-            if filename_list:
-                msg.extend([('\t' + file_name) for file_name in filename_list])
-            else:
-                msg.append('\tNone')
-            print('\n'.join(msg))
-            return '\n'.join(msg)
+    def __prepare_to_compare(self, command):
+        folders = command[8:].split('"')
+        folders = folders[0].split(' ') if len(folders) == 1 else \
+            [dir_name.strip() for dir_name in folders if dir_name.strip()]
+        if len(folders) != 2:
+            self.logger.warning('本地文件夹且远程文件夹不能为空')
+            return
 
-        if not os.path.exists(local_dir):
+        local_folder, peer_folder = folders
+        if not os.path.exists(local_folder):
             self.logger.warning('本地文件夹不存在')
             return
 
-        conn = self.__main_conn
-        conn.send_head(peer_dir, COMMAND.COMPARE_DIR, 0)
-        if conn.receive_data(len(DIRISCORRECT)).decode() != DIRISCORRECT:
-            self.logger.warning(f"目标文件夹 {peer_dir} 不存在")
+        self.__main_conn.send_head(peer_folder, COMMAND.COMPARE_FOLDER, 0)
+        if self.__main_conn.recv_size() != CONTROL.CONTINUE:
+            self.logger.warning(f"目标文件夹 {peer_folder} 不存在")
             return
-        local_dict = get_relative_filename_from_basedir(local_dir)
+        return folders
+
+    def __compare_folder(self, local_folder, peer_folder):
+        conn: ESocket = self.__main_conn
+        local_dict = get_relative_filename_from_basedir(local_folder)
         # 获取本地的文件名
         local_filenames = local_dict.keys()
         # 将字符串转化为dict
@@ -167,7 +179,7 @@ class FTC:
         tmp = file_size_and_name_both_equal[:10] + ['(more hidden...)'] if len(
             file_size_and_name_both_equal) > 10 else file_size_and_name_both_equal
         file_not_exits_in_local = peer_dict.keys()
-        msgs = ['\n[INFO   ] ' + get_log_msg(f'对比本地文件夹 {local_dir} 和目标文件夹 {peer_dir} 的差异\n')]
+        msgs = ['\n[INFO   ] ' + get_log_msg(f'对比本地文件夹 {local_folder} 和目标文件夹 {peer_folder} 的差异\n')]
         for arg in [("file exits in peer but not exits in local: ", file_not_exits_in_local),
                     ("file exits in local but not exits in peer: ", file_not_exits_in_peer),
                     ("file in local smaller than peer: ", file_in_local_smaller_than_peer),
@@ -185,7 +197,7 @@ class FTC:
         conn.sendall(size_struct.pack(CONTROL.CONTINUE))
         # 发送相同的文件名称
         conn.send_with_compress(file_size_and_name_both_equal)
-        results = {filename: get_file_md5(PurePath(local_dir, filename)) for filename in
+        results = {filename: get_file_md5(PurePath(local_folder, filename)) for filename in
                    file_size_and_name_both_equal}
         # 获取本次字符串大小
         peer_dict = conn.recv_with_decompress()
@@ -268,17 +280,17 @@ class FTC:
         func = get_clipboard if command == GET else send_clipboard
         func(self.__main_conn, self.logger)
 
-    def __prepare_to_send(self, dir_name, conn: ESocket):
+    def __prepare_to_send(self, folder, conn: ESocket):
         # 扩充连接
-        self.__base_dir = dir_name
+        self.__base_dir = folder
         # 发送文件夹命令
-        conn.send_head(PurePath(dir_name).name, COMMAND.SEND_FILES_IN_DIR, 0)
-        all_dir_name, all_file_name = get_dir_file_name(dir_name)
+        conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
+        all_dir_name, all_file_name = get_dir_file_name(folder)
         # 发送文件夹数据
-        self.logger.info(f'开始发送 {dir_name} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
+        self.logger.info(f'开始发送 {folder} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
         conn.send_with_compress(all_dir_name)
         # 将发送的文件夹信息写入日志
-        msgs = [f'{PurePath(dir_name, name).as_posix()}\n' for name in all_dir_name.keys()]
+        msgs = [f'{PurePath(folder, name).as_posix()}\n' for name in all_dir_name.keys()]
         # 接收对方已有的文件名并计算出对方没有的文件
         all_file_name = list(set(all_file_name) - set(conn.recv_with_decompress()))
         # 将待发送的文件打印到日志，计算待发送的文件总大小
@@ -287,7 +299,7 @@ class FTC:
         total_size = 0
         large_file_info, small_file_info = [], []
         for filename in all_file_name:
-            real_path = Path(dir_name, filename)
+            real_path = Path(folder, filename)
             file_size = (file_stat := real_path.stat()).st_size
             info = filename, file_size, (file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
             # 记录每个文件大小
@@ -300,10 +312,10 @@ class FTC:
         self.__small_file_info = deque(split_by_threshold(small_file_info))
         return all_file_name, total_size
 
-    def __send_files_in_dir(self, dir_name):
+    def __send_files_in_folder(self, folder):
         self.__connect(self.__threads)
-        all_file_name, total_size = self.__prepare_to_send(dir_name, self.__main_conn)
-        self.logger.info(f'开始发送 {dir_name} 路径下所有文件，文件个数为 {len(all_file_name)}')
+        all_file_name, total_size = self.__prepare_to_send(folder, self.__main_conn)
+        self.logger.info(f'开始发送 {folder} 路径下所有文件，文件个数为 {len(all_file_name)}')
         # 初始化总进度条
         self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
@@ -522,7 +534,7 @@ class FTC:
                     self.shutdown()
                     return
                 elif os.path.isdir(command) and os.path.exists(command):
-                    self.__send_files_in_dir(command)
+                    self.__send_files_in_folder(command)
                 elif os.path.isfile(command) and os.path.exists(command):
                     self.__send_single_file(Path(command))
                 elif command == sysinfo:
@@ -530,11 +542,8 @@ class FTC:
                 elif command.startswith(speedtest):
                     self.__speedtest(times=command[10:])
                 elif command.startswith(compare):
-                    local_dir, destination_dir = split_dir(command)
-                    if not destination_dir or not local_dir:
-                        self.logger.warning('本地文件夹且远程文件夹不能为空')
-                        continue
-                    self.__compare_dir(local_dir, destination_dir)
+                    if folders := self.__prepare_to_compare(command):
+                        self.__compare_folder(*folders)
                 elif command.endswith('clipboard'):
                     self.__exchange_clipboard(command.split()[0])
                 elif command.startswith(history):

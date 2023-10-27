@@ -414,10 +414,10 @@ packaging = getattr(sys, 'frozen', False)
 # 命令类型
 class COMMAND(IntEnum):
     NULL = auto()
-    SEND_FILES_IN_DIR = auto()
+    SEND_FILES_IN_FOLDER = auto()
     SEND_SMALL_FILE = auto()
     SEND_LARGE_FILE = auto()
-    COMPARE_DIR = auto()
+    COMPARE_FOLDER = auto()
     EXECUTE_COMMAND = auto()
     EXECUTE_RESULT = auto()
     SYSINFO = auto()
@@ -436,7 +436,6 @@ FAIL: Final[str] = 'fail'
 GET: Final[str] = 'get'
 SEND: Final[str] = 'send'
 OVER: Final[bytes] = b'\00'
-DIRISCORRECT: Final[str] = "DIC"
 utf8: Final[str] = 'utf-8'
 unit: Final[int] = 1024 * 1024 * 2  # 2MB
 sysinfo = 'sysinfo'

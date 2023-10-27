@@ -59,21 +59,21 @@ def avoid_filename_duplication(filename: str):
     return filename
 
 
-def create_dir_if_not_exist(directory: Path, logger: Logger) -> bool:
+def create_folder_if_not_exist(folder: Path, logger: Logger) -> bool:
     """
     创建文件夹
-    @param directory: 文件夹路径
+    @param folder: 文件夹路径
     @param logger: 日志对象
     @return: 是否创建成功
     """
-    if directory.exists():
+    if folder.exists():
         return True
     try:
-        directory.mkdir(parents=True)
+        folder.mkdir(parents=True)
     except OSError as error:
-        logger.error(f'无法创建 {directory}, {error}', highlight=1)
+        logger.error(f'无法创建 {folder}, {error}', highlight=1)
         return False
-    logger.info('已创建文件夹 {}'.format(directory))
+    logger.info('已创建文件夹 {}'.format(folder))
     return True
 
 
@@ -153,7 +153,7 @@ class FTS:
             if not new_base_dir or new_base_dir.isspace():
                 continue
             new_base_dir = Path(new_base_dir).expanduser().absolute()
-            if create_dir_if_not_exist(new_base_dir, self.logger):
+            if create_folder_if_not_exist(new_base_dir, self.logger):
                 self.__base_dir = new_base_dir
                 self.logger.success(f'已将文件保存位置更改为: {self.__base_dir}')
 
@@ -174,21 +174,21 @@ class FTS:
         except Exception as e:
             self.logger.warning(f'{file_path}文件时间修改失败，{e}')
 
-    def __compare_dir(self, conn: ESocket, dir_name):
-        self.logger.info(f"客户端请求对比文件夹：{dir_name}")
-        if not os.path.exists(dir_name):
+    def __compare_folder(self, conn: ESocket, folder):
+        self.logger.info(f"客户端请求对比文件夹：{folder}")
+        if not os.path.exists(folder):
             # 发送目录不存在
-            conn.sendall(OVER * len(DIRISCORRECT))
+            conn.sendall(size_struct.pack(CONTROL.CANCEL))
             return
-        conn.sendall(DIRISCORRECT.encode())
+        conn.sendall(size_struct.pack(CONTROL.CANCEL))
         # 将数组拼接成字符串发送到客户端
-        conn.send_with_compress(get_relative_filename_from_basedir(dir_name))
+        conn.send_with_compress(get_relative_filename_from_basedir(folder))
         if conn.receive_data(8)[0] != CONTROL.CONTINUE:
             return
         self.logger.log("继续对比文件Hash")
         file_size_and_name_both_equal = conn.recv_with_decompress()
         # 得到文件相对路径名: hash值字典
-        results = {filename: get_file_md5(PurePath(dir_name, filename)) for filename in
+        results = {filename: get_file_md5(PurePath(folder, filename)) for filename in
                    file_size_and_name_both_equal}
         conn.send_with_compress(results)
 
@@ -225,7 +225,7 @@ class FTS:
             except FileNotFoundError:
                 self.logger.error(f'文件夹创建失败 {cur_dir}', highlight=1)
 
-    def __recv_files_in_dir(self, session: Session):
+    def __recv_files_in_folder(self, session: Session):
         files = []
         if session.cur_dir.exists():
             for path, _, file_list in os.walk(session.cur_dir):
@@ -376,13 +376,13 @@ class FTS:
             filename, command, file_size = main_conn.recv_head()
             session.base_dir = Path.cwd() / self.__base_dir
             match command:
-                case COMMAND.SEND_FILES_IN_DIR:
+                case COMMAND.SEND_FILES_IN_FOLDER:
                     session.cur_rel_dir = filename
-                    self.__recv_files_in_dir(session)
+                    self.__recv_files_in_folder(session)
                 case COMMAND.SEND_LARGE_FILE:
                     self.__recv_large_file(main_conn, filename, file_size, session)
-                case COMMAND.COMPARE_DIR:
-                    self.__compare_dir(main_conn, filename)
+                case COMMAND.COMPARE_FOLDER:
+                    self.__compare_folder(main_conn, filename)
                 case COMMAND.EXECUTE_COMMAND:
                     self.__execute_command(main_conn, filename)
                 case COMMAND.SYSINFO:
@@ -453,6 +453,6 @@ class FTS:
 if __name__ == '__main__':
     args = get_args()
     fts = FTS(base_dir=args.dest, password=args.password)
-    if not create_dir_if_not_exist(args.dest, fts.logger):
+    if not create_folder_if_not_exist(args.dest, fts.logger):
         sys.exit(-1)
     fts.start()
