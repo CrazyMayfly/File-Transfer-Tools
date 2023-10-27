@@ -117,7 +117,7 @@ class ESocket:
 
     def __init__(self, conn: socket.socket):
         if conn is None:
-            raise ValueError('Connection can not be None')
+            raise ValueError('Connection Can Not Be None')
         self.__conn = conn
 
     def sendall(self, data: bytes):
@@ -129,7 +129,7 @@ class ESocket:
     def recv(self, size=MAX_BUFFER_SIZE):
         data = self.__conn.recv(size)
         if not data:
-            raise ConnectionDisappearedError('连接意外中止')
+            raise ConnectionDisappearedError('Connection Disappeared')
         return data
 
     def getpeername(self):
@@ -193,11 +193,14 @@ def send_clipboard(conn: ESocket, logger: Logger, ftc=True):
     content = pyperclip.paste()
     content_length = len(content.encode(utf8))
     if content_length == 0 or content_length > 65535:
-        logger.warning(f'剪切板为空或过大({get_size(content_length)})，无法发送')
+        if content_length == 0:
+            logger.warning(f'Clipboard is empty')
+        else:
+            logger.warning(f'Clipboard is too large({get_size(content_length)}) to send.')
         if not ftc:
             conn.send_head('', COMMAND.NULL, content_length)
         return
-    logger.info(f'发送剪切板的内容，大小为 {get_size(content_length)}')
+    logger.info(f'Send clipboard, size: {get_size(content_length)}')
     conn.send_head(content, COMMAND.PUSH_CLIPBOARD, content_length)
 
 
@@ -207,10 +210,10 @@ def get_clipboard(conn: ESocket, logger: Logger, content=None, command=None, len
         conn.send_head('', COMMAND.PULL_CLIPBOARD, 0)
         content, command, length = conn.recv_head()
     if command != COMMAND.PUSH_CLIPBOARD:
-        logger.warning(f'对方剪切板为空或过大({get_size(length)})，无法发送')
+        logger.warning(f"Clipboard is empty or too large({get_size(length)}) to get.")
         return
 
-    logger.log(f'获取对方剪切板的内容，大小为 {get_size(length)}\n{content}')
+    logger.log(f"Get clipboard, size: {get_size(length)}\n{content}")
     # 拷贝到剪切板
     pyperclip.copy(content)
 
@@ -272,7 +275,8 @@ def format_time(time_interval):
 
 def show_bandwidth(msg, data_size, interval, logger: Logger):
     bandwidth = (data_size * 8 / interval) if interval != 0 else 0
-    logger.success(f"{msg}, 平均带宽 {get_size(bandwidth, factor=1000, suffix='bps')}, 耗时 {format_time(interval)}")
+    logger.success(
+        f"{msg}, average bandwidth {get_size(bandwidth, factor=1000, suffix='bps')}, takes {format_time(interval)}")
 
 
 def broadcast_to_all_interfaces(sk: socket.socket, port: int, content: bytes):
@@ -357,8 +361,8 @@ def compress_log_files(base_dir, log_type, logger: Logger):
                 return
         dates = [datetime.strptime(file[0:10], '%Y_%m_%d') for file in matching_files]
         max_date, min_date = max(dates).strftime('%Y%m%d'), min(dates).strftime('%Y%m%d')
-        logger.info(
-            f'开始对 {min_date} - {max_date} 时间范围内的 {log_type.upper()} 日志进行归档, 总计大小: {get_size(total_size)}')
+        logger.info(f'Start archiving {log_type.upper()} logs within the '
+                    f'{min_date} - {max_date} time range, total size: {get_size(total_size)}')
         # 压缩后的输出文件名
         output_file = PurePath(base_dir, f'{min_date}_{max_date}.{log_type}.tar.gz')
         # 创建一个 tar 归档文件对象
@@ -371,11 +375,12 @@ def compress_log_files(base_dir, log_type, logger: Logger):
             for file_name in file_list:
                 try:
                     send2trash(PurePath(base_dir, file_name))
-                except Exception as e:
-                    logger.warning(f'{file_name}送往回收站失败，执行删除{e}')
+                except Exception as error:
+                    logger.warning(f'{error}: {file_name} failed to be sent to the recycle bin, delete it.')
                     os.remove(PurePath(base_dir, file_name))
 
-        logger.success(f'日志文件归档完成: {output_file}，压缩后的文件大小: {get_size(os.path.getsize(output_file))}')
+        logger.success(f'Log file archiving completed: {output_file}, '
+                       f'compressed file size: {get_size(os.path.getsize(output_file))}')
         # 不进行文件夹递归
         return
 
@@ -504,8 +509,12 @@ class Config:
                 config_parser.add_section(cur_section)
             else:
                 config_parser.set(cur_section, *item.name_and_value)
-        with open(Config.config_file, 'w', encoding=utf8) as f:
-            config_parser.write(f)
+        try:
+            with open(Config.config_file, 'w', encoding=utf8) as f:
+                config_parser.write(f)
+        except PermissionError as error:
+            print_color(f'Failed to create the config file, {error}', level=LEVEL.ERROR, highlight=1)
+            sys.exit(-1)
 
     @staticmethod
     def load_config():
@@ -526,13 +535,13 @@ class Config:
             server_signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_signal_port.name)
             client_signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.client_signal_port.name)
         except OSError as e:
-            print_color(f'日志文件夹创建失败 {e}', level=LEVEL.ERROR, highlight=1)
+            print_color(f'Failed to create the log folder, {e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
         except (NoOptionError, NoSectionError) as e:
             print_color(f'{e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
         except ValueError as e:
-            print_color(f'配置错误 {e}', level=LEVEL.ERROR, highlight=1)
+            print_color(f'Configuration error, {e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
         return Configration(default_path=default_path, log_dir=log_dir, server_port=server_port,
                             log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,

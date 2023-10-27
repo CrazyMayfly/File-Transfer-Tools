@@ -26,15 +26,15 @@ def get_net_io():
 
 
 def get_cpu_percent():
-    return f" {psutil.cpu_percent(interval=1)}%"
+    return f"{psutil.cpu_percent(interval=1)}%"
 
 
 def get_disk_io():
     disk_io_before = psutil.disk_io_counters()
     time.sleep(1)
     disk_io_now = psutil.disk_io_counters()
-    return {"read_count": f'{disk_io_now.read_count - disk_io_before.read_count}次/s',
-            "write_count": f'{disk_io_now.write_count - disk_io_before.write_count}次/s',
+    return {"read_count": f'{disk_io_now.read_count - disk_io_before.read_count} times/s',
+            "write_count": f'{disk_io_now.write_count - disk_io_before.write_count} times/s',
             "read_bytes": f'{get_size(disk_io_now.read_bytes - disk_io_before.read_bytes)}/s',
             "write_bytes": f'{get_size(disk_io_now.write_bytes - disk_io_before.write_bytes)}/s'}
 
@@ -59,7 +59,7 @@ def get_sys_info():
         minutes, seconds = divmod(time_second, 60)
         hours, minutes = divmod(minutes, 60)
         days, hours = divmod(hours, 24)
-        return f"{days}天{hours}小时{minutes}分钟{seconds}秒"
+        return f"{days}d {hours}h {minutes}m {seconds}s"
 
     username = psutil.users()[0].name
     host = platform.node()
@@ -100,13 +100,13 @@ def get_sys_info():
     battery_info = None
     if battery:
         if battery.secsleft == -1:
-            secs_left = 'POWER_TIME_UNKNOWN'
+            secs_left = 'UNKNOWN'
         elif battery.secsleft == -2:
-            secs_left = 'POWER_TIME_UNLIMITED'
+            secs_left = 'UNLIMITED'
         else:
             secs_left = format_time(battery.secsleft)
         battery_info = {"percent": battery.percent, "secsleft": secs_left,
-                        "power_plugged": "已接通电源" if battery.power_plugged else "未接通电源"}
+                        "power_plugged": "on" if battery.power_plugged else "off"}
     info.update({"battery": battery_info})
     return info
 
@@ -114,23 +114,22 @@ def get_sys_info():
 def print_sysinfo(info):
     user, system, cpu, memory, network, battery, disks, disks_io = info['user'], info['system'], info['cpu'], info[
         'memory'], info['network'], info['battery'], info['disks'], info['disks']['io']
-    diskinfo, blank = [], '      '
+    diskinfo, blank = [], '       '
     for disk in disks['info']:
         diskinfo.append(
-            f"{blank}{disk['device']} 可用 {disk['free']:9}，共{disk['total']:9} 已使用 {disk['percent']} 类型 {disk['fstype']}")
+            f"{blank}{disk['device']} available {disk['free']:9}, total {disk['total']:9}, used {disk['percent']}, type {disk['fstype']}")
     diskinfo = ('\n' + blank).join(diskinfo)
-    battery_info = f"当前电量:{battery['percent']}% {battery['power_plugged']} 剩余使用时间:{battery['secsleft']}" if battery else "未检测到电池"
-    msg = f"""用户: {user['username']}, 主机: {user['host']} 的系统信息如下: 
-     系统信息 : {system['platform']} {system['version']} {system['architecture']}
-     运行时间 : {info['boot time']}
-     处理器  : 利用率:{cpu['percentage']} {cpu['manufacturer']} {cpu['count']}核 {cpu['logic_count']}线程 {cpu['frequency']}
-              {cpu['info']}
-     内存    : {memory['used']}/{memory['total']} 利用率:{memory['percentage']}
-     网络    : {network['download']}⬇ {network['upload']}⬆
-     硬盘    : 读命中 {disks_io['read_count']} 写命中 {disks_io['write_count']} 读取速度 {disks_io['read_bytes']} 写入速度 {disks_io['write_bytes']}
-      {diskinfo}
-     电池    : {battery_info}
-     """
+    battery_info = f"percent: {battery['percent']}%, power plugged: {battery['power_plugged']}, time left: {battery['secsleft']}" if battery else "Battery not detected"
+    msg = f"""User: {user['username']}, host: {user['host']}:
+      System   : {system['platform']} {system['version']} {system['architecture']}
+      Boot time: {info['boot time']}
+      Processor: {cpu['percentage']}, {cpu['manufacturer']}, {cpu['count']} cores, {cpu['logic_count']} threads, {cpu['frequency']}, {cpu['info']}
+      Memory   : {memory['used']}/{memory['total']} usage: {memory['percentage']}
+      Network  : {network['download']}↓ {network['upload']}↑
+      Disk     : read hit: {disks_io['read_count']}, write hit: {disks_io['write_count']}, read speed: {disks_io['read_bytes']}, write speed: {disks_io['write_bytes']}
+       {diskinfo}
+      Battery  : {battery_info}
+"""
     print(msg)
     return msg
 

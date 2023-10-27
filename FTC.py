@@ -28,13 +28,14 @@ def completer(text, state):
     return options[state] if state < len(options) else None
 
 
-def print_filename_if_exits(prompt, filename_list):
+def print_filename_if_exists(prompt, filename_list):
     msg = [prompt]
     if filename_list:
         msg.extend([('\t' + file_name) for file_name in filename_list])
     else:
         msg.append('\tNone')
     print('\n'.join(msg))
+    msg.append('')
     return '\n'.join(msg)
 
 
@@ -138,17 +139,17 @@ class FTC:
         folders = folders[0].split(' ') if len(folders) == 1 else \
             [dir_name.strip() for dir_name in folders if dir_name.strip()]
         if len(folders) != 2:
-            self.logger.warning('本地文件夹且远程文件夹不能为空')
+            self.logger.warning('Local folder and peer folder cannot be empty')
             return
 
         local_folder, peer_folder = folders
         if not os.path.exists(local_folder):
-            self.logger.warning('本地文件夹不存在')
+            self.logger.warning('Local folder does not exist')
             return
 
         self.__main_conn.send_head(peer_folder, COMMAND.COMPARE_FOLDER, 0)
         if self.__main_conn.recv_size() != CONTROL.CONTINUE:
-            self.logger.warning(f"目标文件夹 {peer_folder} 不存在")
+            self.logger.warning(f"Peer folder {peer_folder} does not exist")
             return
         return folders
 
@@ -160,50 +161,51 @@ class FTC:
         # 将字符串转化为dict
         peer_dict: dict = conn.recv_with_decompress()
         # 求各种集合
-        file_in_local_smaller_than_peer = []
-        file_in_peer_smaller_than_local = []
-        file_size_and_name_both_equal = []
-        file_not_exits_in_peer = []
+        files_smaller_than_peer = []
+        files_smaller_than_local = []
+        files_size_and_name_equal = []
+        files_not_exist_in_peer = []
         for filename in local_filenames:
             peer_size = peer_dict.pop(filename, -1)
             if peer_size == -1:
-                file_not_exits_in_peer.append(filename)
+                files_not_exist_in_peer.append(filename)
                 continue
             size_diff = local_dict[filename] - peer_size
             if size_diff < 0:
-                file_in_local_smaller_than_peer.append(filename)
+                files_smaller_than_peer.append(filename)
             elif size_diff == 0:
-                file_size_and_name_both_equal.append(filename)
+                files_size_and_name_equal.append(filename)
             else:
-                file_in_peer_smaller_than_local.append(filename)
-        tmp = file_size_and_name_both_equal[:10] + ['(more hidden...)'] if len(
-            file_size_and_name_both_equal) > 10 else file_size_and_name_both_equal
-        file_not_exits_in_local = peer_dict.keys()
-        msgs = ['\n[INFO   ] ' + get_log_msg(f'对比本地文件夹 {local_folder} 和目标文件夹 {peer_folder} 的差异\n')]
-        for arg in [("file exits in peer but not exits in local: ", file_not_exits_in_local),
-                    ("file exits in local but not exits in peer: ", file_not_exits_in_peer),
-                    ("file in local smaller than peer: ", file_in_local_smaller_than_peer),
-                    ("file in peer smaller than local: ", file_in_peer_smaller_than_local),
-                    ("file name and size both equal in two sides: ", tmp)]:
-            msgs.append(print_filename_if_exits(*arg))
+                files_smaller_than_local.append(filename)
+        tmp = files_size_and_name_equal[:10] + ['(more hidden...)'] if len(
+            files_size_and_name_equal) > 10 else files_size_and_name_equal
+        file_not_exists_in_local = peer_dict.keys()
+        msgs = ['\n[INFO   ] ' + get_log_msg(
+            f'Compare the differences between local folder {local_folder} and peer folder {peer_folder}\n')]
+        for arg in [("files exist in peer but not in local: ", file_not_exists_in_local),
+                    ("files exist in local but not in peer: ", files_not_exist_in_peer),
+                    ("files in local smaller than peer: ", files_smaller_than_peer),
+                    ("files in peer smaller than local: ", files_smaller_than_local),
+                    ("files name and size both equal in two sides: ", tmp)]:
+            msgs.append(print_filename_if_exists(*arg))
         self.logger.silent_write(msgs)
-        if not file_size_and_name_both_equal:
+        if not files_size_and_name_equal:
             conn.send_size(CONTROL.CANCEL)
             return
-        if input("Continue to compare hash for filename and size both equal set?(y/n): ") != 'y':
+        if input("Continue to compare hash for filename and size both equal set?(y/n): ").lower() != 'y':
             conn.send_size(CONTROL.CANCEL)
             return
         # 发送继续请求
         conn.send_size(CONTROL.CONTINUE)
         # 发送相同的文件名称
-        conn.send_with_compress(file_size_and_name_both_equal)
+        conn.send_with_compress(files_size_and_name_equal)
         results = {filename: get_file_md5(PurePath(local_folder, filename)) for filename in
-                   file_size_and_name_both_equal}
+                   files_size_and_name_equal}
         # 获取本次字符串大小
         peer_dict = conn.recv_with_decompress()
         hash_not_matching = [filename for filename in results.keys() if
                              results[filename] != peer_dict[filename]]
-        self.logger.silent_write([print_filename_if_exits("hash not matching: ", hash_not_matching)])
+        self.logger.silent_write([print_filename_if_exists("hash not matching: ", hash_not_matching)])
 
     def __update_global_pbar(self, size, decrease=False):
         with self.__pbar.get_lock():
@@ -217,16 +219,16 @@ class FTC:
             return
         if self.__peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
             if command == 'powershell':
-                self.logger.info('使用Windows PowerShell')
+                self.logger.info('use windows powershell')
                 self.__command_prefix = 'powershell '
             else:
-                self.logger.info('使用CMD(命令提示符)')
+                self.logger.info('use command prompt')
                 self.__command_prefix = ''
             return
         command = self.__command_prefix + command
         conn = self.__main_conn
         conn.send_head(command, COMMAND.EXECUTE_COMMAND, 0)
-        msgs = ['\n[INFO   ] ' + get_log_msg(f'下达指令: {command}')]
+        msgs = [f'\n[INFO   ] {get_log_msg("Give command: ")}{command}']
         # 接收返回结果
         result, command, _ = conn.recv_head()
         while command == COMMAND.EXECUTE_RESULT:
@@ -243,32 +245,32 @@ class FTC:
         thread.start()
         # 接收对方的系统信息
         peer_sysinfo = self.__main_conn.recv_with_decompress()
-        msgs = ['[INFO   ] ' + get_log_msg("对比双方系统信息："), print_sysinfo(peer_sysinfo),
-                print_sysinfo(thread.get_result())]
+        msgs = [f'[INFO   ] {get_log_msg("Compare the system information of both parties: ")}\n',
+                print_sysinfo(peer_sysinfo), print_sysinfo(thread.get_result())]
         # 等待本机系统信息获取完成
         self.logger.silent_write(msgs)
 
     def __speedtest(self, times):
         times = '500' if times.isspace() or not times else times
         while not (times.isdigit() and int(times) > 0):
-            times = input("请重新输入数据量（单位MB）：")
+            times = input("Please re-enter the data amount (in MB): ")
         times, data_unit = int(times), 1000 * 1000  # 1MB
         data_size = times * data_unit
         conn = self.__main_conn
         conn.send_head('', COMMAND.SPEEDTEST, data_size)
         start = time.time()
-        with tqdm(total=data_size, desc='speedtest_upload', unit='bytes', unit_scale=True, mininterval=1) as pbar:
+        with tqdm(total=data_size, desc='upload speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
             for i in range(times):
                 # 生产随机字节
                 conn.sendall(os.urandom(data_unit))
                 pbar.update(data_unit)
-        show_bandwidth('上传速度测试完毕', data_size, interval=time.time() - start, logger=self.logger)
+        show_bandwidth('Upload speed test completed', data_size, time.time() - start, self.logger)
         upload_over = time.time()
-        with tqdm(total=data_size, desc='speedtest_download', unit='bytes', unit_scale=True, mininterval=1) as pbar:
+        with tqdm(total=data_size, desc='download speedtest', unit='bytes', unit_scale=True, mininterval=1) as pbar:
             for i in range(times):
                 conn.recv_data(data_unit)
                 pbar.update(data_unit)
-        show_bandwidth('下载速度测试完毕', data_size, interval=time.time() - upload_over, logger=self.logger)
+        show_bandwidth('Download speed test completed', data_size, time.time() - upload_over, self.logger)
 
     def __exchange_clipboard(self, command):
         """
@@ -287,14 +289,14 @@ class FTC:
         conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
         all_dir_name, all_file_name = get_dir_file_name(folder)
         # 发送文件夹数据
-        self.logger.info(f'开始发送 {folder} 路径下所有文件夹，文件夹个数为 {len(all_dir_name)}')
+        self.logger.info(f'Send folders under {folder}, number: {len(all_dir_name)}')
         conn.send_with_compress(all_dir_name)
         # 将发送的文件夹信息写入日志
         msgs = [f'{PurePath(folder, name).as_posix()}\n' for name in all_dir_name.keys()]
         # 接收对方已有的文件名并计算出对方没有的文件
         all_file_name = list(set(all_file_name) - set(conn.recv_with_decompress()))
         # 将待发送的文件打印到日志，计算待发送的文件总大小
-        msgs.append('\n[INFO   ] ' + get_log_msg("本次待发送的文件列表为：\n"))
+        msgs.append(f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n')
         # 统计待发送的文件信息
         total_size = 0
         large_file_info, small_file_info = [], []
@@ -305,7 +307,7 @@ class FTC:
             # 记录每个文件大小
             small_file_info.append(info) if file_size < LARGE_FILE_SIZE_THRESHOLD else large_file_info.append(info)
             total_size += file_size
-            msgs.append("{}, 约{}, {}\n".format(real_path, *calcu_size(file_size)))
+            msgs.append("{}, about {}, {}\n".format(real_path, *calcu_size(file_size)))
         self.logger.silent_write(msgs)
         random.shuffle(small_file_info)
         self.__large_file_info = deque(sorted(large_file_info, key=lambda item: item[1]))
@@ -315,9 +317,9 @@ class FTC:
     def __send_files_in_folder(self, folder):
         self.__connect(self.__threads)
         all_file_name, total_size = self.__prepare_to_send(folder, self.__main_conn)
-        self.logger.info(f'开始发送 {folder} 路径下所有文件，文件个数为 {len(all_file_name)}')
+        self.logger.info(f'Send files under {folder}, number: {len(all_file_name)}')
         # 初始化总进度条
-        self.__pbar = tqdm(total=total_size, desc='累计发送量', unit='bytes',
+        self.__pbar = tqdm(total=total_size, desc='total size', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
         # 发送文件
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.__threads, thread_name_prefix='Slave') as executor:
@@ -336,22 +338,22 @@ class FTC:
             if fails:
                 self.__pbar.colour = '#F44336'
                 self.__pbar.close()
-                self.logger.error("发送失败的文件：", highlight=1)
+                self.logger.error("Failed to sent: ", highlight=1)
                 for fail in fails:
                     self.logger.warning(fail)
             else:
                 self.__pbar.colour = '#98c379'
                 data_size, interval = self.__pbar.total, time.time() - self.__pbar.start_t
                 self.__pbar.close()
-                show_bandwidth('本次全部文件正常发送', data_size, interval=interval, logger=self.logger)
+                show_bandwidth('All files sent successfully', data_size, interval=interval, logger=self.logger)
             exceptions = [future.exception() for future in futures]
             if exceptions.count(None) != len(exceptions):
                 exceptions = '\n'.join(
                     [f'Thread-{idx}: {exception}' for idx, exception in enumerate(exceptions) if exception is not None])
-                self.logger.error(f"本次发送中出现的异常：\n{exceptions}", highlight=1)
+                self.logger.error(f"Exceptions occurred during this sending: \n{exceptions}", highlight=1)
 
     def __send_single_file(self, filename: Path):
-        self.logger.silent_write([f'\n[INFO   ] {get_log_msg(f"发送单个文件: {filename}")}\n'])
+        self.logger.silent_write([f'\n[INFO   ] {get_log_msg(f"Send a single file: {filename}")}\n'])
         self.__base_dir = filename.parent
         file_size = (file_stat := filename.stat()).st_size
         time_info = file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime
@@ -363,11 +365,11 @@ class FTC:
         if len(self.__finished_files) and self.__finished_files.pop() == filename.name:
             self.__pbar.colour = '#98c379'
             self.__pbar.close()
-            self.logger.success(f"{filename} 发送成功")
+            self.logger.success(f"{filename} sent successfully")
         else:
             self.__pbar.colour = '#F44336'
             self.__pbar.close()
-            self.logger.error(f"{filename} 发送失败")
+            self.logger.error(f"{filename} failed to send")
 
     def __send_large_file(self, conn: ESocket, position: int):
         while len(self.__large_file_info):
@@ -377,7 +379,7 @@ class FTC:
                 fp = open(real_path, 'rb')
                 conn.send_head(filename, COMMAND.SEND_LARGE_FILE, file_size)
                 if (flag := conn.recv_size()) == CONTROL.FAIL2OPEN:
-                    self.logger.error(f'对方接收文件失败：{real_path}', highlight=1)
+                    self.logger.error(f'Peer failed to receive the file: {real_path}', highlight=1)
                     return
                 # 服务端已有的文件大小
                 fp.seek(peer_exist_size := flag, 0)
@@ -398,7 +400,7 @@ class FTC:
             except (ssl.SSLError, ConnectionError) as error:
                 self.logger.error(error)
             except FileNotFoundError:
-                self.logger.error(f'文件打开失败：{real_path}')
+                self.logger.error(f'Failed to open: {real_path}')
 
     def __send_small_file(self, conn: ESocket, position: int):
         idx, real_path, files_info = 0, Path(""), []
@@ -407,7 +409,7 @@ class FTC:
                 total_size, num, files_info = self.__small_file_info.pop()
                 conn.send_head('', COMMAND.SEND_SMALL_FILE, total_size)
                 conn.send_with_compress(files_info)
-                with tqdm(total=total_size, desc='发送小文件簇', unit='bytes', unit_scale=True,
+                with tqdm(total=total_size, desc='small files chunk', unit='bytes', unit_scale=True,
                           mininterval=1, position=position, leave=False) as pbar:
                     for idx, (filename, file_size, _) in enumerate(files_info):
                         real_path = Path(self.__base_dir, filename)
@@ -418,7 +420,7 @@ class FTC:
             except (ssl.SSLError, ConnectionError) as error:
                 self.logger.error(error)
             except FileNotFoundError:
-                self.logger.error(f'文件打开失败：{real_path}')
+                self.logger.error(f'Failed to open: {real_path}')
             finally:
                 self.__finished_files.extend([filename for filename, _, _ in files_info[:idx + 1]])
 
@@ -445,7 +447,7 @@ class FTC:
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         ip, _ = get_ip_and_hostname()
         sk.bind((ip, config.client_signal_port))
-        self.logger.log(f'开始探测服务器信息')
+        self.logger.log(f'Start searching for servers')
         content = f'HI-I-AM-FTC_{ip}_{config.client_signal_port}'.encode(utf8)
         broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
         start = time.time()
@@ -465,9 +467,10 @@ class FTC:
         if len(addresses) == 1:
             self.__host = addresses.pop()
         else:
-            msg = ['当前可用主机列表：'] + [f'ip: {address}, hostname: {get_hostname_by_ip(address)}' for address in addresses]
+            msg = ['Available servers: ']
+            msg.extend([f'ip: {address}, hostname: {get_hostname_by_ip(address)}' for address in addresses])
             self.logger.log('\n'.join(msg))
-            self.__host = input('请输入主机名/ip: ')
+            self.__host = input('Please enter a hostname or ip address: ')
 
     def shutdown(self, send_close_info=True):
         try:
@@ -510,22 +513,22 @@ class FTC:
                 self.__main_conn = client_socket
                 msg, session_id = self.__validate_password(client_socket)
                 if msg == FAIL:
-                    self.logger.error('连接至服务器的密码错误', highlight=1)
+                    self.logger.error('Wrong password to connect to server', highlight=1)
                     self.shutdown(send_close_info=False)
                 else:
                     # self.logger.info(f'服务器所在平台: {msg}\n')
                     self.__peer_platform = msg
                     self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
                     self.__session_id = session_id
-                    self.logger.success(f'成功连接至服务器 {self.__host}:{config.server_port}')
+                    self.logger.success(f'Connected to the server {self.__host}:{config.server_port}')
         except (ssl.SSLError, OSError) as msg:
-            self.logger.error(f'连接至 {self.__host} 失败, {msg}')
+            self.logger.error(f'Failed to connect to the server {self.__host}, {msg}')
             sys.exit(-1)
 
     def start(self):
         self.__find_server()
         self.__connect()
-        self.logger.info(f'当前线程数：{self.__threads}')
+        self.logger.info(f'Current threads: {self.__threads}')
         try:
             while True:
                 command = input('>>> ').strip()
