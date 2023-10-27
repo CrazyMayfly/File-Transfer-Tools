@@ -188,13 +188,13 @@ class FTC:
             msgs.append(print_filename_if_exits(*arg))
         self.logger.silent_write(msgs)
         if not file_size_and_name_both_equal:
-            conn.sendall(size_struct.pack(CONTROL.CANCEL))
+            conn.send_size(CONTROL.CANCEL)
             return
         if input("Continue to compare hash for filename and size both equal set?(y/n): ") != 'y':
-            conn.sendall(size_struct.pack(CONTROL.CANCEL))
+            conn.send_size(CONTROL.CANCEL)
             return
         # 发送继续请求
-        conn.sendall(size_struct.pack(CONTROL.CONTINUE))
+        conn.send_size(CONTROL.CONTINUE)
         # 发送相同的文件名称
         conn.send_with_compress(file_size_and_name_both_equal)
         results = {filename: get_file_md5(PurePath(local_folder, filename)) for filename in
@@ -266,7 +266,7 @@ class FTC:
         upload_over = time.time()
         with tqdm(total=data_size, desc='speedtest_download', unit='bytes', unit_scale=True, mininterval=1) as pbar:
             for i in range(times):
-                conn.receive_data(data_unit)
+                conn.recv_data(data_unit)
                 pbar.update(data_unit)
         show_bandwidth('下载速度测试完毕', data_size, interval=time.time() - upload_over, logger=self.logger)
 

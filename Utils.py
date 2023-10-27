@@ -117,14 +117,20 @@ class ESocket:
 
     def __init__(self, conn: socket.socket):
         if conn is None:
-            raise ValueError('connection can not be None')
+            raise ValueError('Connection can not be None')
         self.__conn = conn
 
     def sendall(self, data: bytes):
         self.__conn.sendall(data)
 
-    def recv(self):
-        return self.__conn.recv(self.MAX_BUFFER_SIZE)
+    def send_size(self, size: int):
+        self.__conn.sendall(size_struct.pack(size))
+
+    def recv(self, size=MAX_BUFFER_SIZE):
+        data = self.__conn.recv(size)
+        if not data:
+            raise ConnectionDisappearedError('连接意外中止')
+        return data
 
     def getpeername(self):
         return self.__conn.getpeername()
@@ -136,38 +142,34 @@ class ESocket:
     def settimeout(self, value: float | None):
         self.__conn.settimeout(value)
 
-    def receive_data(self, size: int):
+    def recv_data(self, size: int):
         # 避免粘包
         result = bytearray()
         while size > 0:
-            data = self.__conn.recv(min(self.MAX_BUFFER_SIZE, size))
-            if data:
-                size -= len(data)
-                result += data
-            else:
-                raise ConnectionDisappearedError('连接意外中止')
+            size -= len(data := self.recv(min(self.MAX_BUFFER_SIZE, size)))
+            result += data
         return result
 
     def recv_size(self) -> int:
-        return size_struct.unpack(self.receive_data(size_struct.size))[0]
+        return size_struct.unpack(self.recv_data(size_struct.size))[0]
 
     def send_data_with_size(self, data: bytes):
-        self.__conn.sendall(size_struct.pack(len(data)))
+        self.send_size(len(data))
         self.__conn.sendall(data)
 
     def send_with_compress(self, data):
         self.send_data_with_size(lzma.compress(pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL), preset=9))
 
     def recv_with_decompress(self):
-        return pickle.loads(lzma.decompress(self.receive_data(self.recv_size())))
+        return pickle.loads(lzma.decompress(self.recv_data(self.recv_size())))
 
     def recv_head(self) -> tuple[str, str, int]:
         """
         接收文件头
         @return: 文件(夹)名等，命令，文件大小
         """
-        command, data_size, name_size = head_struct.unpack(self.receive_data(11))
-        filename = self.receive_data(name_size).decode(utf8) if name_size else ''
+        command, data_size, name_size = head_struct.unpack(self.recv_data(11))
+        filename = self.recv_data(name_size).decode(utf8) if name_size else ''
         return filename, command, data_size
 
     def send_head(self, name: str, command: int, size: int):

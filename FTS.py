@@ -178,12 +178,12 @@ class FTS:
         self.logger.info(f"客户端请求对比文件夹：{folder}")
         if not os.path.exists(folder):
             # 发送目录不存在
-            conn.sendall(size_struct.pack(CONTROL.CANCEL))
+            conn.send_size(CONTROL.CANCEL)
             return
-        conn.sendall(size_struct.pack(CONTROL.CANCEL))
+        conn.send_size(CONTROL.CONTINUE)
         # 将数组拼接成字符串发送到客户端
         conn.send_with_compress(get_relative_filename_from_basedir(folder))
-        if conn.receive_data(8)[0] != CONTROL.CONTINUE:
+        if conn.recv_size() != CONTROL.CONTINUE:
             return
         self.logger.log("继续对比文件Hash")
         file_size_and_name_both_equal = conn.recv_with_decompress()
@@ -208,7 +208,7 @@ class FTS:
         start = time.time()
         data_unit = 1000 * 1000
         for i in range(0, int(data_size / data_unit)):
-            conn.receive_data(data_unit)
+            conn.recv_data(data_unit)
         show_bandwidth('下载速度测试完毕', data_size, interval=time.time() - start, logger=self.logger)
         download_over = time.time()
         for i in range(0, int(data_size / data_unit)):
@@ -252,7 +252,7 @@ class FTS:
         try:
             msgs = []
             for filename, file_size, time_info in files_info:
-                real_path, data = Path(cur_dir, filename), conn.receive_data(file_size)
+                real_path, data = Path(cur_dir, filename), conn.recv_data(file_size)
                 real_path.write_bytes(data)
                 self.__modify_file_time(str(real_path), *time_info)
                 msgs.append(f'[SUCCESS] {get_log_msg("文件接收成功")}：{real_path}\n')
@@ -271,18 +271,14 @@ class FTS:
         try:
             with open(cur_download_file, 'ab') as fp:
                 rest_size = file_size - (size := os.path.getsize(cur_download_file))
-                conn.sendall(size_struct.pack(size))
-                while rest_size > 4096:
-                    data = conn.recv()
-                    if data:
-                        rest_size -= len(data)
-                        fp.write(data)
-                    else:
-                        raise ConnectionDisappearedError
-                fp.write(conn.receive_data(rest_size))
+                conn.send_size(size)
+                while rest_size > ESocket.MAX_BUFFER_SIZE:
+                    rest_size -= len(data := conn.recv())
+                    fp.write(data)
+                fp.write(conn.recv_data(rest_size))
             os.rename(cur_download_file, original_file)
             self.logger.success(f'文件接收成功：{original_file}')
-            timestamps = times_struct.unpack(conn.receive_data(times_struct.size))
+            timestamps = times_struct.unpack(conn.recv_data(times_struct.size))
             self.__modify_file_time(original_file, *timestamps)
         except ConnectionDisappearedError:
             self.logger.warning(f'客户端连接意外中止，文件接收失败：{original_file}')
