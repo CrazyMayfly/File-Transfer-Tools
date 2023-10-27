@@ -145,7 +145,7 @@ class ESocket:
     def recv_data(self, size: int):
         # 避免粘包
         result = bytearray()
-        while size > 0:
+        while size:
             size -= len(data := self.recv(min(self.MAX_BUFFER_SIZE, size)))
             result += data
         return result
@@ -168,7 +168,7 @@ class ESocket:
         接收文件头
         @return: 文件(夹)名等，命令，文件大小
         """
-        command, data_size, name_size = head_struct.unpack(self.recv_data(11))
+        command, data_size, name_size = head_struct.unpack(self.recv_data(head_struct.size))
         filename = self.recv_data(name_size).decode(utf8) if name_size else ''
         return filename, command, data_size
 

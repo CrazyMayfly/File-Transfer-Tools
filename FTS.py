@@ -271,7 +271,7 @@ class FTS:
             with open(cur_download_file, 'ab') as fp:
                 rest_size = file_size - (size := os.path.getsize(cur_download_file))
                 conn.send_size(size)
-                while rest_size > ESocket.MAX_BUFFER_SIZE:
+                while rest_size >> 12:
                     rest_size -= len(data := conn.recv())
                     fp.write(data)
                 fp.write(conn.recv_data(rest_size))
