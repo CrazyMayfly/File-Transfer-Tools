@@ -241,14 +241,9 @@ def get_log_msg(msg):
     return f'{now} {threading.current_thread().name:12} {msg}'
 
 
-def get_relative_filename_from_basedir(base_dir):
-    results = {}
-    for path, _, file_list in os.walk(base_dir):
-        for file in file_list:
-            # 将文件路径风格统一至Linux
-            results[PurePath(PurePath(path).relative_to(base_dir), file).as_posix()] = os.path.getsize(
-                PurePath(path, file))
-    return results
+def get_files_info_relative_to_basedir(base_dir):
+    return {(abspath := PurePath(path, file)).relative_to(base_dir).as_posix(): os.path.getsize(abspath)
+            for path, _, file_list in os.walk(base_dir) for file in file_list}
 
 
 def get_ip_and_hostname() -> (str, str):
@@ -274,9 +269,8 @@ def format_time(time_interval):
 
 
 def show_bandwidth(msg, data_size, interval, logger: Logger):
-    bandwidth = (data_size * 8 / interval) if interval != 0 else 0
-    logger.success(
-        f"{msg}, average bandwidth {get_size(bandwidth, factor=1000, suffix='bps')}, takes {format_time(interval)}")
+    avg_bandwidth = get_size((data_size * 8 / interval) if interval != 0 else 0, factor=1000, suffix='bps')
+    logger.success(f"{msg}, average bandwidth {avg_bandwidth}, takes {format_time(interval)}")
 
 
 def broadcast_to_all_interfaces(sk: socket.socket, port: int, content: bytes):
@@ -552,4 +546,4 @@ class Config:
 config: Final[Configration] = Config.load_config()
 
 if __name__ == '__main__':
-    print(get_relative_filename_from_basedir(input('>>> ')))
+    print(get_files_info_relative_to_basedir(input('>>> ')))

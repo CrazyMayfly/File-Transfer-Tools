@@ -181,7 +181,7 @@ class FTS:
             return
         conn.send_size(CONTROL.CONTINUE)
         # 将数组拼接成字符串发送到客户端
-        conn.send_with_compress(get_relative_filename_from_basedir(folder))
+        conn.send_with_compress(get_files_info_relative_to_basedir(folder))
         if conn.recv_size() != CONTROL.CONTINUE:
             return
         self.logger.log("Continue to compare hash")

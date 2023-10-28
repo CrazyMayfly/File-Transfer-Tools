@@ -155,7 +155,7 @@ class FTC:
 
     def __compare_folder(self, local_folder, peer_folder):
         conn: ESocket = self.__main_conn
-        local_dict = get_relative_filename_from_basedir(local_folder)
+        local_dict = get_files_info_relative_to_basedir(local_folder)
         # 获取本地的文件名
         local_filenames = local_dict.keys()
         # 将字符串转化为dict
