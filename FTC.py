@@ -7,6 +7,7 @@ import concurrent.futures
 from Utils import *
 from tqdm import tqdm
 from sys_info import *
+from functools import cache
 from pathlib import Path
 from collections import deque
 from shutil import get_terminal_size
@@ -23,9 +24,30 @@ def print_history(nums=10):
         print(readline.get_history_item(i))
 
 
+@cache
+def get_matches(line):
+    matches = [command for command in commands if command.startswith(line)]
+    if not line:
+        return matches
+    path, remainder = os.path.split(line)
+    if remainder == '..':
+        matches += [remainder + os.sep]
+    else:
+        folders, files = [], []
+        path = path or '.'
+        try:
+            for entry in os.scandir(path):
+                if (name := entry.name).startswith(remainder):
+                    folders.append(name + os.sep) if entry.is_dir() else files.append(name)
+            matches += folders + files
+        except (FileNotFoundError, PermissionError):
+            pass
+    return matches
+
+
 def completer(text, state):
-    options = [i for i in commands if i.startswith(text)]
-    return options[state] if state < len(options) else None
+    matches = get_matches(readline.get_line_buffer())
+    return matches[state] if state < len(matches) else None
 
 
 def print_filename_if_exists(prompt, filename_list):
