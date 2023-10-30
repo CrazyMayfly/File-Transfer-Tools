@@ -390,7 +390,7 @@ class FTS:
                     get_clipboard(main_conn, self.logger, filename, command, file_size, ftc=False)
                 case COMMAND.CLOSE:
                     if session.destroy():
-                        self.logger.info(f'{session.host} terminated the connection')
+                        self.logger.info(f'{session.host} closed the connection')
 
     def __route(self, conn: ESocket, host, port):
         """

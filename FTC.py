@@ -17,9 +17,9 @@ SMALL_FILE_CHUNK_SIZE = 1024 * 1024 * 2
 
 
 def print_history(nums=10):
-    current_history_length = readline.get_current_history_length()
-    start_index = current_history_length - nums + 1 if current_history_length > nums else 1
-    for i in range(start_index, current_history_length + 1):
+    current_length = readline.get_current_history_length()
+    start = max(1, current_length - nums + 1)
+    for i in range(start, current_length + 1):
         print(readline.get_history_item(i))
 
 
@@ -37,16 +37,6 @@ def print_filename_if_exists(prompt, filename_list):
     print('\n'.join(msg))
     msg.append('')
     return '\n'.join(msg)
-
-
-def split_dir(command):
-    """
-    将命令分割为两个目录名
-    """
-    dir_names = command[8:].split('"')
-    dir_names = dir_names[0].split(' ') if len(dir_names) == 1 else \
-        [dir_name.strip() for dir_name in dir_names if dir_name.strip()]
-    return dir_names if len(dir_names) == 2 else (None, None)
 
 
 def read_line_setup() -> Path:
@@ -68,15 +58,12 @@ def get_dir_file_name(filepath):
     :param filepath: 文件路径
     :return :返回该文件路径下的所有文件夹、文件的相对路径
     """
-    all_dir_name = {}
-    all_file_name = []
-    # 获取上一级文件夹名称
+    folders, files = {}, []
     for path, _, file_list in os.walk(filepath):
-        # 获取相对路径
         rel_path = os.path.relpath(path, filepath)
-        all_dir_name[rel_path] = os.path.getatime(path), os.path.getmtime(path)
-        all_file_name += [PurePath(rel_path, file).as_posix() for file in file_list]
-    return all_dir_name, all_file_name
+        folders[rel_path] = os.path.getatime(path), os.path.getmtime(path)
+        files += [PurePath(rel_path, file).as_posix() for file in file_list]
+    return folders, files
 
 
 def split_by_threshold(info):
@@ -121,8 +108,8 @@ class FTC:
         self.__session_id = 0
         self.__command_prefix = ''
         self.logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
-        self.__large_file_info: deque = deque()
-        self.__small_file_info: deque = deque()
+        self.__large_files_info: deque = deque()
+        self.__small_files_info: deque = deque()
         self.__finished_files: deque = deque()
         self.__history_file = open(read_line_setup(), 'a', encoding=utf8)
         # 进行日志归档
@@ -287,37 +274,37 @@ class FTC:
         self.__base_dir = folder
         # 发送文件夹命令
         conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
-        all_dir_name, all_file_name = get_dir_file_name(folder)
+        folders, files = get_dir_file_name(folder)
         # 发送文件夹数据
-        self.logger.info(f'Send folders under {folder}, number: {len(all_dir_name)}')
-        conn.send_with_compress(all_dir_name)
+        self.logger.info(f'Send folders under {folder}, number: {len(folders)}')
+        conn.send_with_compress(folders)
         # 将发送的文件夹信息写入日志
-        msgs = [f'{PurePath(folder, name).as_posix()}\n' for name in all_dir_name.keys()]
+        msgs = [f'{PurePath(folder, name).as_posix()}\n' for name in folders.keys()]
         # 接收对方已有的文件名并计算出对方没有的文件
-        all_file_name = list(set(all_file_name) - set(conn.recv_with_decompress()))
+        files = set(files) - set(conn.recv_with_decompress())
         # 将待发送的文件打印到日志，计算待发送的文件总大小
         msgs.append(f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n')
         # 统计待发送的文件信息
         total_size = 0
-        large_file_info, small_file_info = [], []
-        for filename in all_file_name:
-            real_path = Path(folder, filename)
+        large_files_info, small_files_info = [], []
+        for file in files:
+            real_path = Path(folder, file)
             file_size = (file_stat := real_path.stat()).st_size
-            info = filename, file_size, (file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
+            info = file, file_size, (file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
             # 记录每个文件大小
-            small_file_info.append(info) if file_size < LARGE_FILE_SIZE_THRESHOLD else large_file_info.append(info)
+            small_files_info.append(info) if file_size < LARGE_FILE_SIZE_THRESHOLD else large_files_info.append(info)
             total_size += file_size
             msgs.append("{}, about {}, {}\n".format(real_path, *calcu_size(file_size)))
         self.logger.silent_write(msgs)
-        random.shuffle(small_file_info)
-        self.__large_file_info = deque(sorted(large_file_info, key=lambda item: item[1]))
-        self.__small_file_info = deque(split_by_threshold(small_file_info))
-        return all_file_name, total_size
+        random.shuffle(small_files_info)
+        self.__large_files_info = deque(sorted(large_files_info, key=lambda item: item[1]))
+        self.__small_files_info = deque(split_by_threshold(small_files_info))
+        return files, total_size
 
     def __send_files_in_folder(self, folder):
         self.__connect(self.__threads)
-        all_file_name, total_size = self.__prepare_to_send(folder, self.__main_conn)
-        self.logger.info(f'Send files under {folder}, number: {len(all_file_name)}')
+        files, total_size = self.__prepare_to_send(folder, self.__main_conn)
+        self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
         self.__pbar = tqdm(total=total_size, desc='total size', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
@@ -332,7 +319,7 @@ class FTC:
         except (ssl.SSLError, ConnectionError) as error:
             self.logger.error(error)
         finally:
-            fails = set(all_file_name) - set(self.__finished_files)
+            fails = files - set(self.__finished_files)
             self.__finished_files.clear()
             # 比对发送失败的文件
             if fails:
@@ -357,11 +344,11 @@ class FTC:
         self.__base_dir = filename.parent
         file_size = (file_stat := filename.stat()).st_size
         time_info = file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime
-        self.__large_file_info.append((filename.name, file_size, time_info))
+        self.__large_files_info.append((filename.name, file_size, time_info))
         pbar_width = get_terminal_size().columns / 4
         self.__pbar = tqdm(total=file_size, desc=shorten_path(filename.name, pbar_width), unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
-        self.__send_large_file(self.__main_conn, 0)
+        self.__send_large_files(self.__main_conn, 0)
         if len(self.__finished_files) and self.__finished_files.pop() == filename.name:
             self.__pbar.colour = '#98c379'
             self.__pbar.close()
@@ -371,9 +358,9 @@ class FTC:
             self.__pbar.close()
             self.logger.error(f"{filename} failed to send")
 
-    def __send_large_file(self, conn: ESocket, position: int):
-        while len(self.__large_file_info):
-            filename, file_size, time_info = self.__large_file_info.pop()
+    def __send_large_files(self, conn: ESocket, position: int):
+        while len(self.__large_files_info):
+            filename, file_size, time_info = self.__large_files_info.pop()
             real_path = PurePath(self.__base_dir, filename)
             try:
                 fp = open(real_path, 'rb')
@@ -402,11 +389,11 @@ class FTC:
             except FileNotFoundError:
                 self.logger.error(f'Failed to open: {real_path}')
 
-    def __send_small_file(self, conn: ESocket, position: int):
+    def __send_small_files(self, conn: ESocket, position: int):
         idx, real_path, files_info = 0, Path(""), []
-        while len(self.__small_file_info):
+        while len(self.__small_files_info):
             try:
-                total_size, num, files_info = self.__small_file_info.pop()
+                total_size, num, files_info = self.__small_files_info.pop()
                 conn.send_head('', COMMAND.SEND_SMALL_FILE, total_size)
                 conn.send_with_compress(files_info)
                 with tqdm(total=total_size, desc='small files chunk', unit='bytes', unit_scale=True,
@@ -426,11 +413,11 @@ class FTC:
 
     def __send_file(self, conn: ESocket, position: int):
         if position < 3:
-            self.__send_large_file(conn, position)
-            self.__send_small_file(conn, position)
+            self.__send_large_files(conn, position)
+            self.__send_small_files(conn, position)
         else:
-            self.__send_small_file(conn, position)
-            self.__send_large_file(conn, position)
+            self.__send_small_files(conn, position)
+            self.__send_large_files(conn, position)
 
     def __validate_password(self, conn: ESocket):
         conn.send_head(self.__password, COMMAND.BEFORE_WORKING, self.__session_id)
