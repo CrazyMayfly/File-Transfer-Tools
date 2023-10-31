@@ -361,24 +361,24 @@ class FTC:
                     [f'Thread-{idx}: {exception}' for idx, exception in enumerate(exceptions) if exception is not None])
                 self.logger.error(f"Exceptions occurred during this sending: \n{exceptions}", highlight=1)
 
-    def __send_single_file(self, filename: Path):
-        self.logger.silent_write([f'\n[INFO   ] {get_log_msg(f"Send a single file: {filename}")}\n'])
-        self.__base_dir = filename.parent
-        file_size = (file_stat := filename.stat()).st_size
+    def __send_single_file(self, file: Path):
+        self.logger.silent_write([f'\n[INFO   ] {get_log_msg(f"Send a single file: {file}")}\n'])
+        self.__base_dir = file.parent
+        file_size = (file_stat := file.stat()).st_size
         time_info = file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime
-        self.__large_files_info.append((filename.name, file_size, time_info))
+        self.__large_files_info.append((file.name, file_size, time_info))
         pbar_width = get_terminal_size().columns / 4
-        self.__pbar = tqdm(total=file_size, desc=shorten_path(filename.name, pbar_width), unit='bytes',
+        self.__pbar = tqdm(total=file_size, desc=shorten_path(file.name, pbar_width), unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
         self.__send_large_files(self.__main_conn, 0)
-        if len(self.__finished_files) and self.__finished_files.pop() == filename.name:
+        if len(self.__finished_files) and self.__finished_files.pop() == file.name:
             self.__pbar.colour = '#98c379'
             self.__pbar.close()
-            self.logger.success(f"{filename} sent successfully")
+            self.logger.success(f"{file} sent successfully")
         else:
             self.__pbar.colour = '#F44336'
             self.__pbar.close()
-            self.logger.error(f"{filename} failed to send")
+            self.logger.error(f"{file} failed to send")
 
     def __send_large_files(self, conn: ESocket, position: int):
         while len(self.__large_files_info):
