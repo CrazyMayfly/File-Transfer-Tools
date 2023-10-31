@@ -99,7 +99,6 @@ class Logger:
     def silent_write(self, msgs: list):
         with self.__writing_lock:
             self.__writing_buffer.extend(msgs)
-        self.flush()
 
     def close(self):
         if self.__log_file.closed:

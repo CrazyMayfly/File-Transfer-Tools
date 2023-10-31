@@ -251,26 +251,24 @@ class FTS:
         try:
             msgs = []
             for filename, file_size, time_info in files_info:
-                real_path, data = Path(cur_dir, filename), conn.recv_data(file_size)
-                real_path.write_bytes(data)
+                real_path = Path(cur_dir, filename)
+                real_path.write_bytes(conn.recv_data(file_size))
                 self.__modify_file_time(str(real_path), *time_info)
                 msgs.append(f'[SUCCESS] {get_log_msg("Received")}: {real_path}\n')
             self.logger.success(f'Received small files chunk, number: {len(files_info)}')
             self.logger.silent_write(msgs)
         except ConnectionDisappearedError:
             self.logger.warning(f'Connection was terminated unexpectedly and reception failed: {real_path}')
-            real_path.unlink(True)
         except FileNotFoundError:
             self.logger.warning(f'File creation/opening failed that cannot be received: {real_path}', highlight=1)
-            real_path.unlink(True)
 
     def __recv_large_file(self, conn: ESocket, filename, file_size, session: Session):
-        real_path = PurePath(session.cur_dir, filename)
-        cur_download_file = (original_file := avoid_filename_duplication(str(real_path))) + '.ftsdownload'
+        original_file = avoid_filename_duplication(str(PurePath(session.cur_dir, filename)))
+        cur_download_file = f'{original_file}.ftsdownload'
         try:
             with open(cur_download_file, 'ab') as fp:
-                rest_size = file_size - (size := os.path.getsize(cur_download_file))
-                conn.send_size(size)
+                conn.send_size(size := os.path.getsize(cur_download_file))
+                rest_size = file_size - size
                 while rest_size >> 12:
                     rest_size -= len(data := conn.recv())
                     fp.write(data)
