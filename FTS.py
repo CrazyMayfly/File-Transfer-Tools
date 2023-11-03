@@ -363,7 +363,8 @@ class FTS:
         @param session: 本次会话
         """
         main_conn = session.main_conn
-        self.logger.info(f'Client connection: {main_conn.recv_head()[0]}({session.ip})')
+        peer_host = main_conn.recv_head()[0]
+        self.logger.info(f'Client connection: {peer_host}({session.ip})')
         while session.alive:
             filename, command, file_size = main_conn.recv_head()
             session.base_dir = Path.cwd() / self.__base_dir
@@ -387,7 +388,7 @@ class FTS:
                     get_clipboard(main_conn, self.logger, filename, command, file_size, ftc=False)
                 case COMMAND.CLOSE:
                     if session.destroy():
-                        self.logger.info(f'{session.ip} closed the connection')
+                        self.logger.info(f'{peer_host}({session.ip}) closed the connection')
 
     def __route(self, conn: ESocket, host, peer_ip, peer_port):
         """
@@ -396,13 +397,13 @@ class FTS:
         session_id = self.__before_working(conn, host)
         if not session_id:
             return
-        flag = False
+        first_connect = False
         with self.__sessions_lock:
             if session_id not in self.__sessions.keys():
                 self.__sessions[session_id] = self.Session(conn, peer_ip)
-                flag = True
+                first_connect = True
             self.__sessions[session_id].add_conn(conn)
-        if flag:
+        if first_connect:
             session = self.__sessions[session_id]
             try:
                 self.__master_work(session)

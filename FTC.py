@@ -163,41 +163,36 @@ class FTC:
 
     def __compare_folder(self, local_folder, peer_folder):
         conn: ESocket = self.__main_conn
-        local_dict = get_files_info_relative_to_basedir(local_folder)
-        # 获取本地的文件名
-        local_filenames = local_dict.keys()
+        local_files_info = get_files_info_relative_to_basedir(local_folder)
         # 将字符串转化为dict
-        peer_dict: dict = conn.recv_with_decompress()
+        peer_files_info: dict = conn.recv_with_decompress()
         # 求各种集合
-        files_smaller_than_peer = []
-        files_smaller_than_local = []
-        files_size_and_name_equal = []
-        files_not_exist_in_peer = []
-        for filename in local_filenames:
-            peer_size = peer_dict.pop(filename, -1)
+        files_smaller_than_peer, files_smaller_than_local, files_info_equal, files_not_exist_in_peer = [], [], [], []
+        for filename in local_files_info.keys():
+            peer_size = peer_files_info.pop(filename, -1)
             if peer_size == -1:
                 files_not_exist_in_peer.append(filename)
                 continue
-            size_diff = local_dict[filename] - peer_size
+            size_diff = local_files_info[filename] - peer_size
             if size_diff < 0:
                 files_smaller_than_peer.append(filename)
             elif size_diff == 0:
-                files_size_and_name_equal.append(filename)
+                files_info_equal.append(filename)
             else:
                 files_smaller_than_local.append(filename)
-        tmp = files_size_and_name_equal[:10] + ['(more hidden...)'] if len(
-            files_size_and_name_equal) > 10 else files_size_and_name_equal
-        file_not_exists_in_local = peer_dict.keys()
+        simplified_info = files_info_equal[:10] + ['(more hidden...)'] if len(
+            files_info_equal) > 10 else files_info_equal
+        file_not_exists_in_local = peer_files_info.keys()
         msgs = ['\n[INFO   ] ' + get_log_msg(
             f'Compare the differences between local folder {local_folder} and peer folder {peer_folder}\n')]
         for arg in [("files exist in peer but not in local: ", file_not_exists_in_local),
                     ("files exist in local but not in peer: ", files_not_exist_in_peer),
                     ("files in local smaller than peer: ", files_smaller_than_peer),
                     ("files in peer smaller than local: ", files_smaller_than_local),
-                    ("files name and size both equal in two sides: ", tmp)]:
+                    ("files name and size both equal in two sides: ", simplified_info)]:
             msgs.append(print_filename_if_exists(*arg))
         self.logger.silent_write(msgs)
-        if not files_size_and_name_equal:
+        if not files_info_equal:
             conn.send_size(CONTROL.CANCEL)
             return
         if input("Continue to compare hash for filename and size both equal set?(y/n): ").lower() != 'y':
@@ -206,13 +201,13 @@ class FTC:
         # 发送继续请求
         conn.send_size(CONTROL.CONTINUE)
         # 发送相同的文件名称
-        conn.send_with_compress(files_size_and_name_equal)
+        conn.send_with_compress(files_info_equal)
         results = {filename: get_file_md5(PurePath(local_folder, filename)) for filename in
-                   files_size_and_name_equal}
+                   files_info_equal}
         # 获取本次字符串大小
-        peer_dict = conn.recv_with_decompress()
+        peer_files_info = conn.recv_with_decompress()
         hash_not_matching = [filename for filename in results.keys() if
-                             results[filename] != peer_dict[filename]]
+                             results[filename] != peer_files_info[filename]]
         self.logger.silent_write([print_filename_if_exists("hash not matching: ", hash_not_matching)])
 
     def __update_global_pbar(self, size, decrease=False):
@@ -222,10 +217,10 @@ class FTC:
             else:
                 self.__pbar.total -= size
 
-    def __execute_command(self, command, peer_platform):
+    def __execute_command(self, command):
         if len(command) == 0:
             return
-        if peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
+        if self.__peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
             if command == 'powershell':
                 self.logger.info('use windows powershell')
                 self.__command_prefix = 'powershell '
@@ -508,7 +503,8 @@ class FTC:
                 msg, session_id = self.__validate_password(client_socket)
                 if nums == self.__threads:
                     # 首次连接
-                    return self.__first_connect(client_socket, host, msg, session_id)
+                    self.__first_connect(client_socket, host, msg, session_id)
+                    break
         except (ssl.SSLError, OSError) as msg:
             self.logger.error(f'Failed to connect to the server {self.__peer_host}, {msg}')
             sys.exit(-1)
@@ -521,15 +517,14 @@ class FTC:
             sys.exit(-1)
         else:
             # self.logger.info(f'服务器所在平台: {msg}\n')
-            peer_platform, peer_host = msg.split('_')
-            self.__command_prefix = 'powershell ' if peer_platform == WINDOWS else ''
+            self.__peer_platform, peer_host = msg.split('_')
+            self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
             self.__session_id = session_id
             self.logger.success(f'Connected to the server {peer_host}({self.__peer_host}:{config.server_port})')
             main_conn.send_head(host, COMMAND.BEFORE_WORKING, self.__session_id)
-            return peer_platform
 
     def start(self):
-        peer_platform = self.__connect(host=self.__find_server())
+        self.__connect(host=self.__find_server())
         self.logger.info(f'Current threads: {self.__threads}')
         try:
             while True:
@@ -555,7 +550,7 @@ class FTC:
                     print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
                         1].isdigit() else print_history()
                 else:
-                    self.__execute_command(command, peer_platform)
+                    self.__execute_command(command)
         except (ssl.SSLError, ConnectionError) as e:
             self.logger.error(e.strerror if e.strerror else e, highlight=1)
             self.logger.close()
