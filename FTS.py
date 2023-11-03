@@ -39,8 +39,8 @@ if platform_ == WINDOWS:
     from win_set_time import set_times
 
 
-def compact_host(host, appendix=''):
-    return str(socket.inet_aton(host).hex()) + appendix
+def compact_ip(ip, appendix=''):
+    return str(socket.inet_aton(ip).hex()) + appendix
 
 
 def avoid_filename_duplication(filename: str):
@@ -94,7 +94,6 @@ def get_args() -> Namespace:
 class FTS:
     def __init__(self, base_dir, password=''):
         self.__password = password
-        self.__ip = ''
         self.__base_dir: Path = Path(base_dir)
         self.__sessions = {}
         self.__sessions_lock = threading.Lock()
@@ -104,13 +103,13 @@ class FTS:
                          args=(config.log_dir, 'server', self.logger)).start()
 
     class Session:
-        def __init__(self, conn, host):
+        def __init__(self, conn, ip):
             self.main_conn: ESocket = conn
             self.conns: set[ESocket] = set()
             self.alive: bool = True
             self.base_dir: PurePath = PurePath()
             self.cur_rel_dir: PurePath = PurePath()
-            self.host: str = host
+            self.ip: str = ip
             self.__lock = threading.Lock()
 
         @property
@@ -234,7 +233,7 @@ class FTS:
         self.__makedirs(dirs_info.keys(), session.cur_dir)
         # 发送已存在的文件名
         main_conn.send_with_compress(files)
-        with concurrent.futures.ThreadPoolExecutor(thread_name_prefix=compact_host(session.host),
+        with concurrent.futures.ThreadPoolExecutor(thread_name_prefix=compact_ip(session.ip),
                                                    max_workers=len(session.conns)) as executor:
             futures = [executor.submit(self.__slave_work, conn, session) for conn in session.conns]
             concurrent.futures.wait(futures)
@@ -285,44 +284,44 @@ class FTS:
             self.logger.warning(f'File creation/opening failed that cannot be received: {original_file}', highlight=1)
             conn.sendall(size_struct.pack(CONTROL.FAIL2OPEN))
 
-    def __before_working(self, conn: ESocket):
+    def __before_working(self, conn: ESocket, host):
         """
         在传输之前的预处理
 
         @param conn: 当前连接
         @return: 若成功连接则返回本次连接的 session_id
         """
-        peer_host, peer_port = conn.getpeername()
+        peer_ip, peer_port = conn.getpeername()
         conn.settimeout(4)
         try:
             password, command, session_id = conn.recv_head()
         except (TimeoutError, struct.error) as error:
             conn.close()
             self.logger.warning(('Client {}:{} failed to verify the password in time' if isinstance(error, TimeoutError)
-                                 else 'Encountered unknown connection {}:{}').format(peer_host, peer_port))
+                                 else 'Encountered unknown connection {}:{}').format(peer_ip, peer_port))
             return
         conn.settimeout(None)
         if command != COMMAND.BEFORE_WORKING:
             conn.close()
             return
         # 校验密码, 密码正确则发送当前平台
-        msg = FAIL if password != self.__password else platform_
+        msg = FAIL if password != self.__password else f'{platform_}_{host}'
         session_id = uuid4().node if session_id == 0 else session_id
         conn.send_head(msg, COMMAND.BEFORE_WORKING, session_id)
         if password != self.__password:
             conn.close()
-            self.logger.warning(f'Client {peer_host}:{peer_port} password ("{password}") is wrong')
+            self.logger.warning(f'Client {peer_ip}:{peer_port} password ("{password}") is wrong')
             return
         return session_id
 
-    def __signal_online(self):
+    def __signal_online(self, ip, host):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         try:
             sk.bind(('0.0.0.0', config.server_signal_port))
         except OSError as e:
             self.logger.error(f'Failed to start the broadcast service: {e.strerror}')
             return
-        content = f'HI-I-AM-FTS_{self.__ip}'.encode(utf8)
+        content = f'HI-I-AM-FTS_{ip}_{host}'.encode(utf8)
         broadcast_to_all_interfaces(sk, config.client_signal_port, content)
         while True:
             try:
@@ -330,8 +329,8 @@ class FTS:
             except ConnectionResetError:
                 continue
             if data[0] == 'HI-I-AM-FTC':
-                target_ip, target_port = data[1], data[2]
-                self.logger.info(f'Received probe request from {target_ip}')
+                target_ip, target_port, target_host = data[1], data[2], data[3]
+                self.logger.info(f'Received probe request from {target_host}({target_ip})')
                 sk.sendto(content, (target_ip, int(target_port)))  # 单播
 
     def __slave_work(self, conn: ESocket, session):
@@ -354,17 +353,17 @@ class FTS:
             return
         except UnicodeDecodeError:
             if session.destroy():
-                self.logger.warning(f'{session.host} data flow abnormality, connection disconnected')
+                self.logger.warning(f'{session.ip} data flow abnormality, connection disconnected')
         except Exception as error:
             self.logger.error(f'{error}', highlight=1)
 
-    def __master_work(self, session):
+    def __master_work(self, session: Session):
         """
         主连接的工作
         @param session: 本次会话
         """
-        self.logger.info(f'Client connection: {get_hostname_by_ip(session.host)}({session.host})')
         main_conn = session.main_conn
+        self.logger.info(f'Client connection: {main_conn.recv_head()[0]}({session.ip})')
         while session.alive:
             filename, command, file_size = main_conn.recv_head()
             session.base_dir = Path.cwd() / self.__base_dir
@@ -388,19 +387,19 @@ class FTS:
                     get_clipboard(main_conn, self.logger, filename, command, file_size, ftc=False)
                 case COMMAND.CLOSE:
                     if session.destroy():
-                        self.logger.info(f'{session.host} closed the connection')
+                        self.logger.info(f'{session.ip} closed the connection')
 
-    def __route(self, conn: ESocket, host, port):
+    def __route(self, conn: ESocket, host, peer_ip, peer_port):
         """
         根据会话是否存在判断一个连接是否为主连接并进行路由
         """
-        session_id = self.__before_working(conn)
+        session_id = self.__before_working(conn, host)
         if not session_id:
             return
         flag = False
         with self.__sessions_lock:
             if session_id not in self.__sessions.keys():
-                self.__sessions[session_id] = self.Session(conn, host)
+                self.__sessions[session_id] = self.Session(conn, peer_ip)
                 flag = True
             self.__sessions[session_id].add_conn(conn)
         if flag:
@@ -408,12 +407,12 @@ class FTS:
             try:
                 self.__master_work(session)
             except ConnectionDisappearedError as e:
-                self.logger.warning(f'{host}:{port} {e}')
+                self.logger.warning(f'{peer_ip}:{peer_port} {e}')
             except ConnectionResetError as e:
-                self.logger.warning(f'{host}:{port} {e.strerror}')
+                self.logger.warning(f'{peer_ip}:{peer_port} {e.strerror}')
             except UnicodeDecodeError:
                 if session.destroy():
-                    self.logger.warning(f'{host} data flow abnormality, connection disconnected')
+                    self.logger.warning(f'{peer_ip} data flow abnormality, connection disconnected')
             except ssl.SSLEOFError as e:
                 self.logger.warning(e)
             finally:
@@ -421,14 +420,14 @@ class FTS:
                     self.__sessions.pop(session_id)
 
     def start(self):
-        self.__ip, host = get_ip_and_hostname()
+        ip, host = get_ip_and_hostname()
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(('0.0.0.0', config.server_port))
         server_socket.listen(9999)
-        self.logger.log(f'Server {host}({self.__ip}:{config.server_port}) started, waiting for connection...')
+        self.logger.log(f'Server {host}({ip}:{config.server_port}) started, waiting for connection...')
         self.logger.log('Current file storage location: ' + os.path.normcase(self.__base_dir))
-        threading.Thread(name='SignThread', daemon=True, target=self.__signal_online).start()
+        threading.Thread(name='SignThread', daemon=True, target=self.__signal_online, args=(ip, host)).start()
         threading.Thread(name='CBDThread ', daemon=True, target=self.__change_base_dir).start()
         # 加载服务器所用证书和私钥
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -436,9 +435,9 @@ class FTS:
         os.remove(cert_path)
         while True:
             try:
-                conn, (host, port) = server_socket.accept()
-                threading.Thread(name=compact_host(host, 'ma'), target=self.__route,
-                                 args=(ESocket(context.wrap_socket(conn, server_side=True)), host, port)).start()
+                conn, (ip, port) = server_socket.accept()
+                threading.Thread(name=compact_ip(ip, 'ma'), target=self.__route,
+                                 args=(ESocket(context.wrap_socket(conn, server_side=True)), host, ip, port)).start()
             except ssl.SSLError as e:
                 self.logger.warning(f'SSLError: {e.reason}')
 

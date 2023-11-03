@@ -118,14 +118,15 @@ def get_args() -> Namespace:
 
 
 class FTC:
-    def __init__(self, threads, host, password=''):
+    def __init__(self, threads, ip, password=''):
         self.__peer_platform = None
         self.__password = password
         self.__pbar = None
-        self.__host = host
+        self.__peer_ip = ip
+        self.__peer_host = ''
         self.__threads = threads
         self.__connections = []
-        self.__main_conn = None
+        self.__main_conn: ESocket = ...
         self.__base_dir = ''
         self.__session_id = 0
         self.__command_prefix = ''
@@ -324,7 +325,7 @@ class FTC:
         return files, total_size
 
     def __send_files_in_folder(self, folder):
-        self.__connect(self.__threads)
+        self.__connect(nums=self.__threads)
         files, total_size = self.__prepare_to_send(folder, self.__main_conn)
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
@@ -447,17 +448,16 @@ class FTC:
         return msg, session_id
 
     def __find_server(self, wait=1):
-        if self.__host:
-            splits = self.__host.split(":")
-            if len(splits) == 2:
+        ip, host = get_ip_and_hostname()
+        if self.__peer_ip:
+            if len(splits := self.__peer_ip.split(":")) == 2:
                 config.server_port = int(splits[1])
-                self.__host = splits[0]
-            return
+                self.__peer_ip = splits[0]
+            return host
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-        ip, _ = get_ip_and_hostname()
         sk.bind((ip, config.client_signal_port))
         self.logger.log(f'Start searching for servers')
-        content = f'HI-I-AM-FTC_{ip}_{config.client_signal_port}'.encode(utf8)
+        content = f'HI-I-AM-FTC_{ip}_{config.client_signal_port}_{host}'.encode(utf8)
         broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
         start = time.time()
         addresses = set()
@@ -467,19 +467,20 @@ class FTC:
                     continue
                 data = sk.recv(1024).decode(utf8).split('_')
                 if data[0] == 'HI-I-AM-FTS':
-                    addresses.add(data[1])
+                    addresses.add((data[1], data[2]))
             sk.close()
         except KeyboardInterrupt:
             self.logger.close()
             self.__history_file.close()
             sys.exit(0)
         if len(addresses) == 1:
-            self.__host = addresses.pop()
+            self.__peer_ip, self.__peer_host = addresses.pop()
         else:
             msg = ['Available servers: ']
-            msg.extend([f'ip: {address}, hostname: {get_hostname_by_ip(address)}' for address in addresses])
+            msg.extend([f'ip: {peer_ip}, hostname: {peer_host}' for peer_ip, peer_host in addresses])
             self.logger.log('\n'.join(msg))
-            self.__host = input('Please enter a hostname or ip address: ')
+            self.__peer_ip = input('Please enter a hostname or ip address: ')
+        return host
 
     def shutdown(self, send_close_info=True):
         try:
@@ -493,7 +494,7 @@ class FTC:
             self.logger.close()
             self.__history_file.close()
 
-    def __connect(self, nums=1):
+    def __connect(self, host=None, nums=1, first_connect=False):
         """
         将现有的连接数量扩充至nums
 
@@ -510,11 +511,11 @@ class FTC:
             for i in range(0, additional_conn_nums):
                 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 # 连接至服务器
-                client_socket.connect((self.__host, config.server_port))
+                client_socket.connect((self.__peer_ip, config.server_port))
                 # 将socket包装为securitySocket
                 client_socket = ESocket(context.wrap_socket(client_socket, server_hostname='FTS'))
                 self.__connections.append(client_socket)
-                if self.__main_conn:
+                if self.__main_conn is not ...:
                     # 验证密码
                     self.__validate_password(client_socket)
                     continue
@@ -526,17 +527,17 @@ class FTC:
                     self.shutdown(send_close_info=False)
                 else:
                     # self.logger.info(f'服务器所在平台: {msg}\n')
-                    self.__peer_platform = msg
+                    self.__peer_platform, peer_host = msg.split('_')
                     self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
                     self.__session_id = session_id
-                    self.logger.success(f'Connected to the server {self.__host}:{config.server_port}')
+                    self.logger.success(f'Connected to the server {peer_host}({self.__peer_ip}:{config.server_port})')
+                    client_socket.send_head(host, COMMAND.BEFORE_WORKING, self.__session_id)
         except (ssl.SSLError, OSError) as msg:
-            self.logger.error(f'Failed to connect to the server {self.__host}, {msg}')
+            self.logger.error(f'Failed to connect to the server {self.__peer_ip}, {msg}')
             sys.exit(-1)
 
     def start(self):
-        self.__find_server()
-        self.__connect()
+        self.__connect(host=self.__find_server(),first_connect=True)
         self.logger.info(f'Current threads: {self.__threads}')
         try:
             while True:
@@ -574,7 +575,7 @@ class FTC:
 if __name__ == '__main__':
     args = get_args()
     # 启动FTC服务
-    ftc = FTC(threads=args.t, host=args.host, password=args.password)
+    ftc = FTC(threads=args.t, ip=args.host, password=args.password)
     ftc.start()
     if packaging:
         os.system('pause')
