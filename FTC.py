@@ -118,16 +118,14 @@ def get_args() -> Namespace:
 
 
 class FTC:
-    def __init__(self, threads, ip, password=''):
-        self.__peer_platform = None
+    def __init__(self, threads, host, password=''):
         self.__password = password
-        self.__pbar = None
-        self.__peer_ip = ip
-        self.__peer_host = ''
+        self.__pbar = ...
+        self.__peer_host = host
         self.__threads = threads
         self.__connections = []
         self.__main_conn: ESocket = ...
-        self.__base_dir = ''
+        self.__base_dir = ...
         self.__session_id = 0
         self.__command_prefix = ''
         self.logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
@@ -224,10 +222,10 @@ class FTC:
             else:
                 self.__pbar.total -= size
 
-    def __execute_command(self, command):
+    def __execute_command(self, command, peer_platform):
         if len(command) == 0:
             return
-        if self.__peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
+        if peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
             if command == 'powershell':
                 self.logger.info('use windows powershell')
                 self.__command_prefix = 'powershell '
@@ -293,7 +291,6 @@ class FTC:
         func(self.__main_conn, self.logger)
 
     def __prepare_to_send(self, folder, conn: ESocket):
-        # 扩充连接
         self.__base_dir = folder
         # 发送文件夹命令
         conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
@@ -325,7 +322,7 @@ class FTC:
         return files, total_size
 
     def __send_files_in_folder(self, folder):
-        self.__connect(nums=self.__threads)
+        self.__connect()
         files, total_size = self.__prepare_to_send(folder, self.__main_conn)
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
@@ -449,10 +446,10 @@ class FTC:
 
     def __find_server(self, wait=1):
         ip, host = get_ip_and_hostname()
-        if self.__peer_ip:
-            if len(splits := self.__peer_ip.split(":")) == 2:
+        if self.__peer_host:
+            if len(splits := self.__peer_host.split(":")) == 2:
                 config.server_port = int(splits[1])
-                self.__peer_ip = splits[0]
+                self.__peer_host = splits[0]
             return host
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         sk.bind((ip, config.client_signal_port))
@@ -474,12 +471,12 @@ class FTC:
             self.__history_file.close()
             sys.exit(0)
         if len(addresses) == 1:
-            self.__peer_ip, self.__peer_host = addresses.pop()
+            self.__peer_host, _ = addresses.pop()
         else:
             msg = ['Available servers: ']
             msg.extend([f'ip: {peer_ip}, hostname: {peer_host}' for peer_ip, peer_host in addresses])
             self.logger.log('\n'.join(msg))
-            self.__peer_ip = input('Please enter a hostname or ip address: ')
+            self.__peer_host = input('Please enter a hostname or ip address: ')
         return host
 
     def shutdown(self, send_close_info=True):
@@ -494,50 +491,45 @@ class FTC:
             self.logger.close()
             self.__history_file.close()
 
-    def __connect(self, host=None, nums=1, first_connect=False):
-        """
-        将现有的连接数量扩充至nums
-
-        @param nums: 需要扩充到的连接数
-        @return:
-        """
-        additional_conn_nums = nums - len(self.__connections)
-        if additional_conn_nums <= 0:
+    def __connect(self, host=None):
+        if not (nums := self.__threads - len(self.__connections)):
             return
         try:
             context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
-            for i in range(0, additional_conn_nums):
+            for i in range(0, nums):
                 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 # 连接至服务器
-                client_socket.connect((self.__peer_ip, config.server_port))
+                client_socket.connect((self.__peer_host, config.server_port))
                 # 将socket包装为securitySocket
                 client_socket = ESocket(context.wrap_socket(client_socket, server_hostname='FTS'))
                 self.__connections.append(client_socket)
-                if self.__main_conn is not ...:
-                    # 验证密码
-                    self.__validate_password(client_socket)
-                    continue
-                # 首次连接
-                self.__main_conn = client_socket
                 msg, session_id = self.__validate_password(client_socket)
-                if msg == FAIL:
-                    self.logger.error('Wrong password to connect to server', highlight=1)
-                    self.shutdown(send_close_info=False)
-                else:
-                    # self.logger.info(f'服务器所在平台: {msg}\n')
-                    self.__peer_platform, peer_host = msg.split('_')
-                    self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
-                    self.__session_id = session_id
-                    self.logger.success(f'Connected to the server {peer_host}({self.__peer_ip}:{config.server_port})')
-                    client_socket.send_head(host, COMMAND.BEFORE_WORKING, self.__session_id)
+                if nums == self.__threads:
+                    # 首次连接
+                    return self.__first_connect(client_socket, host, msg, session_id)
         except (ssl.SSLError, OSError) as msg:
-            self.logger.error(f'Failed to connect to the server {self.__peer_ip}, {msg}')
+            self.logger.error(f'Failed to connect to the server {self.__peer_host}, {msg}')
             sys.exit(-1)
 
+    def __first_connect(self, main_conn, host, msg, session_id):
+        self.__main_conn = main_conn
+        if msg == FAIL:
+            self.logger.error('Wrong password to connect to server', highlight=1)
+            self.shutdown(send_close_info=False)
+            sys.exit(-1)
+        else:
+            # self.logger.info(f'服务器所在平台: {msg}\n')
+            peer_platform, peer_host = msg.split('_')
+            self.__command_prefix = 'powershell ' if peer_platform == WINDOWS else ''
+            self.__session_id = session_id
+            self.logger.success(f'Connected to the server {peer_host}({self.__peer_host}:{config.server_port})')
+            main_conn.send_head(host, COMMAND.BEFORE_WORKING, self.__session_id)
+            return peer_platform
+
     def start(self):
-        self.__connect(host=self.__find_server(),first_connect=True)
+        peer_platform = self.__connect(host=self.__find_server())
         self.logger.info(f'Current threads: {self.__threads}')
         try:
             while True:
@@ -563,7 +555,7 @@ class FTC:
                     print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
                         1].isdigit() else print_history()
                 else:
-                    self.__execute_command(command)
+                    self.__execute_command(command, peer_platform)
         except (ssl.SSLError, ConnectionError) as e:
             self.logger.error(e.strerror if e.strerror else e, highlight=1)
             self.logger.close()
@@ -575,7 +567,7 @@ class FTC:
 if __name__ == '__main__':
     args = get_args()
     # 启动FTC服务
-    ftc = FTC(threads=args.t, ip=args.host, password=args.password)
+    ftc = FTC(threads=args.t, host=args.host, password=args.password)
     ftc.start()
     if packaging:
         os.system('pause')
