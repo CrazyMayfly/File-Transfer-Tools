@@ -77,83 +77,13 @@ def create_folder_if_not_exist(folder: Path, logger: Logger) -> bool:
     return True
 
 
-def get_args() -> Namespace:
-    """
-    获取命令行参数解析器
-    """
-    parser = ArgumentParser(
-        description='File Transfer Server, used to RECEIVE files and EXECUTE instructions.')
-    default_path = Path(config.default_path).expanduser()
-    parser.add_argument('-d', '--dest', metavar='base_dir', type=Path,
-                        help='File save location (default: {})'.format(default_path), default=default_path)
-    parser.add_argument('-p', '--password', metavar='password', type=str,
-                        help='Set a password for the host.', default='')
-    return parser.parse_args()
-
-
 class FTS:
-    def __init__(self, base_dir, password=''):
-        self.__password = password
-        self.__base_dir: Path = Path(base_dir)
-        self.__sessions = {}
-        self.__sessions_lock = threading.Lock()
-        self.logger = Logger(Path(config.log_dir, f'{datetime.now():%Y_%m_%d}_server.log'))
-        # 进行日志归档
-        threading.Thread(name='ArchThread', target=compress_log_files,
-                         args=(config.log_dir, 'server', self.logger)).start()
-
-    class Session:
-        def __init__(self, conn, ip):
-            self.main_conn: ESocket = conn
-            self.conns: set[ESocket] = set()
-            self.alive: bool = True
-            self.base_dir: PurePath = PurePath()
-            self.cur_rel_dir: PurePath = PurePath()
-            self.ip: str = ip
-            self.__lock = threading.Lock()
-
-        @property
-        def cur_dir(self) -> Path:
-            return Path(self.base_dir, self.cur_rel_dir)
-
-        def add_conn(self, conn: ESocket):
-            self.conns.add(conn)
-
-        def reset(self):
-            self.base_dir = PurePath()
-            self.cur_rel_dir = PurePath()
-
-        def destroy(self) -> bool:
-            """
-            销毁会话
-            @return: 销毁前会话状态
-            """
-            with self.__lock:
-                if not self.alive:
-                    return False
-                self.alive = False
-                for conn in self.conns:
-                    conn.close()
-                self.conns.clear()
-                return True
-
-    def __change_base_dir(self):
-        """
-        切换FTS的文件保存目录
-        """
-        while True:
-            try:
-                new_base_dir = input('>>> ')
-            except (EOFError, UnicodeDecodeError):
-                self.logger.close()
-                os.kill(os.getpid(), signal.SIGINT)
-                break
-            if not new_base_dir or new_base_dir.isspace():
-                continue
-            new_base_dir = Path(new_base_dir).expanduser().absolute()
-            if create_folder_if_not_exist(new_base_dir, self.logger):
-                self.__base_dir = new_base_dir
-                self.logger.success(f'File save location changed to: {self.__base_dir}')
+    def __init__(self, base_dir, logger, connections, executor):
+        self.executor = executor
+        self.main_conn = connections.pop()
+        self.connections = connections
+        self.base_dir: Path = Path(base_dir)
+        self.logger = logger
 
     def __modify_file_time(self, file_path: str, create_timestamp: float, modify_timestamp: float,
                            access_timestamp: float):
@@ -223,30 +153,27 @@ class FTS:
             except FileNotFoundError:
                 self.logger.error(f'Failed to create folder {cur_dir}', highlight=1)
 
-    def __recv_files_in_folder(self, session: Session):
+    def __recv_files_in_folder(self, cur_dir):
         files = []
-        if session.cur_dir.exists():
-            for path, _, file_list in os.walk(session.cur_dir):
-                files += [PurePath(PurePath(path).relative_to(session.cur_dir), file).as_posix() for file in file_list]
-        main_conn = session.main_conn
+        if cur_dir.exists():
+            for path, _, file_list in os.walk(cur_dir):
+                files += [PurePath(PurePath(path).relative_to(cur_dir), file).as_posix() for file in file_list]
+        main_conn = self.main_conn
         dirs_info: dict = main_conn.recv_with_decompress()
-        self.__makedirs(dirs_info.keys(), session.cur_dir)
+        self.__makedirs(dirs_info.keys(), cur_dir)
         # 发送已存在的文件名
         main_conn.send_with_compress(files)
-        with concurrent.futures.ThreadPoolExecutor(thread_name_prefix=compact_ip(session.ip),
-                                                   max_workers=len(session.conns)) as executor:
-            futures = [executor.submit(self.__slave_work, conn, session) for conn in session.conns]
-            concurrent.futures.wait(futures)
+        futures = [self.executor.submit(self.__slave_work, conn, cur_dir) for conn in self.connections]
+        concurrent.futures.wait(futures)
         for dir_name, times in dirs_info.items():
-            cur_dir = PurePath(session.cur_dir, dir_name)
+            cur_dir = PurePath(cur_dir, dir_name)
             try:
                 os.utime(path=cur_dir, times=times)
             except Exception as error:
                 self.logger.warning(f'Folder {cur_dir} time modification failed, {error}', highlight=1)
-        session.reset()
 
-    def __recv_small_files(self, conn: ESocket, files_info, session: Session):
-        cur_dir, real_path = session.cur_dir, Path("")
+    def __recv_small_files(self, conn: ESocket, cur_dir, files_info):
+        real_path = Path("")
         try:
             msgs = []
             for filename, file_size, time_info in files_info:
@@ -261,8 +188,8 @@ class FTS:
         except FileNotFoundError:
             self.logger.warning(f'File creation/opening failed that cannot be received: {real_path}', highlight=1)
 
-    def __recv_large_file(self, conn: ESocket, filename, file_size, session: Session):
-        original_file = avoid_filename_duplication(str(PurePath(session.cur_dir, filename)))
+    def __recv_large_file(self, conn: ESocket, cur_dir, filename, file_size):
+        original_file = avoid_filename_duplication(str(PurePath(cur_dir, filename)))
         cur_download_file = f'{original_file}.ftsdownload'
         try:
             with open(cur_download_file, 'ab') as fp:
@@ -284,168 +211,54 @@ class FTS:
             self.logger.warning(f'File creation/opening failed that cannot be received: {original_file}', highlight=1)
             conn.sendall(size_struct.pack(CONTROL.FAIL2OPEN))
 
-    def __before_working(self, conn: ESocket, host):
-        """
-        在传输之前的预处理
-
-        @param conn: 当前连接
-        @return: 若成功连接则返回本次连接的 session_id
-        """
-        peer_ip, peer_port = conn.getpeername()
-        conn.settimeout(4)
-        try:
-            password, command, session_id = conn.recv_head()
-        except (TimeoutError, struct.error) as error:
-            conn.close()
-            self.logger.warning(('Client {}:{} failed to verify the password in time' if isinstance(error, TimeoutError)
-                                 else 'Encountered unknown connection {}:{}').format(peer_ip, peer_port))
-            return
-        conn.settimeout(None)
-        if command != COMMAND.BEFORE_WORKING:
-            conn.close()
-            return
-        # 校验密码, 密码正确则发送当前平台
-        msg = FAIL if password != self.__password else f'{platform_}_{host}'
-        session_id = uuid4().node if session_id == 0 else session_id
-        conn.send_head(msg, COMMAND.BEFORE_WORKING, session_id)
-        if password != self.__password:
-            conn.close()
-            self.logger.warning(f'Client {peer_ip}:{peer_port} password ("{password}") is wrong')
-            return
-        return session_id
-
-    def __signal_online(self, ip, host):
-        sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-        try:
-            sk.bind(('0.0.0.0', config.server_signal_port))
-        except OSError as e:
-            self.logger.error(f'Failed to start the broadcast service: {e.strerror}')
-            return
-        content = f'HI-I-AM-FTS_{ip}_{host}'.encode(utf8)
-        broadcast_to_all_interfaces(sk, config.client_signal_port, content)
-        while True:
-            try:
-                data = sk.recv(1024).decode(utf8).split('_')
-            except ConnectionResetError:
-                continue
-            if data[0] == 'HI-I-AM-FTC':
-                target_ip, target_port, target_host = data[1], data[2], data[3]
-                self.logger.info(f'Received probe request from {target_host}({target_ip})')
-                sk.sendto(content, (target_ip, int(target_port)))  # 单播
-
-    def __slave_work(self, conn: ESocket, session):
+    def __slave_work(self, conn: ESocket, cur_dir):
         """
         从连接的工作，只用于处理多文件接收
 
         @param conn: 从连接
-        @param session: 本次会话
         """
         try:
             while True:
                 filename, command, file_size = conn.recv_head()
                 if command == COMMAND.SEND_LARGE_FILE:
-                    self.__recv_large_file(conn, filename, file_size, session)
+                    self.__recv_large_file(conn, cur_dir, filename, file_size)
                 elif command == COMMAND.SEND_SMALL_FILE:
-                    self.__recv_small_files(conn, conn.recv_with_decompress(), session)
+                    self.__recv_small_files(conn, cur_dir, conn.recv_with_decompress())
                 elif command == COMMAND.FINISH:
                     break
         except ConnectionError:
             return
-        except UnicodeDecodeError:
-            if session.destroy():
-                self.logger.warning(f'{session.ip} data flow abnormality, connection disconnected')
-        except Exception as error:
-            self.logger.error(f'{error}', highlight=1)
+        except Exception as e:
+            msg = 'Peer data flow abnormality, connection disconnected' if isinstance(e, UnicodeDecodeError) else str(e)
+            self.logger.error(msg, highlight=1)
 
-    def __master_work(self, session: Session):
+    def execute(self, filename, command, file_size):
         """
         主连接的工作
-        @param session: 本次会话
         """
-        main_conn = session.main_conn
-        peer_host = main_conn.recv_head()[0]
-        self.logger.info(f'Client connection: {peer_host}({session.ip})')
-        while session.alive:
-            filename, command, file_size = main_conn.recv_head()
-            session.base_dir = Path.cwd() / self.__base_dir
-            match command:
-                case COMMAND.SEND_FILES_IN_FOLDER:
-                    session.cur_rel_dir = filename
-                    self.__recv_files_in_folder(session)
-                case COMMAND.SEND_LARGE_FILE:
-                    self.__recv_large_file(main_conn, filename, file_size, session)
-                case COMMAND.COMPARE_FOLDER:
-                    self.__compare_folder(main_conn, filename)
-                case COMMAND.EXECUTE_COMMAND:
-                    self.__execute_command(main_conn, filename)
-                case COMMAND.SYSINFO:
-                    main_conn.send_with_compress(get_sys_info())
-                case COMMAND.SPEEDTEST:
-                    self.__speedtest(main_conn, file_size)
-                case COMMAND.PULL_CLIPBOARD:
-                    send_clipboard(main_conn, self.logger, ftc=False)
-                case COMMAND.PUSH_CLIPBOARD:
-                    get_clipboard(main_conn, self.logger, filename, command, file_size, ftc=False)
-                case COMMAND.CLOSE:
-                    if session.destroy():
-                        self.logger.info(f'{peer_host}({session.ip}) closed the connection')
-
-    def __route(self, conn: ESocket, host, peer_ip, peer_port):
-        """
-        根据会话是否存在判断一个连接是否为主连接并进行路由
-        """
-        session_id = self.__before_working(conn, host)
-        if not session_id:
-            return
-        first_connect = False
-        with self.__sessions_lock:
-            if session_id not in self.__sessions.keys():
-                self.__sessions[session_id] = self.Session(conn, peer_ip)
-                first_connect = True
-            self.__sessions[session_id].add_conn(conn)
-        if first_connect:
-            session = self.__sessions[session_id]
-            try:
-                self.__master_work(session)
-            except ConnectionDisappearedError as e:
-                self.logger.warning(f'{peer_ip}:{peer_port} {e}')
-            except ConnectionResetError as e:
-                self.logger.warning(f'{peer_ip}:{peer_port} {e.strerror}')
-            except UnicodeDecodeError:
-                if session.destroy():
-                    self.logger.warning(f'{peer_ip} data flow abnormality, connection disconnected')
-            except ssl.SSLEOFError as e:
-                self.logger.warning(e)
-            finally:
-                with self.__sessions_lock:
-                    self.__sessions.pop(session_id)
-
-    def start(self):
-        ip, host = get_ip_and_hostname()
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind(('0.0.0.0', config.server_port))
-        server_socket.listen(9999)
-        self.logger.log(f'Server {host}({ip}:{config.server_port}) started, waiting for connection...')
-        self.logger.log('Current file storage location: ' + os.path.normcase(self.__base_dir))
-        threading.Thread(name='SignThread', daemon=True, target=self.__signal_online, args=(ip, host)).start()
-        threading.Thread(name='CBDThread ', daemon=True, target=self.__change_base_dir).start()
-        # 加载服务器所用证书和私钥
-        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        context.load_cert_chain(cert_path := generate_cert())
-        os.remove(cert_path)
-        while True:
-            try:
-                conn, (ip, port) = server_socket.accept()
-                threading.Thread(name=compact_ip(ip, 'ma'), target=self.__route,
-                                 args=(ESocket(context.wrap_socket(conn, server_side=True)), host, ip, port)).start()
-            except ssl.SSLError as e:
-                self.logger.warning(f'SSLError: {e.reason}')
+        match command:
+            case COMMAND.SEND_FILES_IN_FOLDER:
+                self.__recv_files_in_folder(Path(self.base_dir, filename))
+            case COMMAND.SEND_LARGE_FILE:
+                self.__recv_large_file(self.main_conn, self.base_dir, filename, file_size)
+            case COMMAND.COMPARE_FOLDER:
+                self.__compare_folder(self.main_conn, filename)
+            case COMMAND.EXECUTE_COMMAND:
+                self.__execute_command(self.main_conn, filename)
+            case COMMAND.SYSINFO:
+                self.main_conn.send_with_compress(get_sys_info())
+            case COMMAND.SPEEDTEST:
+                self.__speedtest(self.main_conn, file_size)
+            case COMMAND.PULL_CLIPBOARD:
+                send_clipboard(self.main_conn, self.logger, ftc=False)
+            case COMMAND.PUSH_CLIPBOARD:
+                get_clipboard(self.main_conn, self.logger, filename, command, file_size, ftc=False)
 
 
 if __name__ == '__main__':
-    args = get_args()
-    fts = FTS(base_dir=args.dest, password=args.password)
-    if not create_folder_if_not_exist(args.dest, fts.logger):
-        sys.exit(-1)
-    fts.start()
+    # args = get_args()
+    # fts = FTS(base_dir=args.dest, password=args.password)
+    # if not create_folder_if_not_exist(args.dest, fts.logger):
+    #     sys.exit(-1)
+    # fts.start()
+    pass

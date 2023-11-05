@@ -421,10 +421,11 @@ unit: Final[int] = 1024 * 1024 * 2  # 2MB
 sysinfo = 'sysinfo'
 compare = "compare"
 speedtest = 'speedtest'
+setbase = 'setbase'
 history = 'history'
 clipboard_send = 'send clipboard'
 clipboard_get = 'get clipboard'
-commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, clipboard_get]
+commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, clipboard_get,setbase]
 
 # Struct 对象
 # B为 1字节 unsigned char，0~127

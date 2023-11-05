@@ -102,45 +102,20 @@ def split_by_threshold(info):
     return result
 
 
-def ftc_get_args() -> Namespace:
-    """
-    获取命令行参数解析器
-    """
-    parser = ArgumentParser(description='File Transfer Client, used to SEND files and instructions.')
-    cpu_count = psutil.cpu_count(logical=False)
-    parser.add_argument('-t', metavar='thread', type=int,
-                        help=f'threads (default: {cpu_count})', default=cpu_count)
-    parser.add_argument('-host', metavar='host',
-                        help='destination hostname or ip address', default='')
-    parser.add_argument('-p', '--password', metavar='password', type=str,
-                        help='Use a password to connect host.', default='')
-    return parser.parse_args()
-
-
 class FTC:
-    def __init__(self, threads, host, password=''):
-        self.__password = password
+    def __init__(self, connections, peer_platform, logger, executor):
         self.__pbar = ...
-        self.__peer_host = host
-        self.__threads = threads
-        self.__connections = []
-        self.__main_conn: ESocket = ...
+        self.__main_conn: ESocket = connections.pop()
+        self.__connections = connections
+        self.__peer_platform = peer_platform
+        self.__executor = executor
         self.__base_dir = ...
-        self.__session_id = 0
-        self.__command_prefix = ''
-        self.logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_client.log'))
+        self.__command_prefix = 'powershell ' if peer_platform == WINDOWS else ''
+        self.logger = logger
         self.__large_files_info: deque = deque()
         self.__small_files_info: deque = deque()
         self.__finished_files: deque = deque()
-        self.__history_file = open(read_line_setup(), 'a', encoding=utf8)
-        # 进行日志归档
-        threading.Thread(name='ArchiveThread', target=compress_log_files,
-                         args=(config.log_dir, 'client', self.logger)).start()
 
-    def __add_history(self, command: str):
-        readline.add_history(command)
-        self.__history_file.write(command + '\n')
-        self.__history_file.flush()
 
     def __prepare_to_compare(self, command):
         folders = command[8:].split('"')
@@ -317,17 +292,15 @@ class FTC:
         return files, total_size
 
     def __send_files_in_folder(self, folder):
-        self.__connect()
         files, total_size = self.__prepare_to_send(folder, self.__main_conn)
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
         self.__pbar = tqdm(total=total_size, desc='total size', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
         # 发送文件
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.__threads, thread_name_prefix='Slave') as executor:
-            futures = [executor.submit(self.__send_file, conn, position) for position, conn in
-                       enumerate(self.__connections, start=1)]
-            concurrent.futures.wait(futures)
+        futures = [self.__executor.submit(self.__send_file, conn, position) for position, conn in
+                   enumerate(self.__connections, start=1)]
+        concurrent.futures.wait(futures)
         try:
             for conn in self.__connections:
                 conn.send_head('', COMMAND.FINISH, 0)
@@ -434,134 +407,31 @@ class FTC:
             self.__send_small_files(conn, position)
             self.__send_large_files(conn, position)
 
-    def __validate_password(self, conn: ESocket):
-        conn.send_head(self.__password, COMMAND.BEFORE_WORKING, self.__session_id)
-        msg, _, session_id = conn.recv_head()
-        return msg, session_id
-
-    def __find_server(self, wait=1):
-        ip, host = get_ip_and_hostname()
-        if self.__peer_host:
-            if len(splits := self.__peer_host.split(":")) == 2:
-                config.server_port = int(splits[1])
-                self.__peer_host = splits[0]
-            return host
-        sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-        sk.bind((ip, config.client_signal_port))
-        self.logger.log(f'Start searching for servers')
-        content = f'HI-I-AM-FTC_{ip}_{config.client_signal_port}_{host}'.encode(utf8)
-        broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
-        start = time.time()
-        addresses = set()
-        try:
-            while not addresses or (time.time() - start) < wait:
-                if not select.select([sk], [], [], 0.2)[0]:
-                    continue
-                data = sk.recv(1024).decode(utf8).split('_')
-                if data[0] == 'HI-I-AM-FTS':
-                    addresses.add((data[1], data[2]))
-            sk.close()
-        except KeyboardInterrupt:
-            self.logger.close()
-            self.__history_file.close()
-            sys.exit(0)
-        if len(addresses) == 1:
-            self.__peer_host, _ = addresses.pop()
+    def execute(self, command):
+        if os.path.isdir(command) and os.path.exists(command):
+            self.__send_files_in_folder(command)
+        elif os.path.isfile(command) and os.path.exists(command):
+            self.__send_single_file(Path(command))
+        elif command == sysinfo:
+            self.__compare_sysinfo()
+        elif command.startswith(speedtest):
+            self.__speedtest(times=command[10:])
+        elif command.startswith(compare):
+            if folders := self.__prepare_to_compare(command):
+                self.__compare_folder(*folders)
+        elif command.endswith('clipboard'):
+            self.__exchange_clipboard(command.split()[0])
+        elif command.startswith(history):
+            print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
+                1].isdigit() else print_history()
         else:
-            msg = ['Available servers: ']
-            msg.extend([f'ip: {peer_ip}, hostname: {peer_host}' for peer_ip, peer_host in addresses])
-            self.logger.log('\n'.join(msg))
-            self.__peer_host = input('Please enter a hostname or ip address: ')
-        return host
-
-    def shutdown(self, send_close_info=True):
-        try:
-            for conn in self.__connections:
-                if send_close_info:
-                    conn.send_head('', COMMAND.CLOSE, 0)
-                conn.close()
-        except (ssl.SSLEOFError, ConnectionError):
-            pass
-        finally:
-            self.logger.close()
-            self.__history_file.close()
-
-    def __connect(self, host=None):
-        if not (nums := self.__threads - len(self.__connections)):
-            return
-        try:
-            context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            for i in range(0, nums):
-                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                # 连接至服务器
-                client_socket.connect((self.__peer_host, config.server_port))
-                # 将socket包装为securitySocket
-                client_socket = ESocket(context.wrap_socket(client_socket, server_hostname='FTS'))
-                self.__connections.append(client_socket)
-                msg, session_id = self.__validate_password(client_socket)
-                if nums == self.__threads:
-                    # 首次连接
-                    self.__first_connect(client_socket, host, msg, session_id)
-                    break
-        except (ssl.SSLError, OSError) as msg:
-            self.logger.error(f'Failed to connect to the server {self.__peer_host}, {msg}')
-            sys.exit(-1)
-
-    def __first_connect(self, main_conn, host, msg, session_id):
-        self.__main_conn = main_conn
-        if msg == FAIL:
-            self.logger.error('Wrong password to connect to server', highlight=1)
-            self.shutdown(send_close_info=False)
-            sys.exit(-1)
-        else:
-            # self.logger.info(f'服务器所在平台: {msg}\n')
-            self.__peer_platform, peer_host = msg.split('_')
-            self.__command_prefix = 'powershell ' if self.__peer_platform == WINDOWS else ''
-            self.__session_id = session_id
-            self.logger.success(f'Connected to the server {peer_host}({self.__peer_host}:{config.server_port})')
-            main_conn.send_head(host, COMMAND.BEFORE_WORKING, self.__session_id)
-
-    def start(self):
-        self.__connect(host=self.__find_server())
-        self.logger.info(f'Current threads: {self.__threads}')
-        try:
-            while True:
-                command = input('>>> ').strip()
-                self.__add_history(command)
-                if command in ['q', 'quit', 'exit']:
-                    self.shutdown()
-                    return
-                elif os.path.isdir(command) and os.path.exists(command):
-                    self.__send_files_in_folder(command)
-                elif os.path.isfile(command) and os.path.exists(command):
-                    self.__send_single_file(Path(command))
-                elif command == sysinfo:
-                    self.__compare_sysinfo()
-                elif command.startswith(speedtest):
-                    self.__speedtest(times=command[10:])
-                elif command.startswith(compare):
-                    if folders := self.__prepare_to_compare(command):
-                        self.__compare_folder(*folders)
-                elif command.endswith('clipboard'):
-                    self.__exchange_clipboard(command.split()[0])
-                elif command.startswith(history):
-                    print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
-                        1].isdigit() else print_history()
-                else:
-                    self.__execute_command(command)
-        except (ssl.SSLError, ConnectionError) as e:
-            self.logger.error(e.strerror if e.strerror else e, highlight=1)
-            self.logger.close()
-            self.__history_file.close()
-        except KeyboardInterrupt:
-            self.shutdown()
+            self.__execute_command(command)
 
 
 if __name__ == '__main__':
-    args = ftc_get_args()
-    # 启动FTC服务
-    ftc = FTC(threads=args.t, host=args.host, password=args.password)
-    ftc.start()
-    os.system('pause')
+    pass
+    # args = ftc_get_args()
+    # # 启动FTC服务
+    # ftc = FTC(threads=args.t, host=args.host, password=args.password)
+    # ftc.start()
+    # os.system('pause')
