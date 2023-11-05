@@ -391,12 +391,6 @@ def shorten_path(path: str, max_width: float) -> str:
     # return os.path.sep.join(shortened_parts)
 
 
-# 打包控制变量，用于将程序打包为exe后防止直接退出控制台
-# Packaging control variable,
-# used to prevent the console from exiting directly after the program is packaged as exe
-packaging = getattr(sys, 'frozen', False)
-
-
 # 命令类型
 class COMMAND(IntEnum):
     NULL = auto()
@@ -447,6 +441,7 @@ class CONTROL(IntEnum):
     CONTINUE = 0
     CANCEL = -1
     FAIL2OPEN = -2
+
 
 
 class ConfigOption(StrEnum):

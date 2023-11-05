@@ -102,7 +102,7 @@ def split_by_threshold(info):
     return result
 
 
-def get_args() -> Namespace:
+def ftc_get_args() -> Namespace:
     """
     获取命令行参数解析器
     """
@@ -560,9 +560,8 @@ class FTC:
 
 
 if __name__ == '__main__':
-    args = get_args()
+    args = ftc_get_args()
     # 启动FTC服务
     ftc = FTC(threads=args.t, host=args.host, password=args.password)
     ftc.start()
-    if packaging:
-        os.system('pause')
+    os.system('pause')
