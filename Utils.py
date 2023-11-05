@@ -244,7 +244,7 @@ def get_files_info_relative_to_basedir(base_dir):
             for path, _, file_list in os.walk(base_dir) for file in file_list}
 
 
-def get_ip_and_hostname() -> (str, str):
+def get_ip() -> str:
     st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         st.connect(('10.255.255.255', 1))
@@ -253,7 +253,7 @@ def get_ip_and_hostname() -> (str, str):
         ip = '127.0.0.1'
     finally:
         st.close()
-    return ip, socket.gethostname()
+    return ip
 
 
 def format_time(time_interval):
@@ -449,7 +449,7 @@ class Config:
 
     @staticmethod
     def load_config():
-        if not os.path.exists(Config.config_file):
+        if not (exist := os.path.exists(Config.config_file)):
             # 生成配置文件
             Config.generate_config()
         cnf = ConfigParser()
@@ -464,6 +464,9 @@ class Config:
             log_file_archive_size = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_size.name)
             server_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
             signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.signal_port.name)
+            # 原先配置不存在则删除生成的配置文件
+            if not exist:
+                os.remove(Config.config_file)
         except OSError as e:
             print_color(f'Failed to create the log folder, {e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)

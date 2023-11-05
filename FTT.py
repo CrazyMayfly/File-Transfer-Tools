@@ -23,21 +23,21 @@ def get_args() -> Namespace:
 
 class FTT:
     def __init__(self, password, host, base_dir, threads):
-        self.peer_username = None
-        self.fts = None
-        self.ftc = None
+        self.peer_username: str = ...
+        self.fts: FTS = ...
+        self.ftc: FTC = ...
         self.__history_file = open(read_line_setup(), 'a', encoding=utf8)
-        self.peer_platform = None
-        self.__host = host
+        self.peer_platform: str = ...
+        self.__host: str = host
         self.__alive = True
-        self.__threads = threads
-        self.__password = password
-        self.executor = ...
+        self.__threads: int = threads
+        self.__password: str = password
+        self.executor: concurrent.futures.ThreadPoolExecutor = ...
         self.base_dir = base_dir
-        self.main_conn_recv = ...
-        self.main_conn = ...
-        self.connections = []
-        self.logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_ftt.log'))
+        self.main_conn_recv: ESocket = ...
+        self.main_conn: ESocket = ...
+        self.connections: list[ESocket] = []
+        self.logger: Logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_ftt.log'))
 
     def __add_history(self, command: str):
         readline.add_history(command)
@@ -101,17 +101,17 @@ class FTT:
                 self.__host, config.server_port = splits[0], int(splits[1])
             self.connect()
         else:
+            ip = get_ip()
+            self.logger.log(f'Server {username}({ip}:{config.server_port}) started, waiting for connection...')
             if self.__password:
                 self.waiting_connect()
             else:
-                self.finding_server()
-        self.logger.success(f'Connected to the server {self.peer_username}({self.__host}:{config.server_port})')
+                self.finding_server(ip)
+        self.logger.success(f'Connected to peer {self.peer_username}({self.__host}:{config.server_port})')
         self.executor = concurrent.futures.ThreadPoolExecutor(thread_name_prefix=compact_ip(self.__host))
-        self.ftc = FTC(ftt=self)
-        self.fts = FTS(ftt=self)
+        self.ftc, self.fts = FTC(ftt=self), FTS(ftt=self)
         threading.Thread(name='SeverThread', target=self.server, args=(), daemon=True).start()
         threading.Thread(name='ArchiveThread', target=self.compress_log_files, args=()).start()
-
         self.logger.log('Current file storage location: ' + os.path.normcase(self.base_dir))
 
     def compress_log_files(self):
@@ -200,6 +200,7 @@ class FTT:
             pass
         finally:
             self.logger.close()
+            self.executor.shutdown()
             self.__history_file.close()
             os.kill(os.getpid(), signal.SIGINT)
 
@@ -233,12 +234,10 @@ class FTT:
         return self.__password.encode() + conn.recv_data(64)
 
     def waiting_connect(self):
-        ip, host = get_ip_and_hostname()
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(('0.0.0.0', config.server_port))
-        server_socket.listen(9999)
-        self.logger.log(f'Server {host}({ip}:{config.server_port}) started, waiting for connection...')
+        server_socket.listen(100)
         # 加载服务器所用证书和私钥
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         context.load_cert_chain(cert_path := generate_cert())
@@ -264,15 +263,13 @@ class FTT:
         server_socket.close()
         self.main_conn = self.connections.pop()
 
-    def finding_server(self):
-        ip, _ = get_ip_and_hostname()
+    def finding_server(self, ip):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         try:
             sk.bind(('0.0.0.0', config.signal_port))
         except OSError as e:
             self.logger.error(f'Failed to start the broadcast service: {e.strerror}')
             sys.exit(-1)
-        self.logger.log(f'Start searching for servers')
         content = f'HI-THERE-IS-FTT_{username}_{ip}_{config.signal_port}'.encode(utf8)
         # 先广播自己信息
         broadcast_to_all_interfaces(sk, port=config.signal_port, content=content)
