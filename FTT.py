@@ -268,14 +268,14 @@ class FTT:
         ip, _ = get_ip_and_hostname()
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         try:
-            sk.bind(('0.0.0.0', config.server_signal_port))
+            sk.bind(('0.0.0.0', config.signal_port))
         except OSError as e:
             self.logger.error(f'Failed to start the broadcast service: {e.strerror}')
             sys.exit(-1)
         self.logger.log(f'Start searching for servers')
-        content = f'HI-THERE-IS-FTT_{username}_{ip}_{config.client_signal_port}'.encode(utf8)
+        content = f'HI-THERE-IS-FTT_{username}_{ip}_{config.signal_port}'.encode(utf8)
         # 先广播自己信息
-        broadcast_to_all_interfaces(sk, port=config.server_signal_port, content=content)
+        broadcast_to_all_interfaces(sk, port=config.signal_port, content=content)
         try:
             while True:
                 if not select.select([sk], [], [], 0.2)[0]:

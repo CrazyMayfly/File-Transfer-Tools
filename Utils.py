@@ -40,8 +40,7 @@ class Configration:
     log_file_archive_count: int
     log_file_archive_size: int
     server_port: int
-    server_signal_port: int
-    client_signal_port: int
+    signal_port: int
 
 
 class LEVEL(StrEnum):
@@ -323,9 +322,6 @@ def get_hostname_by_ip(ip):
         return hostname
 
 
-
-
-
 def shorten_path(path: str, max_width: float) -> str:
     return path[:int((max_width - 3) / 3)] + '...' + path[-2 * int((max_width - 3) / 3):] if len(
         path) > max_width else path + ' ' * (int(max_width) - len(path))
@@ -387,7 +383,7 @@ setbase = 'setbase'
 history = 'history'
 clipboard_send = 'send clipboard'
 clipboard_get = 'get clipboard'
-commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, clipboard_get,setbase]
+commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, clipboard_get, setbase]
 
 # Struct 对象
 # B为 1字节 unsigned char，0~127
@@ -404,7 +400,6 @@ class CONTROL(IntEnum):
     CONTINUE = 0
     CANCEL = -1
     FAIL2OPEN = -2
-
 
 
 class ConfigOption(StrEnum):
@@ -424,8 +419,7 @@ class ConfigOption(StrEnum):
 
     section_Port = 'Port'
     server_port = '2023'
-    client_signal_port = '2022'
-    server_signal_port = '2021'
+    signal_port = '2022'
 
     @property
     def name_and_value(self):
@@ -469,8 +463,7 @@ class Config:
             log_file_archive_count = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)
             log_file_archive_size = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_size.name)
             server_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
-            server_signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_signal_port.name)
-            client_signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.client_signal_port.name)
+            signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.signal_port.name)
         except OSError as e:
             print_color(f'Failed to create the log folder, {e}', level=LEVEL.ERROR, highlight=1)
             sys.exit(-1)
@@ -482,7 +475,7 @@ class Config:
             sys.exit(-1)
         return Configration(default_path=default_path, log_dir=log_dir, server_port=server_port,
                             log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,
-                            server_signal_port=server_signal_port, client_signal_port=client_signal_port)
+                            signal_port=signal_port)
 
 
 # 加载配置
