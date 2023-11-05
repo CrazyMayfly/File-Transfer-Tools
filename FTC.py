@@ -1,9 +1,9 @@
 import ssl
-import select
 import random
 import os.path
 import readline
 import concurrent.futures
+
 from Utils import *
 from tqdm import tqdm
 from sys_info import *
@@ -11,7 +11,6 @@ from functools import cache
 from pathlib import Path
 from collections import deque
 from shutil import get_terminal_size
-from argparse import ArgumentParser, Namespace
 
 LARGE_FILE_SIZE_THRESHOLD = 1024 * 1024
 SMALL_FILE_CHUNK_SIZE = 1024 * 1024 * 2
@@ -103,19 +102,17 @@ def split_by_threshold(info):
 
 
 class FTC:
-    def __init__(self, connections, peer_platform, logger, executor):
+    def __init__(self, ftt):
         self.__pbar = ...
-        self.__main_conn: ESocket = connections.pop()
-        self.__connections = connections
-        self.__peer_platform = peer_platform
-        self.__executor = executor
+        self.__main_conn: ESocket = ftt.main_conn
+        self.__connections = ftt.connections
+        self.__ftt = ftt
         self.__base_dir = ...
-        self.__command_prefix = 'powershell ' if peer_platform == WINDOWS else ''
-        self.logger = logger
+        self.__command_prefix = 'powershell ' if ftt.peer_platform == WINDOWS else ''
+        self.logger = ftt.logger
         self.__large_files_info: deque = deque()
         self.__small_files_info: deque = deque()
         self.__finished_files: deque = deque()
-
 
     def __prepare_to_compare(self, command):
         folders = command[8:].split('"')
@@ -195,7 +192,7 @@ class FTC:
     def __execute_command(self, command):
         if len(command) == 0:
             return
-        if self.__peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
+        if self.__ftt.peer_platform == WINDOWS and (command.startswith('cmd') or command == 'powershell'):
             if command == 'powershell':
                 self.logger.info('use windows powershell')
                 self.__command_prefix = 'powershell '
@@ -298,7 +295,7 @@ class FTC:
         self.__pbar = tqdm(total=total_size, desc='total size', unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
         # 发送文件
-        futures = [self.__executor.submit(self.__send_file, conn, position) for position, conn in
+        futures = [self.__ftt.executor.submit(self.__send_file, conn, position) for position, conn in
                    enumerate(self.__connections, start=1)]
         concurrent.futures.wait(futures)
         try:
@@ -409,7 +406,7 @@ class FTC:
 
     def execute(self, command):
         if os.path.isdir(command) and os.path.exists(command):
-            self.__send_files_in_folder(command)
+            threading.Thread(name='send_files', target=self.__send_files_in_folder, args=(command,)).start()
         elif os.path.isfile(command) and os.path.exists(command):
             self.__send_single_file(Path(command))
         elif command == sysinfo:
@@ -432,6 +429,6 @@ if __name__ == '__main__':
     pass
     # args = ftc_get_args()
     # # 启动FTC服务
-    # ftc = FTC(threads=args.t, host=args.host, password=args.password)
+    # ftc = FTC(threads=args.t, host=args.host, __password=args.__password)
     # ftc.start()
     # os.system('pause')

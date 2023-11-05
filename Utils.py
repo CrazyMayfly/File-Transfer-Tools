@@ -323,45 +323,7 @@ def get_hostname_by_ip(ip):
         return hostname
 
 
-def compress_log_files(base_dir, log_type, logger: Logger):
-    """
-    压缩日志文件
 
-    @param base_dir: 日志文件所在的目录
-    @param log_type: 日志文件的类型：client 或 server
-    @param logger: 打印日志对象
-    @return:
-    """
-    if not os.path.exists(base_dir):
-        return
-    # 获取非今天的FTC或FTS日志文件名
-    today = datetime.now().strftime('%Y_%m_%d')
-    pattern = r'^\d{4}_\d{2}_\d{2}_' + log_type + '.log'
-    files = [entry for entry in os.scandir(base_dir) if entry.is_file() and re.match(pattern, entry.name)
-             and not entry.name.startswith(today)]
-    total_size = sum([file.stat().st_size for file in files])
-    if len(files) < config.log_file_archive_count and total_size < config.log_file_archive_size:
-        return
-    dates = [datetime.strptime(file.name[0:10], '%Y_%m_%d') for file in files]
-    max_date, min_date = max(dates), min(dates)
-    # 压缩后的输出文件名
-    output_file = PurePath(base_dir, f'{min_date:%Y%m%d}_{max_date:%Y%m%d}.{log_type}.tar.gz')
-    # 创建一个 tar 归档文件对象
-    with tarfile.open(output_file, 'w:gz') as tar:
-        # 逐个添加文件到归档文件中
-        for file in files:
-            tar.add(file.path, arcname=file.name)
-    # 若压缩文件完整则将日志文件移入回收站
-    if tarfile.is_tarfile(output_file):
-        for file in files:
-            try:
-                send2trash(PurePath(file.path))
-            except Exception as error:
-                logger.warning(f'{error}: {file.name} failed to be sent to the recycle bin, delete it.')
-                os.remove(file.path)
-
-    logger.success(f'Logs archiving completed: {min_date:%Y/%m/%d} to {max_date:%Y/%m/%d}, '
-                   f'{get_size(total_size)} -> {get_size(os.path.getsize(output_file))}')
 
 
 def shorten_path(path: str, max_width: float) -> str:

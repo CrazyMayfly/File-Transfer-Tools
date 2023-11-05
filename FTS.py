@@ -6,6 +6,7 @@ import ssl
 import tempfile
 import signal
 import concurrent.futures
+
 from Utils import *
 from sys_info import *
 from uuid import uuid4
@@ -78,12 +79,10 @@ def create_folder_if_not_exist(folder: Path, logger: Logger) -> bool:
 
 
 class FTS:
-    def __init__(self, base_dir, logger, connections, executor):
-        self.executor = executor
-        self.main_conn = connections.pop()
-        self.connections = connections
-        self.base_dir: Path = Path(base_dir)
-        self.logger = logger
+    def __init__(self, ftt):
+        self.__ftt = ftt
+        self.main_conn = ftt.main_conn_recv
+        self.logger = ftt.logger
 
     def __modify_file_time(self, file_path: str, create_timestamp: float, modify_timestamp: float,
                            access_timestamp: float):
@@ -163,12 +162,12 @@ class FTS:
         self.__makedirs(dirs_info.keys(), cur_dir)
         # 发送已存在的文件名
         main_conn.send_with_compress(files)
-        futures = [self.executor.submit(self.__slave_work, conn, cur_dir) for conn in self.connections]
+        futures = [self.__ftt.executor.submit(self.__slave_work, conn, cur_dir) for conn in self.__ftt.connections]
         concurrent.futures.wait(futures)
         for dir_name, times in dirs_info.items():
-            cur_dir = PurePath(cur_dir, dir_name)
+            folder = PurePath(cur_dir, dir_name)
             try:
-                os.utime(path=cur_dir, times=times)
+                os.utime(path=folder, times=times)
             except Exception as error:
                 self.logger.warning(f'Folder {cur_dir} time modification failed, {error}', highlight=1)
 
@@ -238,9 +237,9 @@ class FTS:
         """
         match command:
             case COMMAND.SEND_FILES_IN_FOLDER:
-                self.__recv_files_in_folder(Path(self.base_dir, filename))
+                self.__recv_files_in_folder(Path(self.__ftt.base_dir, filename))
             case COMMAND.SEND_LARGE_FILE:
-                self.__recv_large_file(self.main_conn, self.base_dir, filename, file_size)
+                self.__recv_large_file(self.main_conn, self.__ftt.base_dir, filename, file_size)
             case COMMAND.COMPARE_FOLDER:
                 self.__compare_folder(self.main_conn, filename)
             case COMMAND.EXECUTE_COMMAND:
@@ -257,7 +256,7 @@ class FTS:
 
 if __name__ == '__main__':
     # args = get_args()
-    # fts = FTS(base_dir=args.dest, password=args.password)
+    # fts = FTS(base_dir=args.dest, __password=args.__password)
     # if not create_folder_if_not_exist(args.dest, fts.logger):
     #     sys.exit(-1)
     # fts.start()

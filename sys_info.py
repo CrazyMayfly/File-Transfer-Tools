@@ -3,7 +3,8 @@ import time
 import psutil
 from threading import Thread
 
-
+username = psutil.users()[0].name
+cpu_count = psutil.cpu_count(logical=False)
 def get_size(bytes, factor=1024, suffix="B"):
     """
     Scale bytes to its proper format
@@ -61,7 +62,6 @@ def get_sys_info():
         days, hours = divmod(hours, 24)
         return f"{days}d {hours}h {minutes}m {seconds}s"
 
-    username = psutil.users()[0].name
     host = platform.node()
     # 系统的内存利用率
     memory = psutil.virtual_memory()
@@ -89,7 +89,7 @@ def get_sys_info():
                    "architecture": platform.architecture()[0]
                    },
         "boot time": format_time(int(time.time() - psutil.boot_time())),
-        "cpu": {"count": psutil.cpu_count(logical=False), "logic_count": psutil.cpu_count(logical=True),
+        "cpu": {"count": cpu_count, "logic_count": psutil.cpu_count(logical=True),
                 "percentage": cpu_percent, 'info': platform.processor(),
                 "manufacturer": platform.machine(),
                 "frequency": f'{psutil.cpu_freq().current / 1000:.2f}Ghz'},
