@@ -25,7 +25,7 @@ def print_history(nums=10):
 
 @cache
 def get_matches(line):
-    matches = [command for command in commands if command.startswith(line)]
+    matches = [command + ' ' for command in commands if command.startswith(line)]
     if not line:
         return matches
     path, remainder = os.path.split(line)
@@ -44,7 +44,7 @@ def get_matches(line):
     return matches
 
 
-def completer(text, state):
+def completer(_, state):
     matches = get_matches(readline.get_line_buffer())
     return matches[state] if state < len(matches) else None
 
@@ -103,13 +103,13 @@ def split_by_threshold(info):
 
 class FTC:
     def __init__(self, ftt):
-        self.__pbar = ...
-        self.__main_conn: ESocket = ftt.main_conn
-        self.__connections = ftt.connections
         self.__ftt = ftt
+        self.__pbar: tqdm = ...
         self.__base_dir = ...
+        self.__main_conn: ESocket = ftt.main_conn
+        self.__connections: list[ESocket] = ftt.connections
         self.__command_prefix = 'powershell ' if ftt.peer_platform == WINDOWS else ''
-        self.logger = ftt.logger
+        self.logger: Logger = ftt.logger
         self.__large_files_info: deque = deque()
         self.__small_files_info: deque = deque()
         self.__finished_files: deque = deque()
@@ -289,6 +289,10 @@ class FTC:
         return files, total_size
 
     def __send_files_in_folder(self, folder):
+        if self.__ftt.busy.locked():
+            self.logger.warning('Currently receiving/sending folder, please try again later.', highlight=1)
+            return
+        self.__ftt.busy.acquire()
         files, total_size = self.__prepare_to_send(folder, self.__main_conn)
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
@@ -304,6 +308,7 @@ class FTC:
         except (ssl.SSLError, ConnectionError) as error:
             self.logger.error(error)
         finally:
+            self.__ftt.busy.release()
             fails = files - set(self.__finished_files)
             self.__finished_files.clear()
             # 比对发送失败的文件
@@ -333,15 +338,19 @@ class FTC:
         pbar_width = get_terminal_size().columns / 4
         self.__pbar = tqdm(total=file_size, desc=shorten_path(file.name, pbar_width), unit='bytes',
                            unit_scale=True, mininterval=1, position=0, colour='#01579B')
-        self.__send_large_files(self.__main_conn, 0)
-        if len(self.__finished_files) and self.__finished_files.pop() == file.name:
-            self.__pbar.colour = '#98c379'
-            self.__pbar.close()
-            self.logger.success(f"{file} sent successfully")
-        else:
-            self.__pbar.colour = '#F44336'
-            self.__pbar.close()
-            self.logger.error(f"{file} failed to send")
+        try:
+            self.__send_large_files(self.__main_conn, 0)
+        except (ssl.SSLError, ConnectionError) as error:
+            self.logger.error(error)
+        finally:
+            if len(self.__finished_files) and self.__finished_files.pop() == file.name:
+                self.__pbar.colour = '#98c379'
+                self.__pbar.close()
+                self.logger.success(f"{file} sent successfully")
+            else:
+                self.__pbar.colour = '#F44336'
+                self.__pbar.close()
+                self.logger.error(f"{file} failed to send")
 
     def __send_large_files(self, conn: ESocket, position: int):
         while len(self.__large_files_info):
@@ -349,30 +358,29 @@ class FTC:
             real_path = PurePath(self.__base_dir, filename)
             try:
                 fp = open(real_path, 'rb')
-                conn.send_head(filename, COMMAND.SEND_LARGE_FILE, file_size)
-                if (flag := conn.recv_size()) == CONTROL.FAIL2OPEN:
-                    self.logger.error(f'Peer failed to receive the file: {real_path}', highlight=1)
-                    return
-                # 服务端已有的文件大小
-                fp.seek(peer_exist_size := flag, 0)
-                rest_size = file_size - peer_exist_size
-                pbar_width = get_terminal_size().columns / 4
-                with tqdm(total=rest_size, desc=shorten_path(filename, pbar_width), unit='bytes', unit_scale=True,
-                          mininterval=1, position=position, leave=False, disable=position == 0) as pbar:
-                    while data := fp.read(min(rest_size, unit)):
-                        conn.sendall(data)
-                        pbar.update(data_size := len(data))
-                        rest_size -= data_size
-                        self.__update_global_pbar(data_size)
-                fp.close()
-                # 发送文件的创建、访问、修改时间戳
-                conn.sendall(times_struct.pack(*time_info))
-                self.__update_global_pbar(peer_exist_size, decrease=True)
-                self.__finished_files.append(filename)
-            except (ssl.SSLError, ConnectionError) as error:
-                self.logger.error(error)
             except FileNotFoundError:
                 self.logger.error(f'Failed to open: {real_path}')
+                continue
+            conn.send_head(filename, COMMAND.SEND_LARGE_FILE, file_size)
+            if (flag := conn.recv_size()) == CONTROL.FAIL2OPEN:
+                self.logger.error(f'Peer failed to receive the file: {real_path}', highlight=1)
+                return
+            # 服务端已有的文件大小
+            fp.seek(peer_exist_size := flag, 0)
+            rest_size = file_size - peer_exist_size
+            pbar_width = get_terminal_size().columns / 4
+            with tqdm(total=rest_size, desc=shorten_path(filename, pbar_width), unit='bytes', unit_scale=True,
+                      mininterval=1, position=position, leave=False, disable=position == 0) as pbar:
+                while data := fp.read(min(rest_size, unit)):
+                    conn.sendall(data)
+                    pbar.update(data_size := len(data))
+                    rest_size -= data_size
+                    self.__update_global_pbar(data_size)
+            fp.close()
+            # 发送文件的创建、访问、修改时间戳
+            conn.sendall(times_struct.pack(*time_info))
+            self.__update_global_pbar(peer_exist_size, decrease=True)
+            self.__finished_files.append(filename)
 
     def __send_small_files(self, conn: ESocket, position: int):
         idx, real_path, files_info = 0, Path(""), []
@@ -389,8 +397,6 @@ class FTC:
                             conn.sendall(fp.read(file_size))
                         pbar.update(file_size)
                 self.__update_global_pbar(total_size)
-            except (ssl.SSLError, ConnectionError) as error:
-                self.logger.error(error)
             except FileNotFoundError:
                 self.logger.error(f'Failed to open: {real_path}')
             finally:
@@ -416,6 +422,8 @@ class FTC:
         elif command.startswith(compare):
             if folders := self.__prepare_to_compare(command):
                 self.__compare_folder(*folders)
+        elif command.startswith(say):
+            self.__main_conn.send_head(command[4:], COMMAND.CHAT, 0)
         elif command.endswith('clipboard'):
             self.__exchange_clipboard(command.split()[0])
         elif command.startswith(history):
@@ -423,12 +431,3 @@ class FTC:
                 1].isdigit() else print_history()
         else:
             self.__execute_command(command)
-
-
-if __name__ == '__main__':
-    pass
-    # args = ftc_get_args()
-    # # 启动FTC服务
-    # ftc = FTC(threads=args.t, host=args.host, __password=args.__password)
-    # ftc.start()
-    # os.system('pause')

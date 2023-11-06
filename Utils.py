@@ -2,12 +2,10 @@ import ipaddress
 import lzma
 import os
 import pickle
-import re
 import socket
 import sys
 import threading
 import time
-import tarfile
 import psutil
 from hashlib import md5
 from struct import Struct
@@ -17,7 +15,6 @@ from sys_info import get_size
 from datetime import datetime
 from typing import TextIO, Final
 from dataclasses import dataclass
-from send2trash import send2trash
 from enum import StrEnum, IntEnum, auto
 from configparser import ConfigParser, NoOptionError, NoSectionError
 
@@ -27,7 +24,8 @@ WINDOWS: Final[str] = 'Windows'
 LINUX: Final[str] = 'Linux'
 MACOS: Final[str] = 'Macos'
 # 解决win10的cmd中直接使用转义序列失效问题
-if platform_ == WINDOWS:
+windows = platform_ == WINDOWS
+if windows:
     os.system("")
     import pyperclip
 
@@ -66,7 +64,7 @@ class Logger:
     def log(self, msg, level: LEVEL = LEVEL.LOG, highlight=0):
         msg = get_log_msg(msg)
         with self.__log_lock:
-            print(f"\033[{highlight}{level}m{msg}\033[0m")
+            print(f"\r\033[{highlight}{level}m{msg}\033[0m")
         with self.__writing_lock:
             self.__writing_buffer.append(f'[{level.name:7}] {msg}\n')
 
@@ -198,7 +196,7 @@ def send_clipboard(conn: ESocket, logger: Logger, ftc=True):
         if not ftc:
             conn.send_head('', COMMAND.NULL, content_length)
         return
-    logger.info(f'Send clipboard, size: {get_size(content_length)}')
+    # logger.info(f'Send clipboard, size: {get_size(content_length)}')
     conn.send_head(content, COMMAND.PUSH_CLIPBOARD, content_length)
 
 
@@ -231,7 +229,7 @@ def calcu_size(bytes, factor=1024):
 
 
 def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
-    print(f"\033[{highlight}{level}m{msg}\033[0m")
+    print(f"\r\033[{highlight}{level}m{msg}\033[0m")
 
 
 def get_log_msg(msg):
@@ -271,7 +269,7 @@ def show_bandwidth(msg, data_size, interval, logger: Logger):
     logger.success(f"{msg}, average bandwidth {avg_bandwidth}, takes {format_time(interval)}")
 
 
-def broadcast_to_all_interfaces(sk: socket.socket, port: int, content: bytes):
+def broadcast_to_all_interfaces(sk: socket.socket, content: bytes):
     interface_stats = psutil.net_if_stats()
     for interface, addresses in psutil.net_if_addrs().items():
         if not interface_stats[interface].isup:
@@ -280,11 +278,12 @@ def broadcast_to_all_interfaces(sk: socket.socket, port: int, content: bytes):
             if addr.family == socket.AF_INET and addr.netmask:
                 broadcast_address = ipaddress.IPv4Network(f"{addr.address}/{addr.netmask}",
                                                           strict=False).broadcast_address
-                if not broadcast_address.is_loopback:
-                    try:
-                        sk.sendto(content, (str(broadcast_address), port))
-                    except OSError:
-                        pass
+                if broadcast_address.is_loopback:
+                    continue
+                try:
+                    sk.sendto(content, (str(broadcast_address), config.signal_port))
+                except OSError:
+                    pass
 
 
 def get_file_md5(filename):
@@ -364,6 +363,7 @@ class COMMAND(IntEnum):
     CLOSE = auto()
     HISTORY = auto()
     COMPARE = auto()
+    CHAT = auto()
     FINISH = auto()
     PUSH_CLIPBOARD = auto()
     PULL_CLIPBOARD = auto()
@@ -381,9 +381,10 @@ compare = "compare"
 speedtest = 'speedtest'
 setbase = 'setbase'
 history = 'history'
+say = 'say'
 clipboard_send = 'send clipboard'
 clipboard_get = 'get clipboard'
-commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, clipboard_get, setbase]
+commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, clipboard_get, setbase, say]
 
 # Struct 对象
 # B为 1字节 unsigned char，0~127
@@ -455,9 +456,9 @@ class Config:
         cnf = ConfigParser()
         cnf.read(Config.config_file, encoding=utf8)
         try:
-            path_name = ConfigOption.windows_default_path.name if platform_ == WINDOWS else ConfigOption.linux_default_path.name
+            path_name = ConfigOption.windows_default_path.name if windows else ConfigOption.linux_default_path.name
             default_path = cnf.get(ConfigOption.section_Main, path_name)
-            log_dir_name = (ConfigOption.windows_log_dir if platform_ == WINDOWS else ConfigOption.linux_log_dir).name
+            log_dir_name = (ConfigOption.windows_log_dir if windows else ConfigOption.linux_log_dir).name
             if not os.path.exists(log_dir := os.path.expanduser(cnf.get(ConfigOption.section_Log, log_dir_name))):
                 os.makedirs(log_dir)
             log_file_archive_count = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)

@@ -5,6 +5,8 @@ from threading import Thread
 
 username = psutil.users()[0].name
 cpu_count = psutil.cpu_count(logical=False)
+
+
 def get_size(bytes, factor=1024, suffix="B"):
     """
     Scale bytes to its proper format
