@@ -19,9 +19,6 @@ pip install -U pyinstaller
 # If the packaged file is too large, you may consider placing
 # UPX.exe (https://upx.github.io/) to the path './docs/build_guide/upx.exe'
 
-# Package FTC.py as an executable program
-pyinstaller.exe --onefile --icon="../docs/build_guide/FTC.png" --specpath "./build" --upx-dir "./docs/build_guide/upx.exe" --distpath "./FTT" --console ./FTC.py
-
-# Package FTS.py as an executable program
-pyinstaller.exe --onefile --icon="../docs/build_guide/FTS.png" --specpath "./build" --upx-dir "./docs/build_guide/upx.exe" --distpath "./FTT" --console ./FTS.py
+# Package FTT.py as an executable program
+pyinstaller.exe --onefile --icon="../docs/build_guide/FTT.png" --specpath "./build" --upx-dir "./docs/build_guide/upx.exe" --distpath "./FTT" --console ./FTT.py
 
