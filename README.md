@@ -1,132 +1,108 @@
-# File Transfer Tools
+# File Transfer Tool
+
 ## Introduction
 
-`File Transfer Tools` contains two components: `FTS (File Transfer Server)` and `FTC (File Transfer Client)`. Is a **lightweight**,  **fast**,  **secure**, **versatile** cross-device file transfer script.
+`File Transfer Tool` is a **lightweight**, **fast**, **safe**, and **multifunctional** cross-device file transfer tool.
 
 ### Function
 
-1. File Transfer
+1. File transfer
 
-- Single file or entire folder can be transferred.
-- Security Guarantee: Encrypted transmission (using Secure Sockets Layer Protocol) and plaintext transmission.
-- Correctness guarantee: verify the consistency of the files through the Hash value, and judge whether all the files in the folder are transmitted correctly.
-- Progress bar display: real-time display of file transfer progress, current network speed, and remaining transfer time.
-- Transfer a file with the same name using a new name, avoid duplicate transfer, or overwrite transfer.
+- Can transfer a single file or an entire folder, and supports resumed transfers
+- Security guarantee: Generate an exclusive TLS/SSL security certificate for each session to maximize security
+- Progress bar display: Real-time display of file transfer progress, current network speed, remaining transfer time and other information
+- Specially optimized for transfer of small files (<1MB)
 
-2. Provide terminal function, which is similar to ssh, allows you to run commands remotely and return results in real time.
-3. Automatically find the service host, or manually specify the connection host.
-4. Folder comparison, which can display information such as the same and differences of files in two folders.
-5. View the system status and information of the client and server.
-6. Output logs to the console and files in real time, and can automatically organize compressed log files.
-7. Conveniently test the network bandwidth between the client and the server.
-8. You can set a connection password for the server to enhance security.
-9. Conveniently synchronize the clipboard content of the client and server.
+2. Provides a simple ssh-like function that can execute commands remotely and return results in real time
+3. Automatically search for the service host, or manually specify the connection host
+4. Folder comparison can display information such as similarities and differences between files in two folders.
+5. Check system status and information of both parties
+6. Output logs to the console and files in real time, and automatically organize and compress log files
+7. Test the network bandwidth between both parties
+8. Information can be transmitted at both ends to implement simple chat functions
+9. Synchronize the clipboard contents at both ends
+10. You can set a connection password for the server to enhance security
 
 ### Features
 
-1. Fast in launch, run, response.
-2. Adopt the minimum default configuration principle, which can be used out of the box, and you can easily modify the configuration by yourself.
-2. It can be used in any network environment such as LAN and public network, as long as the two hosts can connect to each other.
-3. Multi-threaded transmission with fast transmission speed, measured can run 1000 Mbps bandwidth, due to equipment limitations, no higher bandwidth be tested.
-4. The memory usage is small at runtime, and the lazy loading mode is adopted to ensure the minimum occupation of resources.
-5. You can launch it immediately when you want to use, and after close it there are no residual processes.
-6. Currently compatible with Windows and Linux platforms.
+1. Fast startup, operation and response speed
+2. Adopt the minimum default configuration principle, which can be used out of the box, or you can easily modify the configuration yourself.
+2. It can be used in any network environment such as local area network or public network, as long as the two hosts can be connected to the network.
+3. You can specify the number of threads and use multi-thread transmission
+4. Receive information such as modification time and access time of retained files and folders
+5. It can be turned on and off immediately, and no process will remain after closing the program.
+6. Currently adapted to Windows and Linux platforms
 
-### How to Choose
+### How to choose
 
-1. If you want a more powerful file transfer service, choose an FTP server (such as `FileZilla`, `WinSCP`, etc.)
-2. If you want stable file synchronization and sharing, recommend using `Resilio Sync`, `Syncthing`, etc.
-3. If you only Transfer files **occasionally** and don't like the memory background residue and more resource usage of the above services, or don't need so powerful services, or want to **customize** the function then please select `File Transfer Tools`.
+1. If you want a more powerful file transfer service, please choose an FTP server or client (such as `FileZilla`, `WinSCP`, etc.)
+2. If you want stable file synchronization and sharing, it is recommended to use `Resilio Sync`, `Syncthing`, etc.
+3. If you only transfer files occasionally/don’t like the background storage and resource usage of the above services/don’t need such powerful services/want to customize the functions yourself, please choose `File Transfer Tools`
 
 ## Install and run
 
-`FTS` occupies ports 2023 and 2021 by default, and FTC occupies port 2022 by default. Among them, port 2023 is used as the TCP listening port of `FTS`, and 2021 and 2022 are used as UDP transmission interfaces between the server and the client.
-You can check the detailed configuration information and modify the above configuration at the end of this article.
+### Method 1: Download the executable program
 
-### Download the executable program
+1. Click `Release` on the right
+2. Download the compressed package
+3. Unzip the folder and double-click `FTT.exe` to run it with the default configuration.
+4. Or run the program in the terminal to use program parameters, such as `.\FTT.exe [-h] [-t thread] [-host host] [-d destination] [-p password] `
 
-1. Click the `Release` on the right.
-2. Download `File Transfer Tools.zip`.
-3. Unpacking the folder and double-click `FTC.exe` or `FTS.exe` to run it.
-4. Or run the program in the terminal to use the parameters, for example `.\FTC.exe [-h] [-t thread] [-host host] [-p]`.
+### Method 2: Run using Python interpreter
 
-### Run with the Python interpreter
-
-1. Clone the source code to your project location.
-2. Run the `pip install -r requirements.txt` command to install all dependencies.
-3. Execute the script using your python interpreter such as `"The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTS.py`.
-
-#### Quick execution method
-
-Taking Windows as an example, you can write the `FTS` and `FTC` run commands as batch files, and then add the batch file directories to your environment variables. In this way, you can simply type `FTS` and `FTC` in the terminal to run the program using the default, simplest command.
-
-For example, you can write the following command to the file `FTS.bat`.
-
-```powershell
-@echo off
-"The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTS.py %1 %2 %3 %4 %5 %6
-```
-
-Write the following command to the file `FTC.bat`
-
-```powershell
-@echo off
-"The dir of your Python interpreter"\Scripts\python.exe "The dir of your project"\FTC.py %1 %2 %3 %4 %5 %6
-```
-
-Then, add the folder where the batch files are located to your environment variables, and finally type the following command in your terminal to run the script quickly.
-
-```powershell
-FTC.py [-h] [-t thread] [-host host] [-p password] [--plaintext]
-or
-FTS.py [-h] [-d base_dir] [-p password] [--plaintext] [--avoid]
-```
-
-In the above batch file, %1~%9 indicates the parameters passed by the program (where %0 indicates the current path).
-Note that the default working path of the terminal is the user directory (~), if you need to modify the configuration file, please modify it in this directory.
+1. Clone the source code to your project location
+2. Use `pip install -r requirements.txt` to install all dependencies
+3. Execute the script using your python interpreter
 
 ## Usage
 
-### FTC
+FTT can provide services to two parties at the same time, and both parties can transfer files to each other and execute instructions.
 
-FTC is the client for sending files and instructions.
+### Things to note when establishing a connection
+1. If no password is set, FTT will automatically search for the host and connect to it by default after opening it. It is recommended to use this method only in a simple LAN environment.
+2. If you are in a complex network environment or need to connect to the public network, one party needs to set a password, and the other party needs to specify the host name or IP address and password to connect.
+
+#### Parameter Description
 
 ```
-usage: FTC.py [-h] [-t thread] [-host host] [-p password] [--plaintext]
+usage: FTT.py [-h] [-t thread] [-host host] [-p password] [-d base_dir]
 
-File Transfer Client, used to SEND files and instructions.
+File Transfer Tool, used to transfer files and execute commands.
 
-optional arguments:
+options:
    -h, --help show this help message and exit
-   -t thread threads (default: 8)
-   -host host destination hostname or ip address
+   -t thread Threads (default: cpu count)
+   -host host Destination hostname or ip address
    -p password, --password password
-                         Use a password to connect host.
-   --plaintext Use plaintext transfer (default: use ssl)
+                         Set a password for the host or Use a password to connect host.
+   -d base_dir, --dest base_dir
+                         File save location (default: ~\Desktop)
 ```
 
-#### Parameters Description
+`-t`: Specify the number of threads, the default is the number of processors.
 
-`-t`: Specify the number of threads, the default is the number of logical processors.
+`-p`: Explicitly set the host password or specify the connection password (no password by default). When this option is not used, servers under the same subnet are automatically searched.
+    
+`-host`: Specify the host name of the other party (hostname or ip can be used) and port number (optional), which must be used with `-p`.
 
-`-host`: Explicitly specify the server hostname (hostname or ip) and port number (optional). When this option is not used, the client will automatically search for a server under **same subnet**.
+`-d`: Explicitly specify the file receiving location, the default is **desktop** on Windows platform.
 
-`-p`: Explicitly specify the connection password for the server (the server has no password by default).
 
-`--plaintext`: Explicitly specify plaintext transmission data, requiring the server to also use plaintext transmission.
 
-#### Command Description
+#### Command description
 
-After a normal connection, enter the command.
+After the connection is successful, enter the command
 
 1. Enter the file (folder) path, and the file (folder) will be sent.
-2. Enter `sysinfo` to display the system information of the two ends.
-3. Enter `speedtest n` to test the network speed, where `n` is the data amount of the test (unit: MB). Note that in the **computer network**, 1 GB = 1000 MB = 1000000 KB.
-4. Enter `compare local_dir dest_dir` to compare the difference between the files in the local folder and the server folder.
-5. Enter `clip pull/push` or `clip get/send` to synchronize the client and server clipboard content.
-6. When other content is entered, it is used as an instruction for the server to execute, and the result is returned in real time.
+2. Enter `sysinfo`, the system information of both parties will be displayed.
+3. Enter `speedtest n`, and the network speed will be tested, where n is the amount of data for this test, in MB. Note that in **Computer Network**, 1 GB = 1000 MB = 1000000 KB.
+4. Enter `compare local_dir dest_dir` to compare the differences in files in the local folder and the server folder.
+5. Enter `say` to send a message to the other party, which can be used as a simple chat server
+6. Enter `setbase` to change the file receiving location
+7. Enter `get clipboard` or `send clipboard` to synchronize the clipboard contents of the client and server
+8. When inputting other content, it will be used as a command to be executed by the server, and the results will be returned in real time.
 
-#### Screenshots of the runtime
+#### Running screenshot
 
 The following are screenshots running on the same host.
 
@@ -135,83 +111,60 @@ Program start
 ![startup](docs/assets/startup.png)
 
 Transfer files
+
 ![file](docs/assets/file.png)
 
-Execute the command: sysinfo
+Execute command: sysinfo
 
 ![sysinfo](docs/assets/sysinfo.png)
 
-Execute the command: speedtest
+Execute command: speedtest
 
 ![speedtest](docs/assets/speedtest.png)
 
-Execute the command: compare
+Execute command: compare
 
 ![compare](docs/assets/compare.png)
 
-Execute the command: clip
+Execute command: clip
 
 ![clip](docs/assets/clip.png)
 
-Execute command line commands
+Execute command: say
+
+![say](docs/assets/say.png)
+
+Execute command: setbase
+
+![setbase](docs/assets/setbase.png)
+
+Execute command line command
 
 ![command](docs/assets/cmd.png)
 
-### FTS
-
-`FTS` is the server, used to receive and store files, and execute the instructions sent by the client.
-When receiving a single file, if the file already exists, it will be received under a new name; 
-When receiving files in a folder, if the file already exists, the original file will not be received or changed.
-
-```
-usage: FTS.py [-h] [-d base_dir] [-p password] [--plaintext] [--avoid]
-
-File Transfer Server, used to RECEIVE files and EXECUTE instructions.
-
-optional arguments:
-   -h, --help show this help message and exit
-   -d base_dir, --dest base_dir
-                         File storage location (default: C:\Users\admin\Desktop)
-   -p password, --password password
-                         Set a password for the host.
-   --plaintext Use plaintext transfer (default: use ssl)
-```
-
-#### Parameters Description
-
-`-d, --dest`: Explicitly specify the file receiving location, the default is the value of the configuration item "platform_default_path" (Windows platform defaults to user's **Desktop**).
-
-`-p, --password`: Set a password for the server to prevent malicious connections.
-
-`--plaintext`: Explicitly specify data transmission in plain text, and use ssl encrypted transmission by default.
-
-#### Screenshots of the runtime
-
-![FTS](docs/assets/FTS.png)
 
 ## Configuration
 
-The configuration items are in the configuration file `config.txt`, when the configuration file does not exist, the program will automatically create the default configuration file.
+The configuration items are in the configuration file `config`. When the configuration file does not exist, the program will use the default configuration.
 
-### Main configuration
-`windows_default_path`: The default file receiving location under the Windows platform
+### Main program main configuration
 
-`linux_default_path`: The default file receiving location under the Linux platform
+`windows_default_path`: The default file receiving location under Windows platform
 
-`cert_dir`: The storage location of the certificate file
+`linux_default_path`: The default file receiving location under Linux platform
 
-### Log related configuration
-`windows_log_dir`: The default log file storage location under the Windows platform
+### Log log related configuration
+
+`windows_log_dir`: The default log file storage location under Windows platform
 
 `linux_log_dir`: The default log file storage location under the Linux platform
 
-`log_file_archive_count`: Archive when the number of log files exceeds this size
+`log_file_archive_count`: archive when the number of log files exceeds this size
 
 `log_file_archive_size`: Archive when the total size (bytes) of the log file exceeds this size
 
-### Port related configuration
-`server_port`: server TCP listening port
+### Port configuration port related content
 
-`server_signal_port`: server UDP listening port
+`server_port`: Server TCP listening port
 
-`client_signal_port`: client UDP listening port
+`signal_port`: UDP listening port
