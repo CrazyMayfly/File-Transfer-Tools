@@ -1,31 +1,10 @@
-import re
-import os.path
 import signal
 import struct
 import tarfile
+import re
 import select
-
-from FTC import *
-from FTS import *
-from argparse import Namespace, ArgumentParser
+from FTT_lib import *
 from send2trash import send2trash
-
-
-def get_args() -> Namespace:
-    """
-    获取命令行参数解析器
-    """
-    default_path = Path(config.default_path).expanduser()
-    parser = ArgumentParser(description='File Transfer Tool, used to transfer files and execute commands.')
-    parser.add_argument('-t', metavar='thread', type=int,
-                        help=f'Threads (default: {cpu_count})', default=cpu_count)
-    parser.add_argument('-host', metavar='host',
-                        help='Destination hostname or ip address', default='')
-    parser.add_argument('-p', '--password', metavar='password', type=str,
-                        help='Set a password for the host or Use a password to connect host.', default='')
-    parser.add_argument('-d', '--dest', metavar='base_dir', type=Path,
-                        help='File save location (default: {})'.format(default_path), default=default_path)
-    return parser.parse_args()
 
 
 class FTT:
@@ -34,7 +13,7 @@ class FTT:
         self.peer_platform: str = ...
         self.threads: int = threads
         self.executor: concurrent.futures.ThreadPoolExecutor = ...
-        self.base_dir = base_dir
+        self.base_dir = base_dir.expanduser().absolute()
         self.main_conn_recv: ESocket = ...
         self.main_conn: ESocket = ...
         self.busy = threading.Lock()
@@ -131,7 +110,7 @@ class FTT:
             self.main_conn_recv = self.connections.pop()
         except (ssl.SSLError, OSError) as msg:
             self.logger.error(f'Failed to connect to the server {self.__host}, {msg}')
-            sys.exit(-1)
+            pause_before_exit(-1)
 
     def __first_connect(self, context, host):
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -146,7 +125,7 @@ class FTT:
         if msg == FAIL:
             self.logger.error('Wrong password to connect to server', highlight=1)
             client_socket.close()
-            sys.exit(-1)
+            pause_before_exit(-1)
         # self.logger.info(f'服务器所在平台: {msg}\n')
         self.peer_platform, *peer_username = msg.split('_')
         self.threads = min(self.threads, threads)
@@ -155,6 +134,8 @@ class FTT:
         return connect_id
 
     def __shutdown(self, send_info=True):
+        if not self.__alive:
+            return  # 防止重复调用
         self.__alive = False
         try:
             if send_info:
@@ -169,6 +150,8 @@ class FTT:
             self.__history_file.close()
             if self.executor is not ...:
                 self.executor.shutdown()
+            if package:
+                os.system('pause')
             os.kill(os.getpid(), signal.SIGINT)
 
     def __verify_connection(self, conn: ESocket):
@@ -268,11 +251,11 @@ class FTT:
                     break
         except OSError as e:
             self.logger.error(f'Failed to start the broadcast service: {e.strerror}')
-            sys.exit(-1)
+            pause_before_exit(-1)
         except KeyboardInterrupt:
             self.logger.close()
             self.__history_file.close()
-            sys.exit(0)
+            pause_before_exit()
 
     def __boot(self):
         threading.Thread(name='ArchThread', target=self.__compress_log_files, daemon=True).start()
@@ -340,5 +323,5 @@ if __name__ == '__main__':
     args = get_args()
     ftt = FTT(password=args.password, host=args.host, base_dir=args.dest, threads=args.t)
     if not ftt.create_folder_if_not_exist(args.dest):
-        sys.exit(-1)
+        pause_before_exit(-1)
     ftt.start()

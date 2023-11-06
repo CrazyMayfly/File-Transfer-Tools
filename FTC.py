@@ -7,7 +7,6 @@ import concurrent.futures
 from Utils import *
 from tqdm import tqdm
 from sys_info import *
-from functools import cache
 from pathlib import Path
 from collections import deque
 from shutil import get_terminal_size
@@ -23,30 +22,18 @@ def print_history(nums=10):
         print(readline.get_history_item(i))
 
 
-@cache
-def get_matches(line):
-    matches = [command + ' ' for command in commands if command.startswith(line)]
-    if not line:
-        return matches
-    path, remainder = os.path.split(line)
-    if remainder == '..':
-        matches += [remainder + os.sep]
-    else:
-        folders, files = [], []
-        path = path or '.'
-        try:
-            for entry in os.scandir(path):
-                if (name := entry.name).startswith(remainder):
-                    folders.append(name + os.sep) if entry.is_dir() else files.append(name)
-            matches += folders + files
-        except (FileNotFoundError, PermissionError):
-            pass
-    return matches
-
-
-def completer(_, state):
-    matches = get_matches(readline.get_line_buffer())
-    return matches[state] if state < len(matches) else None
+def calcu_size(size, factor=1024):
+    """
+    计算文件大小所对应的合适的单位
+    :param size: 原始文件大小，单位 byte
+    :param factor: 计算因子
+    :return:返回合适的两个单位及对应的大小
+    """
+    scale = ["", "K", "M", "G", "T", "P"]
+    for position, data_unit in enumerate(scale):
+        if size < factor:
+            return f"{size:.2f}{data_unit}B", f"{size * factor:.2f}{scale[position - 1]}B" if position > 0 else ''
+        size /= factor
 
 
 def print_filename_if_exists(prompt, filename_list):
@@ -58,19 +45,6 @@ def print_filename_if_exists(prompt, filename_list):
     print('\n'.join(msg))
     msg.append('')
     return '\n'.join(msg)
-
-
-def read_line_setup() -> Path:
-    """
-    设置readline的补全和历史记录功能
-    """
-    readline.set_completer(completer)
-    readline.set_history_length(1000)
-    readline.parse_and_bind('tab: complete')
-    history_filename = Path(config.log_dir, 'history.txt')
-    if history_filename.exists():
-        readline.read_history_file(history_filename)
-    return history_filename
 
 
 def get_dir_file_name(filepath):

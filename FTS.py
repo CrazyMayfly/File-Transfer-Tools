@@ -1,42 +1,13 @@
 import os.path
-import random
 import subprocess
-import tempfile
 import concurrent.futures
 
 from Utils import *
 from sys_info import *
 from pathlib import Path
-from OpenSSL import crypto
-
-
-def generate_cert():
-    # 生成密钥对
-    key = crypto.PKey()
-    key.generate_key(crypto.TYPE_RSA, 2048)
-    # 生成自签名证书
-    cert = crypto.X509()
-    cert.get_subject().CN = "FTS"
-    cert.set_serial_number(random.randint(1, 9999))
-    cert.gmtime_adj_notBefore(0)
-    cert.gmtime_adj_notAfter(100)
-    cert.set_pubkey(key)
-    cert.sign(key, "sha256")
-    # 将密钥保存到临时文件中，确保最大的安全性
-    file, path = tempfile.mkstemp()
-    file = open(file, 'wb')
-    file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-    file.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
-    file.close()
-    return path
-
 
 if windows:
     from win_set_time import set_times
-
-
-def compact_ip(ip, appendix=''):
-    return str(socket.inet_aton(ip).hex()) + appendix
 
 
 def avoid_filename_duplication(filename: str):

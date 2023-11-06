@@ -7,7 +7,7 @@ username = psutil.users()[0].name
 cpu_count = psutil.cpu_count(logical=False)
 
 
-def get_size(bytes, factor=1024, suffix="B"):
+def get_size(size, factor=1024, suffix="B"):
     """
     Scale bytes to its proper format
     e.g:
@@ -15,9 +15,9 @@ def get_size(bytes, factor=1024, suffix="B"):
         1253656678 => '1.17GB'
     """
     for data_unit in ["", "K", "M", "G", "T", "P"]:
-        if bytes < factor:
-            return f"{bytes:.2f}{data_unit}{suffix}"
-        bytes /= factor
+        if size < factor:
+            return f"{size:.2f}{data_unit}{suffix}"
+        size /= factor
 
 
 def get_net_io():

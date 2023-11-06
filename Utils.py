@@ -1,4 +1,3 @@
-import ipaddress
 import lzma
 import os
 import pickle
@@ -6,14 +5,13 @@ import socket
 import sys
 import threading
 import time
-import psutil
 from hashlib import md5
 from struct import Struct
 from platform import system
 from pathlib import PurePath
 from sys_info import get_size
 from datetime import datetime
-from typing import TextIO, Final
+from typing import Final
 from dataclasses import dataclass
 from enum import StrEnum, IntEnum, auto
 from configparser import ConfigParser, NoOptionError, NoSectionError
@@ -214,20 +212,6 @@ def get_clipboard(conn: ESocket, logger: Logger, content=None, command=None, len
     pyperclip.copy(content)
 
 
-def calcu_size(bytes, factor=1024):
-    """
-    计算文件大小所对应的合适的单位
-    :param bytes: 原始文件大小，单位 byte
-    :param factor: 计算因子
-    :return:返回合适的两个单位及对应的大小
-    """
-    scale = ["", "K", "M", "G", "T", "P"]
-    for position, data_unit in enumerate(scale):
-        if bytes < factor:
-            return f"{bytes:.2f}{data_unit}B", f"{bytes * factor:.2f}{scale[position - 1]}B" if position > 0 else ''
-        bytes /= factor
-
-
 def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
     print(f"\r\033[{highlight}{level}m{msg}\033[0m")
 
@@ -240,18 +224,6 @@ def get_log_msg(msg):
 def get_files_info_relative_to_basedir(base_dir):
     return {(abspath := PurePath(path, file)).relative_to(base_dir).as_posix(): os.path.getsize(abspath)
             for path, _, file_list in os.walk(base_dir) for file in file_list}
-
-
-def get_ip() -> str:
-    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        st.connect(('10.255.255.255', 1))
-        ip = st.getsockname()[0]
-    except OSError:
-        ip = '127.0.0.1'
-    finally:
-        st.close()
-    return ip
 
 
 def format_time(time_interval):
@@ -269,21 +241,13 @@ def show_bandwidth(msg, data_size, interval, logger: Logger):
     logger.success(f"{msg}, average bandwidth {avg_bandwidth}, takes {format_time(interval)}")
 
 
-def broadcast_to_all_interfaces(sk: socket.socket, content: bytes):
-    interface_stats = psutil.net_if_stats()
-    for interface, addresses in psutil.net_if_addrs().items():
-        if not interface_stats[interface].isup:
-            continue
-        for addr in addresses:
-            if addr.family == socket.AF_INET and addr.netmask:
-                broadcast_address = ipaddress.IPv4Network(f"{addr.address}/{addr.netmask}",
-                                                          strict=False).broadcast_address
-                if broadcast_address.is_loopback:
-                    continue
-                try:
-                    sk.sendto(content, (str(broadcast_address), config.signal_port))
-                except OSError:
-                    pass
+package = getattr(sys, 'frozen', False)
+
+
+def pause_before_exit(exit_code=0):
+    if package:
+        os.system('pause')
+    sys.exit(exit_code)
 
 
 def get_file_md5(filename):
@@ -294,58 +258,9 @@ def get_file_md5(filename):
     return file_hash.hexdigest()
 
 
-def openfile_with_retires(filename: str, mode: str, max_retries: int = 50) -> TextIO | None:
-    """
-    多次重试创建文件，用于解决文件路径过长时
-    Windows容易无法创建文件的问题
-
-    @param filename: 需要打开的文件的绝对路径
-    @param mode: 打开模式
-    @param max_retries: 最大重试数
-    @return: 文件指针
-    """
-    file, retries = None, 0
-    while not file and retries < max_retries:
-        try:
-            file = open(filename, mode)
-        except FileNotFoundError:
-            retries += 1
-    return file
-
-
-def get_hostname_by_ip(ip):
-    hostname = 'unknown'
-    try:
-        hostname = socket.gethostbyaddr(ip)[0]
-    finally:
-        return hostname
-
-
 def shorten_path(path: str, max_width: float) -> str:
     return path[:int((max_width - 3) / 3)] + '...' + path[-2 * int((max_width - 3) / 3):] if len(
         path) > max_width else path + ' ' * (int(max_width) - len(path))
-
-    # def shorten_string(string: str, width):
-    #     if width <= 0:
-    #         return '...'
-    #     if len(string) - width <= 0:
-    #         return string
-    #     margin = int(width / 2)
-    #     return '...' if margin == 0 else string[0:margin] + '..' + string[-margin:]
-    #
-    # parts: list = path.split(os.path.sep)
-    # if len(path) <= max_width or len(parts) == 1:
-    #     return shorten_string(path, max_width)
-    # path_sep = '...' + os.path.sep
-    # base = parts.pop()
-    # if len(base) - 4 >= max_width:
-    #     return path_sep + shorten_string(base, len(base) - 4)
-    # avg_width = int((max_width - len(base)) / len(parts))
-    # if avg_width < 2:
-    #     return shorten_string(os.path.sep.join(parts), max_width - len(base)) + os.path.sep + base
-    # shortened_parts = [shorten_string(part, avg_width) for part in parts]
-    # shortened_parts.append(base)
-    # return os.path.sep.join(shortened_parts)
 
 
 # 命令类型
@@ -384,7 +299,7 @@ history = 'history'
 say = 'say'
 clipboard_send = 'send clipboard'
 clipboard_get = 'get clipboard'
-commands: Final[list] = [sysinfo, compare, speedtest, history, clipboard_send, clipboard_get, setbase, say]
+commands: Final[list] = [sysinfo, compare, speedtest, setbase, say, history, clipboard_send, clipboard_get]
 
 # Struct 对象
 # B为 1字节 unsigned char，0~127
@@ -446,7 +361,7 @@ class Config:
                 config_parser.write(f)
         except PermissionError as error:
             print_color(f'Failed to create the config file, {error}', level=LEVEL.ERROR, highlight=1)
-            sys.exit(-1)
+            pause_before_exit(-1)
 
     @staticmethod
     def load_config():
@@ -470,16 +385,17 @@ class Config:
                 os.remove(Config.config_file)
         except OSError as e:
             print_color(f'Failed to create the log folder, {e}', level=LEVEL.ERROR, highlight=1)
-            sys.exit(-1)
+            pause_before_exit(-1)
         except (NoOptionError, NoSectionError) as e:
             print_color(f'{e}', level=LEVEL.ERROR, highlight=1)
-            sys.exit(-1)
+            pause_before_exit(-1)
         except ValueError as e:
             print_color(f'Configuration error, {e}', level=LEVEL.ERROR, highlight=1)
-            sys.exit(-1)
-        return Configration(default_path=default_path, log_dir=log_dir, server_port=server_port,
-                            log_file_archive_count=log_file_archive_count, log_file_archive_size=log_file_archive_size,
-                            signal_port=signal_port)
+            pause_before_exit(-1)
+        else:
+            return Configration(default_path=default_path, log_dir=log_dir, server_port=server_port,
+                                log_file_archive_count=log_file_archive_count, signal_port=signal_port,
+                                log_file_archive_size=log_file_archive_size)
 
 
 # 加载配置
