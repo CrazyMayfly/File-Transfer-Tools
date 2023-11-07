@@ -135,9 +135,6 @@ class FTT:
         return connect_id
 
     def __shutdown(self, send_info=True):
-        if not self.__alive:
-            return  # 防止重复调用
-        self.__alive = False
         try:
             if send_info:
                 self.main_conn.send_head('', COMMAND.CLOSE, 0)
@@ -149,8 +146,6 @@ class FTT:
         finally:
             self.logger.close()
             self.__history_file.close()
-            if self.executor is not ...:
-                self.executor.shutdown()
             if package:
                 os.system('pause')
             os.kill(os.getpid(), signal.SIGINT)
@@ -296,12 +291,12 @@ class FTT:
         except UnicodeDecodeError:
             self.logger.error(f'Peer data flow abnormality, connection disconnected')
         finally:
-            self.__shutdown(send_info=False)
+            self.__alive = False
 
     def start(self):
         self.__boot()
         try:
-            while True:
+            while self.__alive:
                 command = input('> ').strip()
                 if not command:
                     continue
@@ -314,8 +309,6 @@ class FTT:
                 self.__ftc.execute(command)
         except (ssl.SSLError, ConnectionError) as e:
             self.logger.error(e.strerror if e.strerror else e, highlight=1)
-        except KeyboardInterrupt:
-            self.executor.shutdown(wait=False, cancel_futures=True)
         finally:
             self.__shutdown()
 
