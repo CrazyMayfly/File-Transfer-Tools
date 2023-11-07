@@ -3,6 +3,7 @@ import struct
 import tarfile
 import re
 import select
+
 from FTT_lib import *
 from send2trash import send2trash
 
@@ -13,17 +14,17 @@ class FTT:
         self.peer_platform: str = ...
         self.threads: int = threads
         self.executor: concurrent.futures.ThreadPoolExecutor = ...
-        self.base_dir = base_dir.expanduser().absolute()
+        self.base_dir: Path = base_dir.expanduser().absolute()
         self.main_conn_recv: ESocket = ...
         self.main_conn: ESocket = ...
-        self.busy = threading.Lock()
+        self.busy: threading.Lock = threading.Lock()
         self.connections: list[ESocket] = []
         self.__ftc: FTC = ...
         self.__fts: FTS = ...
         self.__host: str = host
-        self.__alive = True
+        self.__alive: bool = True
         self.__password: str = password
-        self.__history_file = open(read_line_setup(), 'a', encoding=utf8)
+        self.__history_file: TextIO = open(read_line_setup(), 'a', encoding=utf8)
         self.logger: Logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_ftt.log'))
 
     def __add_history(self, command: str):

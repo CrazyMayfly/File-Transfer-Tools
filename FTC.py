@@ -79,10 +79,10 @@ class FTC:
     def __init__(self, ftt):
         self.__ftt = ftt
         self.__pbar: tqdm = ...
-        self.__base_dir = ...
+        self.__base_dir: Path = ...
         self.__main_conn: ESocket = ftt.main_conn
         self.__connections: list[ESocket] = ftt.connections
-        self.__command_prefix = 'powershell ' if ftt.peer_platform == WINDOWS else ''
+        self.__command_prefix: str = 'powershell ' if ftt.peer_platform == WINDOWS else ''
         self.logger: Logger = ftt.logger
         self.__large_files_info: deque = deque()
         self.__small_files_info: deque = deque()
@@ -231,18 +231,18 @@ class FTC:
         func = get_clipboard if command == GET else send_clipboard
         func(self.__main_conn, self.logger)
 
-    def __prepare_to_send(self, folder, conn: ESocket):
+    def __prepare_to_send(self, folder):
         self.__base_dir = folder
         # 发送文件夹命令
-        conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
+        self.__main_conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
         folders, files = get_dir_file_name(folder)
         # 发送文件夹数据
         self.logger.info(f'Send folders under {folder}, number: {len(folders)}')
-        conn.send_with_compress(folders)
+        self.__main_conn.send_with_compress(folders)
         # 将发送的文件夹信息写入日志
         msgs = [f'{PurePath(folder, name).as_posix()}\n' for name in folders.keys()]
         # 接收对方已有的文件名并计算出对方没有的文件
-        files = set(files) - set(conn.recv_with_decompress())
+        files = set(files) - set(self.__main_conn.recv_with_decompress())
         # 将待发送的文件打印到日志，计算待发送的文件总大小
         msgs.append(f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n')
         # 统计待发送的文件信息
@@ -267,7 +267,7 @@ class FTC:
             self.logger.warning('Currently receiving/sending folder, please try again later.', highlight=1)
             return
         self.__ftt.busy.acquire()
-        files, total_size = self.__prepare_to_send(folder, self.__main_conn)
+        files, total_size = self.__prepare_to_send(folder)
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
         self.__pbar = tqdm(total=total_size, desc='total size', unit='bytes',

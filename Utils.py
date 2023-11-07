@@ -11,7 +11,7 @@ from platform import system
 from pathlib import PurePath
 from sys_info import get_size
 from datetime import datetime
-from typing import Final
+from typing import Final, TextIO
 from dataclasses import dataclass
 from enum import StrEnum, IntEnum, auto
 from configparser import ConfigParser, NoOptionError, NoSectionError
@@ -53,9 +53,9 @@ class LEVEL(StrEnum):
 # 日志类，简化日志打印
 class Logger:
     def __init__(self, log_file_path: PurePath):
-        self.__log_file = open(log_file_path, 'a', encoding=utf8)
-        self.__log_lock = threading.Lock()
-        self.__writing_lock = threading.Lock()
+        self.__log_file: TextIO = open(log_file_path, 'a', encoding=utf8)
+        self.__log_lock: threading.Lock = threading.Lock()
+        self.__writing_lock: threading.Lock = threading.Lock()
         self.__writing_buffer: list[str] = []
         threading.Thread(target=self.auto_flush, daemon=True).start()
 
@@ -112,7 +112,7 @@ class ESocket:
     def __init__(self, conn: socket.socket):
         if conn is None:
             raise ValueError('Connection Can Not Be None')
-        self.__conn = conn
+        self.__conn: socket.socket = conn
 
     def sendall(self, data: bytes):
         self.__conn.sendall(data)
@@ -291,14 +291,14 @@ SEND: Final[str] = 'send'
 OVER: Final[bytes] = b'\00'
 utf8: Final[str] = 'utf-8'
 unit: Final[int] = 1024 * 1024 * 2  # 2MB
-sysinfo = 'sysinfo'
-compare = "compare"
-speedtest = 'speedtest'
-setbase = 'setbase'
-history = 'history'
-say = 'say'
-clipboard_send = 'send clipboard'
-clipboard_get = 'get clipboard'
+sysinfo: Final[str] = 'sysinfo'
+compare: Final[str] = "compare"
+speedtest: Final[str] = 'speedtest'
+setbase: Final[str] = 'setbase'
+history: Final[str] = 'history'
+say: Final[str] = 'say'
+clipboard_send: Final[str] = 'send clipboard'
+clipboard_get: Final[str] = 'get clipboard'
 commands: Final[list] = [sysinfo, compare, speedtest, setbase, say, history, clipboard_send, clipboard_get]
 
 # Struct 对象
