@@ -11,8 +11,8 @@ from pathlib import Path
 from collections import deque
 from shutil import get_terminal_size
 
-LARGE_FILE_SIZE_THRESHOLD = 1024 * 1024
-SMALL_FILE_CHUNK_SIZE = 1024 * 1024 * 2
+LARGE_FILE_SIZE_THRESHOLD = 20  # 1024 * 1024
+SMALL_FILE_CHUNK_SIZE = 21  # 1024 * 1024 * 2
 
 
 def print_history(nums=10):
@@ -20,20 +20,6 @@ def print_history(nums=10):
     start = max(1, current_length - nums + 1)
     for i in range(start, current_length + 1):
         print(readline.get_history_item(i))
-
-
-def calcu_size(size, factor=1024):
-    """
-    计算文件大小所对应的合适的单位
-    :param size: 原始文件大小，单位 byte
-    :param factor: 计算因子
-    :return:返回合适的两个单位及对应的大小
-    """
-    scale = ["", "K", "M", "G", "T", "P"]
-    for position, data_unit in enumerate(scale):
-        if size < factor:
-            return f"{size:.2f}{data_unit}B", f"{size * factor:.2f}{scale[position - 1]}B" if position > 0 else ''
-        size /= factor
 
 
 def print_filename_if_exists(prompt, filename_list):
@@ -66,7 +52,7 @@ def split_by_threshold(info):
     current_sum = last_idx = 0
     for idx, (_, size, _) in enumerate(info, start=1):
         current_sum += size
-        if current_sum > SMALL_FILE_CHUNK_SIZE:
+        if current_sum >> SMALL_FILE_CHUNK_SIZE:
             result.append((current_sum, idx - last_idx, info[last_idx:idx]))
             last_idx = idx
             current_sum = 0
@@ -235,16 +221,24 @@ class FTC:
         self.__base_dir = folder
         # 发送文件夹命令
         self.__main_conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
+        self.logger.info(f'Collect files information')
         folders, files = get_dir_file_name(folder)
         # 发送文件夹数据
-        self.logger.info(f'Send folders under {folder}, number: {len(folders)}')
         self.__main_conn.send_with_compress(folders)
-        # 将发送的文件夹信息写入日志
-        msgs = [f'{PurePath(folder, name).as_posix()}\n' for name in folders.keys()]
         # 接收对方已有的文件名并计算出对方没有的文件
         files = set(files) - set(self.__main_conn.recv_with_decompress())
+        if not files:
+            self.logger.info('No files to send', highlight=1)
+            try:
+                for conn in self.__connections:
+                    conn.send_head('', COMMAND.FINISH, 0)
+            except (ssl.SSLError, ConnectionError) as error:
+                self.logger.error(error)
+            finally:
+                self.__ftt.busy.release()
+            return None, None
         # 将待发送的文件打印到日志，计算待发送的文件总大小
-        msgs.append(f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n')
+        msgs = [f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n']
         # 统计待发送的文件信息
         total_size = 0
         large_files_info, small_files_info = [], []
@@ -253,9 +247,9 @@ class FTC:
             file_size = (file_stat := real_path.stat()).st_size
             info = file, file_size, (file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
             # 记录每个文件大小
-            small_files_info.append(info) if file_size < LARGE_FILE_SIZE_THRESHOLD else large_files_info.append(info)
+            large_files_info.append(info) if file_size >> LARGE_FILE_SIZE_THRESHOLD else small_files_info.append(info)
             total_size += file_size
-            msgs.append("{}, about {}, {}\n".format(real_path, *calcu_size(file_size)))
+            msgs.append(f"{real_path}, {file_size}B\n")
         self.logger.silent_write(msgs)
         random.shuffle(small_files_info)
         self.__large_files_info = deque(sorted(large_files_info, key=lambda item: item[1]))
@@ -268,6 +262,8 @@ class FTC:
             return
         self.__ftt.busy.acquire()
         files, total_size = self.__prepare_to_send(folder)
+        if not files:
+            return
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
         self.__pbar = tqdm(total=total_size, desc='total size', unit='bytes',
