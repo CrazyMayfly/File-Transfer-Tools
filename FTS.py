@@ -119,6 +119,7 @@ class FTS:
                     os.utime(path=folder, times=times)
                 except Exception as error:
                     self.logger.warning(f'Folder {cur_dir} time modification failed, {error}', highlight=1)
+            self.logger.success(f'Received folder.')
 
     def __recv_small_files(self, conn: ESocket, cur_dir, files_info):
         real_path = Path("")
@@ -129,7 +130,7 @@ class FTS:
                 real_path.write_bytes(conn.recv_data(file_size))
                 self.__modify_file_time(str(real_path), *time_info)
                 msgs.append(f'[SUCCESS] {get_log_msg("Received")}: {real_path}\n')
-            self.logger.success(f'Received small files chunk, number: {len(files_info)}')
+            self.logger.success(f'Received: {len(files_info)} small files')
             self.logger.silent_write(msgs)
         except ConnectionDisappearedError:
             self.logger.warning(f'Connection was terminated unexpectedly and reception failed: {real_path}')
@@ -186,8 +187,10 @@ class FTS:
         """
         match command:
             case COMMAND.SEND_FILES_IN_FOLDER:
+                self.logger.info(f'Receiving folder: {filename}')
                 self.__recv_files_in_folder(Path(self.__ftt.base_dir, filename))
             case COMMAND.SEND_LARGE_FILE:
+                self.logger.info(f'Receiving single file: {filename}, size: {get_size(file_size)}')
                 self.__recv_large_file(self.main_conn, self.__ftt.base_dir, filename, file_size)
             case COMMAND.COMPARE_FOLDER:
                 self.__compare_folder(filename)

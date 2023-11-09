@@ -276,7 +276,7 @@ class FTT:
 
     def __server(self):
         try:
-            while True:
+            while self.__alive:
                 filename, command, file_size = self.main_conn_recv.recv_head()
                 if command == COMMAND.CLOSE:
                     self.logger.info(f'Peer closed connections')
@@ -291,7 +291,10 @@ class FTT:
         except UnicodeDecodeError:
             self.logger.error(f'Peer data flow abnormality, connection disconnected')
         finally:
-            self.__alive = False
+            if not self.busy.locked():
+                self.__shutdown(send_info=False)
+            else:
+                self.__alive = False
 
     def start(self):
         self.__boot()
@@ -302,6 +305,7 @@ class FTT:
                     continue
                 self.__add_history(command)
                 if command in ['q', 'quit', 'exit']:
+                    self.__alive = False
                     break
                 elif command.startswith(setbase):
                     self.__change_base_dir(command[8:])
