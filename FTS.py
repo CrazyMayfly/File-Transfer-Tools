@@ -120,7 +120,10 @@ class FTS:
                     os.utime(path=folder, times=times)
                 except Exception as error:
                     self.logger.warning(f'Folder {cur_dir} time modification failed, {error}', highlight=1)
-            show_bandwidth('Received folder', total_size, time.time() - start, self.logger)
+            if total_size:
+                show_bandwidth('Received folder', total_size, time.time() - start, self.logger)
+            else:
+                self.logger.info('No files to receive')
 
     def __recv_small_files(self, conn: ESocket, cur_dir, files_info):
         real_path = Path("")

@@ -233,6 +233,7 @@ class FTC:
         files = set(files) - set(self.__main_conn.recv_with_decompress())
         if not files:
             self.logger.info('No files to send', highlight=1)
+            self.__main_conn.send_size(0)
             self.__send_finish_ack()
             return None, None
         # 将待发送的文件打印到日志，计算待发送的文件总大小
@@ -314,8 +315,9 @@ class FTC:
         except (ssl.SSLError, ConnectionError) as error:
             self.logger.error(error)
         finally:
-            self.__set_pbar_status(fail := (len(self.__finished_files) and self.__finished_files.pop() == file.name))
-            self.logger.error(f"{file} failed to send") if fail else self.logger.success(f"{file} sent successfully")
+            success = len(self.__finished_files) and self.__finished_files.pop() == file.name
+            self.__set_pbar_status(fail=not success)
+            self.logger.success(f"{file} sent successfully") if success else self.logger.error(f"{file} failed to send")
 
     def __send_large_files(self, conn: ESocket, position: int):
         while len(self.__large_files_info):
