@@ -245,6 +245,7 @@ class FTC:
             total_size += file_size
             msgs.append(f"{real_path}, {file_size}B\n")
         self.logger.silent_write(msgs)
+        self.__main_conn.send_size(total_size)
         random.shuffle(small_files_info)
         self.__large_files_info = deque(sorted(large_files_info, key=lambda item: item[1]))
         self.__small_files_info = deque(split_by_threshold(small_files_info))
@@ -361,8 +362,8 @@ class FTC:
                 total_size, num, files_info = self.__small_files_info.pop()
                 conn.send_head('', COMMAND.SEND_SMALL_FILE, total_size)
                 conn.send_with_compress(files_info)
-                with tqdm(total=total_size, desc='small files chunk', unit='bytes', unit_scale=True,
-                          mininterval=1, position=position, leave=False) as pbar:
+                with tqdm(total=total_size, desc=f'{num} small files', unit='bytes', unit_scale=True,
+                          mininterval=0.2, position=position, leave=False) as pbar:
                     for idx, (filename, file_size, _) in enumerate(files_info):
                         real_path = Path(self.__base_dir, filename)
                         with real_path.open('rb') as fp:
