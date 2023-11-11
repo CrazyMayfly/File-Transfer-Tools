@@ -149,6 +149,10 @@ class FTC:
             else:
                 self.__pbar.total -= size
 
+    def __set_pbar_status(self, fail):
+        self.__pbar.colour = '#F44336' if fail else '#98c379'
+        self.__pbar.close()
+
     def __execute_command(self, command):
         if len(command) == 0:
             return
@@ -286,20 +290,14 @@ class FTC:
         fails = files - set(self.__finished_files)
         self.__finished_files.clear()
         # 比对发送失败的文件
+        self.__set_pbar_status(len(fails))
         if fails:
-            self.__pbar.colour = '#F44336'
-            self.__pbar.close()
             self.logger.error("Failed to sent: ", highlight=1)
             for fail in fails:
                 self.logger.warning(fail)
-        else:
-            self.__pbar.colour = '#98c379'
-            data_size, interval = self.__pbar.total, time.time() - self.__pbar.start_t
-            self.__pbar.close()
-            show_bandwidth('All files sent successfully', data_size, interval=interval, logger=self.logger)
-        if (errors := [future.exception() for future in futures]).count(None) != len(errors):
-            errors = '\n'.join(
-                [f'Thread-{idx}: {exception}' for idx, exception in enumerate(errors) if exception is not None])
+        errors = [future.exception() for future in futures]
+        if errors.count(None) != len(errors):
+            errors = '\n'.join([f'Thread-{idx}: {exception}' for idx, exception in enumerate(errors) if exception])
             self.logger.error(f"Exceptions occurred during this sending: \n{errors}", highlight=1)
 
     def __send_single_file(self, file: Path):
@@ -316,14 +314,8 @@ class FTC:
         except (ssl.SSLError, ConnectionError) as error:
             self.logger.error(error)
         finally:
-            if len(self.__finished_files) and self.__finished_files.pop() == file.name:
-                self.__pbar.colour = '#98c379'
-                self.__pbar.close()
-                self.logger.success(f"{file} sent successfully")
-            else:
-                self.__pbar.colour = '#F44336'
-                self.__pbar.close()
-                self.logger.error(f"{file} failed to send")
+            self.__set_pbar_status(fail := (len(self.__finished_files) and self.__finished_files.pop() == file.name))
+            self.logger.error(f"{file} failed to send") if fail else self.logger.success(f"{file} sent successfully")
 
     def __send_large_files(self, conn: ESocket, position: int):
         while len(self.__large_files_info):
