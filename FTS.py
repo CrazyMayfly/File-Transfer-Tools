@@ -101,7 +101,7 @@ class FTS:
                 self.logger.error(f'Failed to create folder {cur_dir}', highlight=1)
 
     def __recv_files_in_folder(self, cur_dir):
-        with self.__ftt.busy:
+        with self.__ftt.busy_lock:
             files = []
             if cur_dir.exists():
                 for path, _, file_list in os.walk(cur_dir):
@@ -111,6 +111,9 @@ class FTS:
             # 发送已存在的文件名
             self.__main_conn.send_with_compress(files)
             start, total_size = time.time(), self.__main_conn.recv_size()
+            if not total_size:
+                self.logger.info('No files to receive')
+                return
             futures = [self.__ftt.executor.submit(self.__slave_work, conn, cur_dir) for conn in self.__ftt.connections]
             concurrent.futures.wait(futures)
 
@@ -120,10 +123,7 @@ class FTS:
                     os.utime(path=folder, times=times)
                 except Exception as error:
                     self.logger.warning(f'Folder {cur_dir} time modification failed, {error}', highlight=1)
-            if total_size:
-                show_bandwidth('Received folder', total_size, time.time() - start, self.logger)
-            else:
-                self.logger.info('No files to receive')
+            show_bandwidth('Received folder', total_size, time.time() - start, self.logger)
 
     def __recv_small_files(self, conn: ESocket, cur_dir, files_info):
         real_path = Path("")

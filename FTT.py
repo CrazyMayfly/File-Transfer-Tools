@@ -17,7 +17,7 @@ class FTT:
         self.base_dir: Path = base_dir.expanduser().absolute()
         self.main_conn_recv: ESocket = ...
         self.main_conn: ESocket = ...
-        self.busy: threading.Lock = threading.Lock()
+        self.busy_lock: threading.Lock = threading.Lock()
         self.connections: list[ESocket] = []
         self.__ftc: FTC = ...
         self.__fts: FTS = ...
@@ -291,7 +291,7 @@ class FTT:
         except UnicodeDecodeError:
             self.logger.error(f'Peer data flow abnormality, connection disconnected')
         finally:
-            if not self.busy.locked():
+            if not self.busy_lock.locked():
                 self.__shutdown(send_info=False)
             else:
                 self.__alive = False

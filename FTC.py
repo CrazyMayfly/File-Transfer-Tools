@@ -232,10 +232,9 @@ class FTC:
         # 接收对方已有的文件名并计算出对方没有的文件
         files = set(files) - set(self.__main_conn.recv_with_decompress())
         if not files:
-            self.logger.info('No files to send', highlight=1)
             self.__main_conn.send_size(0)
-            self.__send_finish_ack()
-            return None, None
+            self.logger.info('No files to send', highlight=1)
+            return
         # 将待发送的文件打印到日志，计算待发送的文件总大小
         msgs = [f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n']
         # 统计待发送的文件信息
@@ -254,52 +253,38 @@ class FTC:
         random.shuffle(small_files_info)
         self.__large_files_info = deque(sorted(large_files_info, key=lambda item: item[1]))
         self.__small_files_info = deque(split_by_threshold(small_files_info))
-        return files, total_size
-
-    def __send_finish_ack(self):
-        try:
-            for conn in self.__connections:
-                conn.send_head('', COMMAND.FINISH, 0)
-        except (ssl.SSLError, ConnectionError) as error:
-            self.logger.error(error)
-        finally:
-            self.__ftt.busy.release()
-
-    def __send_files_in_folder(self, folder):
-        if self.__ftt.busy.locked():
-            self.logger.warning('Currently receiving/sending folder, please try again later.', highlight=1)
-            return
-        self.__ftt.busy.acquire()
-        files, total_size = self.__prepare_to_send(folder)
-        if not files:
-            return
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
-        self.__pbar = tqdm(total=total_size, desc='total size', unit='bytes',
-                           unit_scale=True, mininterval=1, position=0, colour='#01579B')
-        # 发送文件
-        futures = [self.__ftt.executor.submit(self.__send_file, conn, position) for position, conn in
-                   enumerate(self.__connections, start=1)]
+        self.__pbar = tqdm(total=total_size, desc='total', unit='bytes', unit_scale=True,
+                           mininterval=1, position=0, colour='#01579B')
+        return files
 
-        for future in futures:
-            while not future.done():
-                time.sleep(0.2)
-        self.__finish_send_files(files, futures)
+    def __send_files_in_folder(self, folder):
+        if self.__ftt.busy_lock.locked():
+            self.logger.warning('Currently receiving/sending folder, please try again later.', highlight=1)
+            return
+        with self.__ftt.busy_lock:
+            if not (files := self.__prepare_to_send(folder)):
+                return
+            # 发送文件
+            futures = [self.__ftt.executor.submit(self.__send_file, conn, position) for position, conn in
+                       enumerate(self.__connections, start=1)]
+            for future in futures:
+                while not future.done():
+                    time.sleep(0.2)
 
-    def __finish_send_files(self, files, futures):
-        self.__send_finish_ack()
-        fails = files - set(self.__finished_files)
-        self.__finished_files.clear()
-        # 比对发送失败的文件
-        self.__set_pbar_status(len(fails))
-        if fails:
-            self.logger.error("Failed to sent: ", highlight=1)
-            for fail in fails:
-                self.logger.warning(fail)
-        errors = [future.exception() for future in futures]
-        if errors.count(None) != len(errors):
-            errors = '\n'.join([f'Thread-{idx}: {exception}' for idx, exception in enumerate(errors) if exception])
-            self.logger.error(f"Exceptions occurred during this sending: \n{errors}", highlight=1)
+            fails = files - set(self.__finished_files)
+            self.__finished_files.clear()
+            # 比对发送失败的文件
+            self.__set_pbar_status(len(fails))
+            if fails:
+                self.logger.error("Failed to sent: ", highlight=1)
+                for fail in fails:
+                    self.logger.warning(fail)
+            errors = [future.exception() for future in futures]
+            if errors.count(None) != len(errors):
+                errors = '\n'.join([f'Thread-{idx}: {exception}' for idx, exception in enumerate(errors) if exception])
+                self.logger.error(f"Exceptions occurred during this sending: \n{errors}", highlight=1)
 
     def __send_single_file(self, file: Path):
         self.logger.silent_write([f'\n[INFO   ] {get_log_msg(f"Send a single file: {file}")}\n'])
@@ -370,12 +355,15 @@ class FTC:
                 self.__finished_files.extend([filename for filename, _, _ in files_info[:idx + 1]])
 
     def __send_file(self, conn: ESocket, position: int):
-        if position < 3:
-            self.__send_large_files(conn, position)
-            self.__send_small_files(conn, position)
-        else:
-            self.__send_small_files(conn, position)
-            self.__send_large_files(conn, position)
+        try:
+            if position < 3:
+                self.__send_large_files(conn, position)
+                self.__send_small_files(conn, position)
+            else:
+                self.__send_small_files(conn, position)
+                self.__send_large_files(conn, position)
+        finally:
+            conn.send_head('', COMMAND.FINISH, 0)
 
     def execute(self, command):
         if os.path.isdir(command) and os.path.exists(command):
