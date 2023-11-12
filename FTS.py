@@ -50,7 +50,7 @@ class FTS:
             self.logger.warning(f'{file_path} file time modification failed, {error}')
 
     def __compare_folder(self, folder):
-        self.logger.info(f"Client request to compare folder: {folder}")
+        # self.logger.info(f"Client request to compare folder: {folder}")
         if not os.path.exists(folder):
             # 发送目录不存在
             self.__main_conn.send_size(CONTROL.CANCEL)
@@ -60,7 +60,7 @@ class FTS:
         self.__main_conn.send_with_compress(get_files_info_relative_to_basedir(folder))
         if self.__main_conn.recv_size() != CONTROL.CONTINUE:
             return
-        self.logger.log("Continue to compare hash")
+        # self.logger.log("Continue to compare hash")
         file_size_and_name_both_equal = self.__main_conn.recv_with_decompress()
         # 得到文件相对路径名: hash值字典
         results = {filename: get_file_md5(PurePath(folder, filename)) for filename in
@@ -149,8 +149,9 @@ class FTS:
                 conn.send_size(size := os.path.getsize(cur_download_file))
                 rest_size = file_size - size
                 while rest_size >> 12:
-                    rest_size -= len(data := conn.recv())
+                    data, size = conn.recv()
                     fp.write(data)
+                    rest_size -= size
                 fp.write(conn.recv_data(rest_size))
             os.rename(cur_download_file, original_file)
             self.logger.success(f'Received: {original_file}')

@@ -113,18 +113,20 @@ class ESocket:
         if conn is None:
             raise ValueError('Connection Can Not Be None')
         self.__conn: socket.socket = conn
+        self.__buf = bytearray(self.MAX_BUFFER_SIZE)
+        self.__view = memoryview(self.__buf)
 
-    def sendall(self, data: bytes):
+    def sendall(self, data):
         self.__conn.sendall(data)
 
     def send_size(self, size: int):
         self.__conn.sendall(size_struct.pack(size))
 
     def recv(self, size=MAX_BUFFER_SIZE):
-        data = self.__conn.recv(size)
-        if not data:
+        size = self.__conn.recv_into(self.__buf, size)
+        if size == 0:
             raise ConnectionDisappearedError('Connection Disappeared')
-        return data
+        return self.__view[:size], size
 
     def getpeername(self):
         return self.__conn.getpeername()
@@ -140,8 +142,9 @@ class ESocket:
         # 避免粘包
         result = bytearray()
         while size:
-            size -= len(data := self.recv(min(self.MAX_BUFFER_SIZE, size)))
+            data, recv_size = self.recv(min(self.MAX_BUFFER_SIZE, size))
             result += data
+            size -= recv_size
         return result
 
     def recv_size(self) -> int:
@@ -251,11 +254,12 @@ def pause_before_exit(exit_code=0):
 
 
 def get_file_md5(filename):
-    file_hash = md5()
+    view = memoryview(buf := bytearray(buf_size))
+    file_md5 = md5()
     with open(filename, 'rb') as fp:
-        while data := fp.read(unit):
-            file_hash.update(data)
-    return file_hash.hexdigest()
+        while size := fp.readinto(buf):
+            file_md5.update(view[:size])
+    return file_md5.hexdigest()
 
 
 def shorten_path(path: str, max_width: float) -> str:
@@ -290,7 +294,7 @@ GET: Final[str] = 'get'
 SEND: Final[str] = 'send'
 OVER: Final[bytes] = b'\00'
 utf8: Final[str] = 'utf-8'
-unit: Final[int] = 1024 * 1024 * 2  # 2MB
+buf_size: Final[int] = 1024 * 1024  # 1MB
 sysinfo: Final[str] = 'sysinfo'
 compare: Final[str] = "compare"
 speedtest: Final[str] = 'speedtest'

@@ -305,6 +305,7 @@ class FTC:
             self.logger.success(f"{file} sent successfully") if success else self.logger.error(f"{file} failed to send")
 
     def __send_large_files(self, conn: ESocket, position: int):
+        view = memoryview(buf := bytearray(buf_size))
         while len(self.__large_files_info):
             filename, file_size, time_info = self.__large_files_info.pop()
             real_path = PurePath(self.__base_dir, filename)
@@ -323,9 +324,9 @@ class FTC:
             pbar_width = get_terminal_size().columns / 4
             with tqdm(total=rest_size, desc=shorten_path(filename, pbar_width), unit='bytes', unit_scale=True,
                       mininterval=1, position=position, leave=False, disable=position == 0) as pbar:
-                while data := fp.read(min(rest_size, unit)):
-                    conn.sendall(data)
-                    pbar.update(data_size := len(data))
+                while data_size := fp.readinto(buf):
+                    conn.sendall(view[:min(data_size, rest_size)])
+                    pbar.update(data_size)
                     rest_size -= data_size
                     self.__update_global_pbar(data_size)
             fp.close()
