@@ -135,7 +135,7 @@ class FTC:
         # 发送相同的文件名称
         conn.send_with_compress(files_info_equal)
         results = {filename: get_file_md5(PurePath(local_folder, filename)) for filename in
-                   files_info_equal}
+                   tqdm(files_info_equal, desc='calc hash', unit='files', mininterval=0.2, leave=False)}
         # 获取本次字符串大小
         peer_files_info = conn.recv_with_decompress()
         hash_not_matching = [filename for filename in results.keys() if
