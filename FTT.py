@@ -120,7 +120,7 @@ class FTT:
         # 将socket包装为securitySocket
         client_socket = ESocket(context.wrap_socket(client_socket, server_hostname='FTS'))
         client_socket.send_head(f'{self.__password}', COMMAND.BEFORE_WORKING, self.threads)
-        client_socket.send_head(f'{platform_}_{username}', COMMAND.BEFORE_WORKING, 0)
+        client_socket.send_head(f'{cur_platform}_{username}', COMMAND.BEFORE_WORKING, 0)
         client_socket.sendall(connect_id := os.urandom(64))
         msg, _, threads = client_socket.recv_head()
         if msg == FAIL:
@@ -167,7 +167,7 @@ class FTT:
             conn.close()
             return
         # 校验密码, 密码正确则发送当前平台
-        msg = FAIL if password != self.__password else f'{platform_}_{username}'
+        msg = FAIL if password != self.__password else f'{cur_platform}_{username}'
         conn.send_head(msg, COMMAND.BEFORE_WORKING, self.threads)
         if password != self.__password:
             conn.close()

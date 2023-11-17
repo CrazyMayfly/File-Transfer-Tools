@@ -1,18 +1,13 @@
 import ssl
 import random
 import os.path
-
 import readline
-
 from Utils import *
 from tqdm import tqdm
 from sys_info import *
 from pathlib import Path
 from collections import deque
 from shutil import get_terminal_size
-
-LARGE_FILE_SIZE_THRESHOLD = 20  # 1024 * 1024
-SMALL_FILE_CHUNK_SIZE = 21  # 1024 * 1024 * 2
 
 
 def print_history(nums=10):
@@ -180,7 +175,7 @@ class FTC:
         # 发送比较系统信息的命令到FTS
         self.__main_conn.send_head('', COMMAND.SYSINFO, 0)
         # 异步获取自己的系统信息
-        thread = MyThread(get_sys_info)
+        thread = ThreadWithResult(get_sys_info)
         thread.start()
         # 接收对方的系统信息
         peer_sysinfo = self.__main_conn.recv_with_decompress()

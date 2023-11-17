@@ -1,23 +1,8 @@
 import platform
 import time
 import psutil
-from threading import Thread
-
-username = psutil.users()[0].name
-cpu_count = psutil.cpu_count(logical=False)
-
-
-def get_size(size, factor=1024, suffix="B"):
-    """
-    Scale bytes to its proper format
-    e.g:
-        1253656 => '1.20MB'
-        1253656678 => '1.17GB'
-    """
-    for data_unit in ["", "K", "M", "G", "T", "P"]:
-        if size < factor:
-            return f"{size:.2f}{data_unit}{suffix}"
-        size /= factor
+from Utils import get_size, ThreadWithResult
+from constants import cpu_count, username
 
 
 def get_net_io():
@@ -40,21 +25,6 @@ def get_disk_io():
             "write_count": f'{disk_io_now.write_count - disk_io_before.write_count} times/s',
             "read_bytes": f'{get_size(disk_io_now.read_bytes - disk_io_before.read_bytes)}/s',
             "write_bytes": f'{get_size(disk_io_now.write_bytes - disk_io_before.write_bytes)}/s'}
-
-
-class MyThread(Thread):
-    def __init__(self, func, args=()):
-        super(MyThread, self).__init__()
-        self.func = func
-        self.args = args
-        self.result = None
-
-    def run(self):
-        self.result = self.func(*self.args)
-
-    def get_result(self):
-        self.join()
-        return self.result
 
 
 def get_sys_info():
@@ -80,7 +50,7 @@ def get_sys_info():
                      'total': get_size(usage.total), 'free': get_size(usage.free), 'percent': f'{usage.percent}%'}
         disks.append(disk_info)
     # 异步获取cpu、网络、硬盘的io
-    threads = [MyThread(method) for method in (get_net_io, get_cpu_percent, get_disk_io)]
+    threads = [ThreadWithResult(method) for method in (get_net_io, get_cpu_percent, get_disk_io)]
     for thread in threads:
         thread.start()
     net_io, cpu_percent, disk_io = [thread.get_result() for thread in threads]

@@ -2,52 +2,19 @@ import lzma
 import os
 import pickle
 import socket
-import sys
 import threading
 import time
 from hashlib import md5
-from struct import Struct
-from platform import system
 from pathlib import PurePath
-from sys_info import get_size
 from datetime import datetime
-from typing import Final, TextIO
-from dataclasses import dataclass
-from enum import StrEnum, IntEnum, auto
+from typing import TextIO
+from constants import *
 from configparser import ConfigParser, NoOptionError, NoSectionError
 
-# 获取当前平台
-platform_: Final[str] = system()
-WINDOWS: Final[str] = 'Windows'
-LINUX: Final[str] = 'Linux'
-MACOS: Final[str] = 'Macos'
 # 解决win10的cmd中直接使用转义序列失效问题
-windows = platform_ == WINDOWS
 if windows:
     os.system("")
     import pyperclip
-
-
-# 配置实体类
-@dataclass
-class Configration:
-    default_path: str
-    log_dir: str
-    log_file_archive_count: int
-    log_file_archive_size: int
-    server_port: int
-    signal_port: int
-
-
-class LEVEL(StrEnum):
-    """
-    日志打印等级的枚举类，值为等级对应的颜色代码
-    """
-    LOG = ''
-    INFO = ';34'
-    WARNING = ';33'
-    SUCCESS = ';32'
-    ERROR = ';31'
 
 
 # 日志类，简化日志打印
@@ -185,6 +152,21 @@ class ESocket:
     #     return getattr(self.__conn, name)
 
 
+class ThreadWithResult(threading.Thread):
+    def __init__(self, func, args=()):
+        super(ThreadWithResult, self).__init__()
+        self.func = func
+        self.args = args
+        self.result = None
+
+    def run(self):
+        self.result = self.func(*self.args)
+
+    def get_result(self):
+        self.join()
+        return self.result
+
+
 def send_clipboard(conn: ESocket, logger: Logger, ftc=True):
     # 读取并编码剪切板的内容
     content = pyperclip.paste()
@@ -224,6 +206,19 @@ def get_log_msg(msg):
     return f'{now} {threading.current_thread().name:12} {msg}'
 
 
+def get_size(size, factor=1024, suffix="B"):
+    """
+    Scale bytes to its proper format
+    e.g:
+        1253656 => '1.20MB'
+        1253656678 => '1.17GB'
+    """
+    for data_unit in ["", "K", "M", "G", "T", "P"]:
+        if size < factor:
+            return f"{size:.2f}{data_unit}{suffix}"
+        size /= factor
+
+
 def get_files_info_relative_to_basedir(base_dir):
     return {(abspath := PurePath(path, file)).relative_to(base_dir).as_posix(): os.path.getsize(abspath)
             for path, _, file_list in os.walk(base_dir) for file in file_list}
@@ -244,9 +239,6 @@ def show_bandwidth(msg, data_size, interval, logger: Logger):
     logger.success(f"{msg}, average bandwidth {avg_bandwidth}, takes {format_time(interval)}")
 
 
-package = getattr(sys, 'frozen', False)
-
-
 def pause_before_exit(exit_code=0):
     if package:
         os.system('pause')
@@ -265,85 +257,6 @@ def get_file_md5(filename):
 def shorten_path(path: str, max_width: float) -> str:
     return path[:int((max_width - 3) / 3)] + '...' + path[-2 * int((max_width - 3) / 3):] if len(
         path) > max_width else path + ' ' * (int(max_width) - len(path))
-
-
-# 命令类型
-class COMMAND(IntEnum):
-    NULL = auto()
-    SEND_FILES_IN_FOLDER = auto()
-    SEND_SMALL_FILE = auto()
-    SEND_LARGE_FILE = auto()
-    COMPARE_FOLDER = auto()
-    EXECUTE_COMMAND = auto()
-    EXECUTE_RESULT = auto()
-    SYSINFO = auto()
-    SPEEDTEST = auto()
-    BEFORE_WORKING = auto()
-    CLOSE = auto()
-    HISTORY = auto()
-    COMPARE = auto()
-    CHAT = auto()
-    FINISH = auto()
-    PUSH_CLIPBOARD = auto()
-    PULL_CLIPBOARD = auto()
-
-
-# 其他常量
-FAIL: Final[str] = 'fail'
-GET: Final[str] = 'get'
-SEND: Final[str] = 'send'
-OVER: Final[bytes] = b'\00'
-utf8: Final[str] = 'utf-8'
-buf_size: Final[int] = 1024 * 1024  # 1MB
-sysinfo: Final[str] = 'sysinfo'
-compare: Final[str] = "compare"
-speedtest: Final[str] = 'speedtest'
-setbase: Final[str] = 'setbase'
-history: Final[str] = 'history'
-say: Final[str] = 'say'
-clipboard_send: Final[str] = 'send clipboard'
-clipboard_get: Final[str] = 'get clipboard'
-commands: Final[list] = [sysinfo, compare, speedtest, setbase, say, history, clipboard_send, clipboard_get]
-
-# Struct 对象
-# B为 1字节 unsigned char，0~127
-# Q为 8字节 unsigned long long， 0~2^64-1
-# q为 8字节 long long， -2^63~2^63-1
-# H为 2字节 unsigned short， 0~65535
-# d为 8字节 double， 2.3E-308~1.7E+308
-head_struct = Struct('>BQH')
-size_struct = Struct('q')
-times_struct = Struct('ddd')
-
-
-class CONTROL(IntEnum):
-    CONTINUE = 0
-    CANCEL = -1
-    FAIL2OPEN = -2
-
-
-class ConfigOption(StrEnum):
-    """
-    配置文件的Option的枚举类
-    name为配置项名称，value为配置的默认值
-    """
-    section_Main = 'Main'
-    windows_default_path = '~/Desktop'
-    linux_default_path = '~/FileTransferTool/FileRecv'
-
-    section_Log = 'Log'
-    windows_log_dir = 'C:/ProgramData/logs'
-    linux_log_dir = '~/FileTransferTool/logs'
-    log_file_archive_count = '10'
-    log_file_archive_size = '52428800'
-
-    section_Port = 'Port'
-    server_port = '2023'
-    signal_port = '2022'
-
-    @property
-    def name_and_value(self):
-        return self.name, self
 
 
 # 配置文件相关
