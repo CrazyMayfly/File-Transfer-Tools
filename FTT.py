@@ -179,10 +179,13 @@ class FTT:
         self.threads = min(self.threads, threads)
         return self.__password.encode() + conn.recv_data(64)
 
-    def __waiting_connect(self):
+    def __waiting_connect(self, ip):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind(('0.0.0.0', config.server_port))
+        try:
+            server_socket.bind(('0.0.0.0', config.server_port))
+        except (OSError, PermissionError):
+            server_socket.bind((ip, config.server_port))
         server_socket.listen(100)
         # 加载服务器所用证书和私钥
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -222,7 +225,10 @@ class FTT:
     def __find_server(self, ip):
         sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         try:
-            sk.bind(('0.0.0.0', config.signal_port))
+            try:
+                sk.bind(('0.0.0.0', config.signal_port))
+            except (OSError, PermissionError):
+                sk.bind((ip, config.signal_port))
             content = f'HI-THERE-IS-FTT_{username}_{ip}_{config.signal_port}'.encode(utf8)
             # 先广播自己信息
             broadcast_to_all_interfaces(sk, content=content)
@@ -243,7 +249,7 @@ class FTT:
                     break
                 elif data[0] == 'FTT-CONNECT-REQUEST':
                     sk.close()
-                    self.__waiting_connect()
+                    self.__waiting_connect(ip)
                     break
         except OSError as e:
             self.logger.error(f'Failed to start the broadcast service: {e.strerror}')
@@ -264,7 +270,7 @@ class FTT:
             ip = get_ip()
             self.logger.log(f'Server {username}({ip}:{config.server_port}) started, waiting for connection...')
             if self.__password:
-                self.__waiting_connect()
+                self.__waiting_connect(ip)
             else:
                 self.__find_server(ip)
         self.logger.success(f'Connected to peer {self.peer_username}({self.__host}:{config.server_port})')
