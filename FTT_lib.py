@@ -8,14 +8,13 @@ from OpenSSL import crypto
 from dataclasses import dataclass
 from functools import cache
 from argparse import Namespace, ArgumentParser
-from configparser import ConfigParser, NoOptionError, NoSectionError
+from configparser import ConfigParser, NoOptionError, NoSectionError, ParsingError
 
 
 def get_args() -> Namespace:
     """
     获取命令行参数解析器
     """
-    default_path = Path(config.default_path).expanduser()
     parser = ArgumentParser(description='File Transfer Tool, used to transfer files and execute commands.')
     parser.add_argument('-t', metavar='thread', type=int,
                         help=f'Threads (default: {cpu_count})', default=cpu_count)
@@ -24,7 +23,8 @@ def get_args() -> Namespace:
     parser.add_argument('-p', '--password', metavar='password', type=str,
                         help='Set a password for the host or Use a password to connect host.', default='')
     parser.add_argument('-d', '--dest', metavar='base_dir', type=Path,
-                        help='File save location (default: {})'.format(default_path), default=default_path)
+                        help='File save location (default: {})'.format(config.default_path),
+                        default=config.default_path)
     return parser.parse_args()
 
 
@@ -148,8 +148,8 @@ class ConfigOption(StrEnum):
 # 配置实体类
 @dataclass
 class Configration:
-    default_path: str
-    log_dir: str
+    default_path: Path
+    log_dir: Path
     log_file_archive_count: int
     log_file_archive_size: int
     server_port: int
@@ -178,34 +178,56 @@ class Config:
             pause_before_exit(-1)
 
     @staticmethod
-    def load_config():
-        if not (exist := os.path.exists(Config.config_file)):
-            # 生成配置文件
-            Config.generate_config()
-        cnf = ConfigParser()
-        cnf.read(Config.config_file, encoding=utf8)
+    def get_default_config():
+        default_path = Path(
+            ConfigOption.windows_default_path if windows else ConfigOption.linux_default_path).expanduser()
+        log_dir = Path(ConfigOption.windows_log_dir if windows else ConfigOption.linux_log_dir).expanduser()
+        cur_folder = None
         try:
+            if not default_path.exists():
+                cur_folder = default_path
+                default_path.mkdir(parents=True)
+            if not log_dir.exists():
+                cur_folder = log_dir
+                log_dir.mkdir(parents=True)
+        except OSError as error:
+            print_color(f'Failed to create {cur_folder}, {error}', level=LEVEL.ERROR, highlight=1)
+            pause_before_exit(-1)
+        return Configration(default_path=default_path, log_dir=log_dir,
+                            log_file_archive_count=int(ConfigOption.log_file_archive_count),
+                            log_file_archive_size=int(ConfigOption.log_file_archive_size),
+                            server_port=int(ConfigOption.server_port),
+                            signal_port=int(ConfigOption.signal_port))
+
+    @staticmethod
+    def load_config():
+        if not os.path.exists(Config.config_file):
+            # Config.generate_config()
+            return Config.get_default_config()
+        cur_folder = None
+        try:
+            cnf = ConfigParser()
+            cnf.read(Config.config_file, encoding=utf8)
             path_name = ConfigOption.windows_default_path.name if windows else ConfigOption.linux_default_path.name
-            default_path = cnf.get(ConfigOption.section_Main, path_name)
+            default_path = Path(cnf.get(ConfigOption.section_Main, path_name)).expanduser()
+            if not default_path.exists():
+                cur_folder = default_path
+                default_path.mkdir(parents=True)
             log_dir_name = (ConfigOption.windows_log_dir if windows else ConfigOption.linux_log_dir).name
-            if not os.path.exists(log_dir := os.path.expanduser(cnf.get(ConfigOption.section_Log, log_dir_name))):
-                os.makedirs(log_dir)
+            log_dir = Path(cnf.get(ConfigOption.section_Log, log_dir_name)).expanduser()
+            if not log_dir.exists():
+                cur_folder = log_dir
+                log_dir.mkdir(parents=True)
             log_file_archive_count = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)
             log_file_archive_size = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_size.name)
             server_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
             signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.signal_port.name)
-            # 原先配置不存在则删除生成的配置文件
-            if not exist:
-                os.remove(Config.config_file)
         except OSError as e:
-            print_color(f'Failed to create the log folder, {e}', level=LEVEL.ERROR, highlight=1)
+            print_color(f'Failed to create {cur_folder}, {e}', level=LEVEL.ERROR, highlight=1)
             pause_before_exit(-1)
-        except (NoOptionError, NoSectionError) as e:
-            print_color(f'{e}', level=LEVEL.ERROR, highlight=1)
-            pause_before_exit(-1)
-        except ValueError as e:
-            print_color(f'Configuration error, {e}', level=LEVEL.ERROR, highlight=1)
-            pause_before_exit(-1)
+        except (NoOptionError, NoSectionError, ValueError, ParsingError) as e:
+            print_color(f'Read configuration error, use default configuration: {e}', level=LEVEL.WARNING, highlight=1)
+            return Config.get_default_config()
         else:
             return Configration(default_path=default_path, log_dir=log_dir, server_port=server_port,
                                 log_file_archive_count=log_file_archive_count, signal_port=signal_port,

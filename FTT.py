@@ -326,6 +326,4 @@ class FTT:
 if __name__ == '__main__':
     args = get_args()
     ftt = FTT(password=args.password, host=args.host, base_dir=args.dest, threads=args.t)
-    if not ftt.create_folder_if_not_exist(args.dest):
-        pause_before_exit(-1)
     ftt.start()
