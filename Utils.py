@@ -9,7 +9,6 @@ from pathlib import PurePath
 from datetime import datetime
 from typing import TextIO
 from constants import *
-from configparser import ConfigParser, NoOptionError, NoSectionError
 
 # 解决win10的cmd中直接使用转义序列失效问题
 if windows:
@@ -258,65 +257,6 @@ def shorten_path(path: str, max_width: float) -> str:
     return path[:int((max_width - 3) / 3)] + '...' + path[-2 * int((max_width - 3) / 3):] if len(
         path) > max_width else path + ' ' * (int(max_width) - len(path))
 
-
-# 配置文件相关
-class Config:
-    config_file: Final[str] = 'config'
-
-    @staticmethod
-    def generate_config():
-        config_parser = ConfigParser()
-        cur_section = ''
-        for name, item in ConfigOption.__members__.items():
-            if name.startswith('section'):
-                cur_section = item
-                config_parser.add_section(cur_section)
-            else:
-                config_parser.set(cur_section, *item.name_and_value)
-        try:
-            with open(Config.config_file, 'w', encoding=utf8) as f:
-                config_parser.write(f)
-        except PermissionError as error:
-            print_color(f'Failed to create the config file, {error}', level=LEVEL.ERROR, highlight=1)
-            pause_before_exit(-1)
-
-    @staticmethod
-    def load_config():
-        if not (exist := os.path.exists(Config.config_file)):
-            # 生成配置文件
-            Config.generate_config()
-        cnf = ConfigParser()
-        cnf.read(Config.config_file, encoding=utf8)
-        try:
-            path_name = ConfigOption.windows_default_path.name if windows else ConfigOption.linux_default_path.name
-            default_path = cnf.get(ConfigOption.section_Main, path_name)
-            log_dir_name = (ConfigOption.windows_log_dir if windows else ConfigOption.linux_log_dir).name
-            if not os.path.exists(log_dir := os.path.expanduser(cnf.get(ConfigOption.section_Log, log_dir_name))):
-                os.makedirs(log_dir)
-            log_file_archive_count = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)
-            log_file_archive_size = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_size.name)
-            server_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
-            signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.signal_port.name)
-            # 原先配置不存在则删除生成的配置文件
-            if not exist:
-                os.remove(Config.config_file)
-        except OSError as e:
-            print_color(f'Failed to create the log folder, {e}', level=LEVEL.ERROR, highlight=1)
-            pause_before_exit(-1)
-        except (NoOptionError, NoSectionError) as e:
-            print_color(f'{e}', level=LEVEL.ERROR, highlight=1)
-            pause_before_exit(-1)
-        except ValueError as e:
-            print_color(f'Configuration error, {e}', level=LEVEL.ERROR, highlight=1)
-            pause_before_exit(-1)
-        else:
-            return Configration(default_path=default_path, log_dir=log_dir, server_port=server_port,
-                                log_file_archive_count=log_file_archive_count, signal_port=signal_port,
-                                log_file_archive_size=log_file_archive_size)
-
-
-# 加载配置
-config: Final[Configration] = Config.load_config()
 
 if __name__ == '__main__':
     print(get_files_info_relative_to_basedir(input('>>> ')))

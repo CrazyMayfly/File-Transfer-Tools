@@ -1,6 +1,5 @@
 import sys
 import psutil
-from dataclasses import dataclass
 from enum import IntEnum, StrEnum, auto
 from struct import Struct
 from typing import Final
@@ -59,41 +58,6 @@ class CONTROL(IntEnum):
     CONTINUE = 0
     CANCEL = -1
     FAIL2OPEN = -2
-
-
-class ConfigOption(StrEnum):
-    """
-    配置文件的Option的枚举类
-    name为配置项名称，value为配置的默认值
-    """
-    section_Main = 'Main'
-    windows_default_path = '~/Desktop'
-    linux_default_path = '~/FileTransferTool/FileRecv'
-
-    section_Log = 'Log'
-    windows_log_dir = 'C:/ProgramData/logs'
-    linux_log_dir = '~/FileTransferTool/logs'
-    log_file_archive_count = '10'
-    log_file_archive_size = '52428800'
-
-    section_Port = 'Port'
-    server_port = '2023'
-    signal_port = '2022'
-
-    @property
-    def name_and_value(self):
-        return self.name, self
-
-
-# 配置实体类
-@dataclass
-class Configration:
-    default_path: str
-    log_dir: str
-    log_file_archive_count: int
-    log_file_archive_size: int
-    server_port: int
-    signal_port: int
 
 
 # 其他常量

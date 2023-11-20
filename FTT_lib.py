@@ -5,8 +5,10 @@ import ipaddress
 from FTC import *
 from FTS import *
 from OpenSSL import crypto
+from dataclasses import dataclass
 from functools import cache
 from argparse import Namespace, ArgumentParser
+from configparser import ConfigParser, NoOptionError, NoSectionError
 
 
 def get_args() -> Namespace:
@@ -117,3 +119,98 @@ def broadcast_to_all_interfaces(sk: socket.socket, content: bytes):
                     sk.sendto(content, (str(broadcast_address), config.signal_port))
                 except OSError:
                     pass
+
+
+class ConfigOption(StrEnum):
+    """
+    配置文件的Option的枚举类
+    name为配置项名称，value为配置的默认值
+    """
+    section_Main = 'Main'
+    windows_default_path = '~/Desktop'
+    linux_default_path = '~/FileTransferTool/FileRecv'
+
+    section_Log = 'Log'
+    windows_log_dir = 'C:/ProgramData/logs'
+    linux_log_dir = '~/FileTransferTool/logs'
+    log_file_archive_count = '10'
+    log_file_archive_size = '52428800'
+
+    section_Port = 'Port'
+    server_port = '2023'
+    signal_port = '2022'
+
+    @property
+    def name_and_value(self):
+        return self.name, self
+
+
+# 配置实体类
+@dataclass
+class Configration:
+    default_path: str
+    log_dir: str
+    log_file_archive_count: int
+    log_file_archive_size: int
+    server_port: int
+    signal_port: int
+
+
+# 配置文件相关
+class Config:
+    config_file: Final[str] = 'config'
+
+    @staticmethod
+    def generate_config():
+        config_parser = ConfigParser()
+        cur_section = ''
+        for name, item in ConfigOption.__members__.items():
+            if name.startswith('section'):
+                cur_section = item
+                config_parser.add_section(cur_section)
+            else:
+                config_parser.set(cur_section, *item.name_and_value)
+        try:
+            with open(Config.config_file, 'w', encoding=utf8) as f:
+                config_parser.write(f)
+        except PermissionError as error:
+            print_color(f'Failed to create the config file, {error}', level=LEVEL.ERROR, highlight=1)
+            pause_before_exit(-1)
+
+    @staticmethod
+    def load_config():
+        if not (exist := os.path.exists(Config.config_file)):
+            # 生成配置文件
+            Config.generate_config()
+        cnf = ConfigParser()
+        cnf.read(Config.config_file, encoding=utf8)
+        try:
+            path_name = ConfigOption.windows_default_path.name if windows else ConfigOption.linux_default_path.name
+            default_path = cnf.get(ConfigOption.section_Main, path_name)
+            log_dir_name = (ConfigOption.windows_log_dir if windows else ConfigOption.linux_log_dir).name
+            if not os.path.exists(log_dir := os.path.expanduser(cnf.get(ConfigOption.section_Log, log_dir_name))):
+                os.makedirs(log_dir)
+            log_file_archive_count = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_count.name)
+            log_file_archive_size = cnf.getint(ConfigOption.section_Log, ConfigOption.log_file_archive_size.name)
+            server_port = cnf.getint(ConfigOption.section_Port, ConfigOption.server_port.name)
+            signal_port = cnf.getint(ConfigOption.section_Port, ConfigOption.signal_port.name)
+            # 原先配置不存在则删除生成的配置文件
+            if not exist:
+                os.remove(Config.config_file)
+        except OSError as e:
+            print_color(f'Failed to create the log folder, {e}', level=LEVEL.ERROR, highlight=1)
+            pause_before_exit(-1)
+        except (NoOptionError, NoSectionError) as e:
+            print_color(f'{e}', level=LEVEL.ERROR, highlight=1)
+            pause_before_exit(-1)
+        except ValueError as e:
+            print_color(f'Configuration error, {e}', level=LEVEL.ERROR, highlight=1)
+            pause_before_exit(-1)
+        else:
+            return Configration(default_path=default_path, log_dir=log_dir, server_port=server_port,
+                                log_file_archive_count=log_file_archive_count, signal_port=signal_port,
+                                log_file_archive_size=log_file_archive_size)
+
+
+# 加载配置
+config: Final[Configration] = Config.load_config()
