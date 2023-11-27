@@ -122,20 +122,38 @@ class FTC:
         if not files_info_equal:
             conn.send_size(CONTROL.CANCEL)
             return
-        if input("Continue to compare hash for filename and size both equal set?(y/n): ").lower() != 'y':
+        command = input("Continue to compare hash for filename and size both equal set?(y/n): ").lower()
+        if command == 'n':
             conn.send_size(CONTROL.CANCEL)
             return
-        # 发送继续请求
         conn.send_size(CONTROL.CONTINUE)
         # 发送相同的文件名称
         conn.send_with_compress(files_info_equal)
-        results = {filename: get_file_md5(PurePath(local_folder, filename)) for filename in
-                   tqdm(files_info_equal, desc='calc hash', unit='files', mininterval=0.2, leave=False)}
-        # 获取本次字符串大小
+        results = {filename: get_file_md5_fast(PurePath(local_folder, filename)) for filename in
+                   tqdm(files_info_equal, desc='fast pass', unit='files', mininterval=0.2, leave=False)}
         peer_files_info = conn.recv_with_decompress()
-        hash_not_matching = [filename for filename in results.keys() if
+        hash_not_matching = [filename for filename in files_info_equal if
                              results[filename] != peer_files_info[filename]]
-        self.logger.silent_write([print_filename_if_exists("hash not matching: ", hash_not_matching)])
+        # conn.send_size(CONTROL.CONTINUE) if hash_not_matching else conn.send_size(CONTROL.FAST)
+        msg = ["hash not matching: "] + [('\t' + file_name) for file_name in hash_not_matching]
+        print('\n'.join(msg))
+        files_hash_equal = [filename for filename in files_info_equal if os.path.getsize(
+            PurePath(local_folder, filename)) >> SMALL_FILE_CHUNK_SIZE and filename not in hash_not_matching]
+        conn.send_with_compress(files_hash_equal)
+        if not files_hash_equal:
+            return
+        results = {filename: get_file_md5(PurePath(local_folder, filename)) for filename in
+                   tqdm(files_hash_equal, desc='slow pass', unit='files', mininterval=0.2, leave=False)}
+        peer_files_info = conn.recv_with_decompress()
+        for filename in files_hash_equal:
+            if results[filename] != peer_files_info[filename]:
+                print('\t' + filename)
+                msg.append('\t' + filename)
+        if len(msg) == 1:
+            print('\t' + 'None')
+            msg.append('\t' + 'None')
+        msg.append('')
+        self.logger.silent_write(['\n'.join(msg)])
 
     def __update_global_pbar(self, size, decrease=False):
         with self.__pbar.get_lock():

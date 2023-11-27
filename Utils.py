@@ -245,11 +245,34 @@ def pause_before_exit(exit_code=0):
 
 
 def get_file_md5(filename):
-    view = memoryview(buf := bytearray(buf_size))
     file_md5 = md5()
     with open(filename, 'rb') as fp:
-        while size := fp.readinto(buf):
-            file_md5.update(view[:size])
+        if os.path.getsize(filename) >> SMALL_FILE_CHUNK_SIZE:
+            view = memoryview(buf := bytearray(buf_size))
+            while size := fp.readinto(buf):
+                file_md5.update(view[:size])
+        else:
+            file_md5.update(fp.read())
+    return file_md5.hexdigest()
+
+
+def get_file_md5_fast(filename):
+    file_md5 = md5()
+    file_size = os.path.getsize(filename)
+    tail = file_size - FILE_TAIL_SIZE
+    num_chunks = tail // 48
+    with open(filename, 'rb') as fp:
+        if file_size >> SMALL_FILE_CHUNK_SIZE:
+            # Large file, read in chunks and include tail
+            for offset in range(48):
+                fp.seek(offset * num_chunks)
+                file_md5.update(fp.read(32 * KB))
+            # Read the tail of the file
+            fp.seek(tail)
+            file_md5.update(fp.read(FILE_TAIL_SIZE))
+        else:
+            # Small file, read the entire content
+            file_md5.update(fp.read())
     return file_md5.hexdigest()
 
 

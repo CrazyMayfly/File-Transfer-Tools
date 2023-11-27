@@ -60,11 +60,16 @@ class FTS:
         self.__main_conn.send_with_compress(get_files_info_relative_to_basedir(folder))
         if self.__main_conn.recv_size() != CONTROL.CONTINUE:
             return
-        # self.logger.log("Continue to compare hash")
         file_size_and_name_both_equal = self.__main_conn.recv_with_decompress()
         # 得到文件相对路径名: hash值字典
-        results = {filename: get_file_md5(PurePath(folder, filename)) for filename in
+        results = {filename: get_file_md5_fast(PurePath(folder, filename)) for filename in
                    file_size_and_name_both_equal}
+        self.__main_conn.send_with_compress(results)
+        files_hash_equal = self.__main_conn.recv_with_decompress()
+        if not files_hash_equal:
+            return
+        results = {filename: get_file_md5(PurePath(folder, filename)) for filename in
+                   files_hash_equal}
         self.__main_conn.send_with_compress(results)
 
     def __execute_command(self, command):
