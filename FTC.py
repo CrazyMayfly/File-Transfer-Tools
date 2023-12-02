@@ -129,7 +129,8 @@ class FTC:
         conn.send_size(CONTROL.CONTINUE)
         # 发送相同的文件名称
         conn.send_with_compress(files_info_equal)
-        results = {filename: get_file_md5_fast(PurePath(local_folder, filename)) for filename in
+        file_md5 = FileHash()
+        results = {filename: file_md5.fast_digest(PurePath(local_folder, filename)) for filename in
                    tqdm(files_info_equal, desc='fast pass', unit='files', mininterval=0.2, leave=False)}
         peer_files_info = conn.recv_with_decompress()
         hash_not_matching = [filename for filename in files_info_equal if
@@ -142,7 +143,7 @@ class FTC:
         conn.send_with_compress(files_hash_equal)
         if not files_hash_equal:
             return
-        results = {filename: get_file_md5(PurePath(local_folder, filename)) for filename in
+        results = {filename: file_md5.full_digest(PurePath(local_folder, filename)) for filename in
                    tqdm(files_hash_equal, desc='slow pass', unit='files', mininterval=0.2, leave=False)}
         peer_files_info = conn.recv_with_decompress()
         for filename in files_hash_equal:
@@ -238,7 +239,6 @@ class FTC:
         self.__base_dir = folder
         # 发送文件夹命令
         self.__main_conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
-        self.logger.info(f'Collect files information')
         folders, files = get_dir_file_name(folder)
         # 发送文件夹数据
         self.__main_conn.send_with_compress(folders)
@@ -253,7 +253,7 @@ class FTC:
         # 统计待发送的文件信息
         total_size = 0
         large_files_info, small_files_info = [], []
-        for file in files:
+        for file in tqdm(files, delay=0.1, desc='collect files info', unit='files', mininterval=0.2, leave=False):
             real_path = Path(folder, file)
             file_size = (file_stat := real_path.stat()).st_size
             info = file, file_size, (file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)

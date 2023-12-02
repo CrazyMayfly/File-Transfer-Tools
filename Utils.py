@@ -244,36 +244,37 @@ def pause_before_exit(exit_code=0):
     sys.exit(exit_code)
 
 
-def get_file_md5(filename):
-    file_md5 = md5()
-    with open(filename, 'rb') as fp:
-        if os.path.getsize(filename) >> SMALL_FILE_CHUNK_SIZE:
-            view = memoryview(buf := bytearray(buf_size))
-            while size := fp.readinto(buf):
-                file_md5.update(view[:size])
-        else:
-            file_md5.update(fp.read())
-    return file_md5.hexdigest()
+class FileHash:
+    def __init__(self):
+        self.__buf = bytearray(buf_size)
+        self.__view = memoryview(self.__buf)
+        self.__tiny_buf = bytearray(32 * KB)
+        self.__tiny_view = memoryview(self.__tiny_buf)
 
+    def _file_digest(self, fp, file_md5=None):
+        if not file_md5:
+            file_md5 = md5()
+        while size := fp.readinto(self.__buf):
+            file_md5.update(self.__view[:size])
+        return file_md5.hexdigest()
 
-def get_file_md5_fast(filename):
-    file_md5 = md5()
-    file_size = os.path.getsize(filename)
-    tail = file_size - FILE_TAIL_SIZE
-    num_chunks = tail // 48
-    with open(filename, 'rb') as fp:
-        if file_size >> SMALL_FILE_CHUNK_SIZE:
-            # Large file, read in chunks and include tail
-            for offset in range(48):
-                fp.seek(offset * num_chunks)
-                file_md5.update(fp.read(32 * KB))
-            # Read the tail of the file
-            fp.seek(tail)
-            file_md5.update(fp.read(FILE_TAIL_SIZE))
-        else:
-            # Small file, read the entire content
-            file_md5.update(fp.read())
-    return file_md5.hexdigest()
+    def full_digest(self, filename):
+        with open(filename, 'rb') as fp:
+            return self._file_digest(fp)
+
+    def fast_digest(self, filename):
+        tail = (file_size := os.path.getsize(filename)) - FILE_TAIL_SIZE
+        with open(filename, 'rb') as fp:
+            file_md5 = md5()
+            if file_size >> SMALL_FILE_CHUNK_SIZE:
+                # Large file, read in chunks and include tail
+                for offset in range(48):
+                    fp.seek(offset * (tail // 48))
+                    size = fp.readinto(self.__tiny_buf)
+                    file_md5.update(self.__tiny_view[:size])
+                # Read the tail of the file
+                fp.seek(tail)
+            return self._file_digest(fp, file_md5)
 
 
 def shorten_path(path: str, max_width: float) -> str:

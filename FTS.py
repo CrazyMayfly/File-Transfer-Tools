@@ -62,13 +62,14 @@ class FTS:
             return
         file_size_and_name_both_equal = self.__main_conn.recv_with_decompress()
         # 得到文件相对路径名: hash值字典
-        results = {filename: get_file_md5_fast(PurePath(folder, filename)) for filename in
+        file_md5 = FileHash()
+        results = {filename: file_md5.fast_digest(PurePath(folder, filename)) for filename in
                    file_size_and_name_both_equal}
         self.__main_conn.send_with_compress(results)
         files_hash_equal = self.__main_conn.recv_with_decompress()
         if not files_hash_equal:
             return
-        results = {filename: get_file_md5(PurePath(folder, filename)) for filename in
+        results = {filename: file_md5.full_digest(PurePath(folder, filename)) for filename in
                    files_hash_equal}
         self.__main_conn.send_with_compress(results)
 
