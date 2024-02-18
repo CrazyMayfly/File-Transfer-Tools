@@ -158,7 +158,7 @@ class Configration:
 
 # 配置文件相关
 class Config:
-    config_file: Final[str] = 'config'
+    config_file: Final[str] = '../config'
 
     @staticmethod
     def generate_config():

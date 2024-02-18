@@ -6,6 +6,7 @@ import platform
 
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 resource_dir = os.path.normcase(os.path.join(parent_dir, 'docs/build_guide'))
+src_dir = os.path.normcase(os.path.join(parent_dir, 'src'))
 
 
 class Build:
@@ -19,7 +20,7 @@ class Build:
     def package(self):
         if not self.__build_dir.exists():
             self.__build_dir.mkdir()
-        cmd = f'pyinstaller {self.__bundle_type} --icon="{resource_dir}/FTT.png" --specpath "./build" --upx-dir="{resource_dir}/" --distpath "./{self.__target_dir_name}" --console --log-level INFO  ./FTT.py'
+        cmd = f'pyinstaller {self.__bundle_type} --icon="{resource_dir}/FTT.png" --specpath "./build" --upx-dir="{resource_dir}/" --distpath "./{self.__target_dir_name}" --console --log-level INFO  ./src/FTT.py'
         print(cmd)
         subprocess.call(args=cmd, cwd=parent_dir, shell=True)
 

@@ -2,7 +2,7 @@ import os.path
 import unittest
 from pathlib import Path
 
-from FTS import FTS
+from src.FTS import FTS
 from tools import create_random_file
 
 

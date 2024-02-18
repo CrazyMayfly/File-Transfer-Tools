@@ -4,8 +4,8 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
-from FTC import FTC
-from Utils import config
+from src.FTC import FTC
+from src.Utils import config
 from tools import create_random_file
 
 
