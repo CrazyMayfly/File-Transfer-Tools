@@ -1,5 +1,5 @@
 # File Transfer Tool
-
+[简体中文](./docs/README.zh.md) | [繁体中文](./docs/README.zh-tw.md)
 ## Introduction
 
 `File Transfer Tool` is a **lightweight**, **fast**, **safe**, and **multifunctional** cross-device file transfer tool.
