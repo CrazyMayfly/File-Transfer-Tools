@@ -269,7 +269,7 @@ class FTC:
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
         self.__pbar = tqdm(total=total_size, desc='total', unit='bytes', unit_scale=True,
-                           mininterval=1, position=0, colour='#01579B')
+                           mininterval=1, position=0, colour='#01579B', unit_divisor=1024)
         return files
 
     def __send_files_in_folder(self, folder):
@@ -307,7 +307,7 @@ class FTC:
         self.__large_files_info.append((file.name, file_size, time_info))
         pbar_width = get_terminal_size().columns / 4
         self.__pbar = tqdm(total=file_size, desc=shorten_path(file.name, pbar_width), unit='bytes',
-                           unit_scale=True, mininterval=1, position=0, colour='#01579B')
+                           unit_scale=True, mininterval=1, position=0, colour='#01579B', unit_divisor=1024)
         try:
             self.__send_large_files(self.__main_conn, 0)
         except (ssl.SSLError, ConnectionError) as error:
@@ -336,7 +336,7 @@ class FTC:
             rest_size = file_size - peer_exist_size
             pbar_width = get_terminal_size().columns / 4
             with tqdm(total=rest_size, desc=shorten_path(filename, pbar_width), unit='bytes', unit_scale=True,
-                      mininterval=1, position=position, leave=False, disable=position == 0) as pbar:
+                      mininterval=1, position=position, leave=False, disable=position == 0, unit_divisor=1024) as pbar:
                 while data_size := fp.readinto(buf):
                     conn.sendall(view[:min(data_size, rest_size)])
                     pbar.update(data_size)
@@ -356,7 +356,7 @@ class FTC:
                 conn.send_head('', COMMAND.SEND_SMALL_FILE, total_size)
                 conn.send_with_compress(files_info)
                 with tqdm(total=total_size, desc=f'{num} small files', unit='bytes', unit_scale=True,
-                          mininterval=0.2, position=position, leave=False) as pbar:
+                          mininterval=0.2, position=position, leave=False, unit_divisor=1024) as pbar:
                     for idx, (filename, file_size, _) in enumerate(files_info):
                         real_path = Path(self.__base_dir, filename)
                         with real_path.open('rb') as fp:
