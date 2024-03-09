@@ -233,9 +233,9 @@ def format_time(time_interval):
     return formatted_time if formatted_time else '0s'
 
 
-def show_bandwidth(msg, data_size, interval, logger: Logger):
+def show_bandwidth(msg, data_size, interval, logger: Logger, level=LEVEL.SUCCESS):
     avg_bandwidth = get_size((data_size * 8 / interval) if interval != 0 else 0, factor=1000, suffix='bps')
-    logger.success(f"{msg}, average bandwidth {avg_bandwidth}, takes {format_time(interval)}")
+    logger.log(f"{msg}, average bandwidth {avg_bandwidth}, takes {format_time(interval)}", level)
 
 
 def pause_before_exit(exit_code=0):
