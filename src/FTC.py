@@ -380,11 +380,7 @@ class FTC:
             conn.send_head('', COMMAND.FINISH, 0)
 
     def execute(self, command):
-        if os.path.isdir(command) and os.path.exists(command):
-            self.__send_files_in_folder(command)
-        elif os.path.isfile(command) and os.path.exists(command):
-            self.__send_single_file(Path(command))
-        elif command == sysinfo:
+        if command == sysinfo:
             self.__compare_sysinfo()
         elif command.startswith(speedtest):
             self.__speedtest(times=command[10:])
@@ -399,4 +395,21 @@ class FTC:
             print_history(int(command.split()[1])) if len(command.split()) > 1 and command.split()[
                 1].isdigit() else print_history()
         else:
-            self.__execute_command(command)
+            paths = command.split('|')
+            # 由于判断是否为发送文件夹，若不为则执行命令
+            flag = True
+            path_not_exists = []
+            for path in paths:
+                if os.path.exists(path):
+                    flag = False
+                    if os.path.isdir(path):
+                        self.__send_files_in_folder(path)
+                    else:
+                        self.__send_single_file(Path(path))
+                else:
+                    path_not_exists.append(path)
+            if flag:
+                self.__execute_command(command)
+            elif len(path_not_exists):
+                for path in path_not_exists:
+                    self.logger.warning(f'Path does not exist: {path}, skipped.', highlight=1)
