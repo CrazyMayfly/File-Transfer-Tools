@@ -2,6 +2,8 @@ import os.path
 import subprocess
 import concurrent.futures
 
+import send2trash
+
 from Utils import *
 from sys_info import *
 from pathlib import Path
@@ -73,6 +75,32 @@ class FTS:
                    files_hash_equal}
         self.__main_conn.send_with_compress(results)
 
+    def __force_sync_folder(self, folder):
+        if not os.path.exists(folder):
+            # 发送目录不存在
+            self.__main_conn.send_size(CONTROL.CANCEL)
+            return
+        self.__main_conn.send_size(CONTROL.CONTINUE)
+        self.logger.info(f"Peer request to force sync folder: {folder}")
+        # 将数组拼接成字符串发送到客户端
+        self.__main_conn.send_with_compress(get_files_info_relative_to_basedir(folder))
+        # 得到文件相对路径名: hash值字典
+        file_info_equal = self.__main_conn.recv_with_decompress()
+        file_md5 = FileHash()
+        results = {filename: file_md5.fast_digest(PurePath(folder, filename)) for filename in file_info_equal}
+        self.__main_conn.send_with_compress(results)
+        if self.__main_conn.recv_size() != CONTROL.CONTINUE:
+            self.logger.info("Peer canceled the sync.")
+            return
+        files_to_remove: list = self.__main_conn.recv_with_decompress()
+        self.logger.silent_write([print_filename_if_exists('Files to be removed:', files_to_remove, False)])
+        for file_rel_path in files_to_remove:
+            try:
+                send2trash.send2trash(PurePath(folder, file_rel_path))
+            except Exception as e:
+                self.logger.warning(f'Failed to remove {file_rel_path}, reason: {e}')
+        self.__recv_files_in_folder(Path(folder))
+
     def __execute_command(self, command):
         out = subprocess.Popen(args=command, shell=True, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT).stdout
@@ -106,7 +134,7 @@ class FTS:
             except FileNotFoundError:
                 self.logger.error(f'Failed to create folder {cur_dir}', highlight=1)
 
-    def __recv_files_in_folder(self, cur_dir):
+    def __recv_files_in_folder(self, cur_dir: Path):
         with self.__ftt.busy_lock:
             files = []
             if cur_dir.exists():
@@ -205,6 +233,8 @@ class FTS:
                 self.__recv_large_file(self.__main_conn, self.__ftt.base_dir, filename, file_size)
             case COMMAND.COMPARE_FOLDER:
                 self.__compare_folder(filename)
+            case COMMAND.FORCE_SYNC_FOLDER:
+                self.__force_sync_folder(filename)
             case COMMAND.EXECUTE_COMMAND:
                 self.__execute_command(filename)
             case COMMAND.SYSINFO:

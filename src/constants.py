@@ -40,6 +40,7 @@ class COMMAND(IntEnum):
     SEND_SMALL_FILE = auto()
     SEND_LARGE_FILE = auto()
     COMPARE_FOLDER = auto()
+    FORCE_SYNC_FOLDER = auto()
     EXECUTE_COMMAND = auto()
     EXECUTE_RESULT = auto()
     SYSINFO = auto()
@@ -70,13 +71,14 @@ utf8: Final[str] = 'utf-8'
 buf_size: Final[int] = 1024 * 1024  # 1MB
 sysinfo: Final[str] = 'sysinfo'
 compare: Final[str] = "compare"
+force_sync: Final[str] = "fsync"
 speedtest: Final[str] = 'speedtest'
 setbase: Final[str] = 'setbase'
 history: Final[str] = 'history'
 say: Final[str] = 'say'
 clipboard_send: Final[str] = 'send clipboard'
 clipboard_get: Final[str] = 'get clipboard'
-commands: Final[list] = [sysinfo, compare, speedtest, setbase, say, history, clipboard_send, clipboard_get]
+commands: Final[list] = [sysinfo, compare, speedtest, setbase, say, history, clipboard_send, clipboard_get, force_sync]
 
 # Struct 对象
 # B为 1字节 unsigned char，0~127

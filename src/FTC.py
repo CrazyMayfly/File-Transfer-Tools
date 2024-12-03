@@ -17,17 +17,6 @@ def print_history(nums=10):
         print(readline.get_history_item(i))
 
 
-def print_filename_if_exists(prompt, filename_list):
-    msg = [prompt]
-    if filename_list:
-        msg.extend([('\t' + file_name) for file_name in filename_list])
-    else:
-        msg.append('\tNone')
-    print('\n'.join(msg))
-    msg.append('')
-    return '\n'.join(msg)
-
-
 def get_dir_file_name(filepath):
     """
     获取某文件路径下的所有文件夹和文件的相对路径
@@ -87,8 +76,9 @@ class FTC:
         self.__small_files_info: deque = deque()
         self.__finished_files: deque = deque()
 
-    def __prepare_to_compare(self, command):
-        folders = command[8:].split('"')
+    def __prepare_to_compare_or_sync(self, command, is_compare: bool):
+        prefix_length = len(compare if is_compare else force_sync) + 1
+        folders = command[prefix_length:].split('"')
         folders = folders[0].split(' ') if len(folders) == 1 else \
             [dir_name.strip() for dir_name in folders if dir_name.strip()]
         if len(folders) != 2:
@@ -100,11 +90,19 @@ class FTC:
             self.logger.warning('Local folder does not exist')
             return
 
-        self.__main_conn.send_head(peer_folder, COMMAND.COMPARE_FOLDER, 0)
+        self.__main_conn.send_head(peer_folder, COMMAND.COMPARE_FOLDER if is_compare else COMMAND.FORCE_SYNC_FOLDER, 0)
         if self.__main_conn.recv_size() != CONTROL.CONTINUE:
             self.logger.warning(f"Peer folder {peer_folder} does not exist")
             return
         return folders
+
+    def __compare_or_sync_folder(self, command):
+        is_compare = command.startswith(compare)
+        if folders := self.__prepare_to_compare_or_sync(command, is_compare):
+            if is_compare:
+                self.__compare_folder(*folders)
+            else:
+                self.__force_sync_folder(*folders)
 
     def __compare_folder(self, local_folder, peer_folder):
         conn: ESocket = self.__main_conn
@@ -112,22 +110,10 @@ class FTC:
         # 将字符串转化为dict
         peer_files_info: dict = conn.recv_with_decompress()
         # 求各种集合
-        files_smaller_than_peer, files_smaller_than_local, files_info_equal, files_not_exist_in_peer = [], [], [], []
-        for filename in local_files_info.keys():
-            peer_size = peer_files_info.pop(filename, -1)
-            if peer_size == -1:
-                files_not_exist_in_peer.append(filename)
-                continue
-            size_diff = local_files_info[filename] - peer_size
-            if size_diff < 0:
-                files_smaller_than_peer.append(filename)
-            elif size_diff == 0:
-                files_info_equal.append(filename)
-            else:
-                files_smaller_than_local.append(filename)
+        files_smaller_than_peer, files_smaller_than_local, files_info_equal, files_not_exist_in_peer, file_not_exists_in_local = self.__get_files_differences(
+            local_files_info, peer_files_info)
         simplified_info = files_info_equal[:10] + ['(more hidden...)'] if len(
             files_info_equal) > 10 else files_info_equal
-        file_not_exists_in_local = peer_files_info.keys()
         msgs = ['\n[INFO   ] ' + get_log_msg(
             f'Compare the differences between local folder {local_folder} and peer folder {peer_folder}\n')]
         for arg in [("files exist in peer but not in local: ", file_not_exists_in_local),
@@ -141,7 +127,7 @@ class FTC:
             conn.send_size(CONTROL.CANCEL)
             return
         command = input("Continue to compare hash for filename and size both equal set?(y/n): ").lower()
-        if command == 'n':
+        if command not in ('y', 'yes'):
             conn.send_size(CONTROL.CANCEL)
             return
         conn.send_size(CONTROL.CONTINUE)
@@ -173,6 +159,67 @@ class FTC:
             msg.append('\t' + 'None')
         msg.append('')
         self.logger.silent_write(['\n'.join(msg)])
+
+    def __force_sync_folder(self, local_folder, peer_folder):
+        """
+        强制将本地文件夹的内容同步到对方文件夹，同步后双方文件夹中的文件内容一致
+        """
+        conn: ESocket = self.__main_conn
+        local_files_info = get_files_info_relative_to_basedir(local_folder)
+        # 将字符串转化为dict
+        peer_files_info: dict = conn.recv_with_decompress()
+        files_smaller_than_peer, files_smaller_than_local, files_info_equal, _, file_not_exists_in_local = self.__get_files_differences(
+            local_files_info, peer_files_info)
+        # 传回文件名称、大小都相等的文件信息，用于后续的文件hash比较
+        conn.send_with_compress(files_info_equal)
+        file_md5 = FileHash()
+        # 进行快速hash比较
+        results = {filename: file_md5.fast_digest(PurePath(local_folder, filename)) for filename in
+                   tqdm(files_info_equal, desc='fast hash compare', unit='files', mininterval=0.2, leave=False)}
+        peer_files_info = conn.recv_with_decompress()
+        hash_not_matching = [filename for filename in files_info_equal if
+                             results[filename] != peer_files_info[filename]]
+        msgs = ['\n[INFO   ] ' + get_log_msg(
+            f'Force sync files: local folder {local_folder} -> peer folder {peer_folder}\n')]
+        for arg in [("files exist in peer but not in local: ", file_not_exists_in_local),
+                    ("files in local smaller than peer: ", files_smaller_than_peer),
+                    ("files in peer smaller than local: ", files_smaller_than_local),
+                    ("files hash not matching: ", hash_not_matching)]:
+            msgs.append(print_filename_if_exists(*arg, print_if_empty=False))
+        self.logger.silent_write(msgs)
+
+        files_to_remove_in_peer = files_smaller_than_peer + files_smaller_than_local + file_not_exists_in_local + hash_not_matching
+        if len(files_to_remove_in_peer) != 0:
+            command = input(
+                f"Continue to force sync files in local folder({local_folder})\n"
+                f"    with above files deleted in peer folder?(y/n): ").lower()
+            if command not in ('y', 'yes'):
+                conn.send_size(CONTROL.CANCEL)
+                return
+        conn.send_size(CONTROL.CONTINUE)
+        conn.send_with_compress(files_to_remove_in_peer)
+        self.__send_files_in_folder(local_folder, True)
+
+    @staticmethod
+    def __get_files_differences(local_files_info, peer_files_info):
+        """
+        获取两个文件信息字典的差异
+        """
+        files_smaller_than_peer, files_smaller_than_local, files_info_equal, files_not_exist_in_peer = [], [], [], []
+        for filename in local_files_info.keys():
+            peer_size = peer_files_info.pop(filename, -1)
+            if peer_size == -1:
+                files_not_exist_in_peer.append(filename)
+                continue
+            size_diff = local_files_info[filename] - peer_size
+            if size_diff < 0:
+                files_smaller_than_peer.append(filename)
+            elif size_diff == 0:
+                files_info_equal.append(filename)
+            else:
+                files_smaller_than_local.append(filename)
+        file_not_exists_in_local = list(peer_files_info.keys())
+        return files_smaller_than_peer, files_smaller_than_local, files_info_equal, files_not_exist_in_peer, file_not_exists_in_local
 
     def __update_global_pbar(self, size, decrease=False):
         with self.__pbar.get_lock():
@@ -253,10 +300,11 @@ class FTC:
         func = get_clipboard if command == GET else send_clipboard
         func(self.__main_conn, self.logger)
 
-    def __prepare_to_send(self, folder):
+    def __prepare_to_send(self, folder, is_sync):
         self.__base_dir = folder
         # 发送文件夹命令
-        self.__main_conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
+        if not is_sync:
+            self.__main_conn.send_head(PurePath(folder).name, COMMAND.SEND_FILES_IN_FOLDER, 0)
         folders, files = get_dir_file_name(folder)
         # 发送文件夹数据
         self.__main_conn.send_with_compress(folders)
@@ -290,12 +338,12 @@ class FTC:
                            mininterval=1, position=0, colour='#01579B', unit_divisor=1024)
         return files
 
-    def __send_files_in_folder(self, folder):
+    def __send_files_in_folder(self, folder, is_sync=False):
         if self.__ftt.busy_lock.locked():
             self.logger.warning('Currently receiving/sending folder, please try again later.', highlight=1)
             return
         with self.__ftt.busy_lock:
-            if not (files := self.__prepare_to_send(folder)):
+            if not (files := self.__prepare_to_send(folder, is_sync)):
                 return
             # 发送文件
             futures = [self.__ftt.executor.submit(self.__send_file, conn, position) for position, conn in
@@ -402,9 +450,8 @@ class FTC:
             self.__compare_sysinfo()
         elif command.startswith(speedtest):
             self.__speedtest(times=command[10:])
-        elif command.startswith(compare):
-            if folders := self.__prepare_to_compare(command):
-                self.__compare_folder(*folders)
+        elif command.startswith((compare, force_sync)):
+            self.__compare_or_sync_folder(command)
         elif command.startswith(say):
             self.__main_conn.send_head(command[4:], COMMAND.CHAT, 0)
         elif command.endswith('clipboard'):

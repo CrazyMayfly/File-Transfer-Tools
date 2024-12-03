@@ -282,5 +282,17 @@ def shorten_path(path: str, max_width: float) -> str:
         path) > max_width else path + ' ' * (int(max_width) - len(path))
 
 
+def print_filename_if_exists(prompt, filename_list, print_if_empty=True):
+    msg = [prompt]
+    if filename_list:
+        msg.extend([('\t' + file_name) for file_name in filename_list])
+    else:
+        msg.append('\tNone')
+    if filename_list or print_if_empty:
+        print('\n'.join(msg))
+    msg.append('')
+    return '\n'.join(msg)
+
+
 if __name__ == '__main__':
     print(get_files_info_relative_to_basedir(input('>>> ')))
