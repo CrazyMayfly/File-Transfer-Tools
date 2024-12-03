@@ -1,13 +1,17 @@
 import lzma
 import os
 import pickle
+import random
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from hashlib import md5
 from pathlib import PurePath
 from datetime import datetime
 from typing import TextIO
+from tqdm import tqdm
+
 from constants import *
 
 # 解决win10的cmd中直接使用转义序列失效问题
@@ -245,36 +249,62 @@ def pause_before_exit(exit_code=0):
 
 
 class FileHash:
-    def __init__(self):
-        self.__buf = bytearray(buf_size)
-        self.__view = memoryview(self.__buf)
-        self.__tiny_buf = bytearray(32 * KB)
-        self.__tiny_view = memoryview(self.__tiny_buf)
+    @staticmethod
+    def _file_digest(file, file_md5, remained_size):
+        """
+        计算文件的MD5值
 
-    def _file_digest(self, fp, file_md5=None):
-        if not file_md5:
-            file_md5 = md5()
-        while size := fp.readinto(self.__buf):
-            file_md5.update(self.__view[:size])
+        @param remained_size: 文件剩余需要读取的大小
+        @return:
+        """
+        if remained_size >> SMALL_FILE_CHUNK_SIZE:
+            buf = bytearray(buf_size)
+            view = memoryview(buf)
+            while size := file.readinto(buf):
+                file_md5.update(view[:size])
+        else:
+            file_md5.update(file.read())
         return file_md5.hexdigest()
 
-    def full_digest(self, filename):
+    @staticmethod
+    def full_digest(filename):
         with open(filename, 'rb') as fp:
-            return self._file_digest(fp)
+            return FileHash._file_digest(fp, md5(), os.path.getsize(filename))
 
-    def fast_digest(self, filename):
-        tail = (file_size := os.path.getsize(filename)) - FILE_TAIL_SIZE
+    @staticmethod
+    def fast_digest(filename):
+        file_size = os.path.getsize(filename)
         with open(filename, 'rb') as fp:
             file_md5 = md5()
             if file_size >> SMALL_FILE_CHUNK_SIZE:
+                tiny_buf = bytearray(32 * KB)
+                tiny_view = memoryview(tiny_buf)
+                tail = file_size - FILE_TAIL_SIZE
                 # Large file, read in chunks and include tail
                 for offset in range(48):
                     fp.seek(offset * (tail // 48))
-                    size = fp.readinto(self.__tiny_buf)
-                    file_md5.update(self.__tiny_view[:size])
+                    size = fp.readinto(tiny_buf)
+                    file_md5.update(tiny_view[:size])
                 # Read the tail of the file
                 fp.seek(tail)
-            return self._file_digest(fp, file_md5)
+                return FileHash._file_digest(fp, file_md5, FILE_TAIL_SIZE)
+            return FileHash._file_digest(fp, file_md5, file_size)
+
+    @staticmethod
+    def parallel_calc_hash(base_folder, file_rel_paths: list[str], is_fast: bool):
+        digest_func = FileHash.fast_digest if is_fast else FileHash.full_digest
+        file_rel_paths = file_rel_paths.copy()
+        random.shuffle(file_rel_paths)
+        results = {}
+        with ThreadPoolExecutor(max_workers=cpu_count) as executor:
+            future_to_file = {executor.submit(digest_func, PurePath(base_folder, rel_path)): rel_path for rel_path in
+                              file_rel_paths}
+            for future in tqdm(as_completed(future_to_file), total=len(file_rel_paths), unit='files', mininterval=0.2,
+                               desc=f'{"fast" if is_fast else "full"} hash calc', leave=False):
+                filename = future_to_file[future]
+                digest_value = future.result()
+                results[filename] = digest_value
+        return results
 
 
 def shorten_path(path: str, max_width: float) -> str:

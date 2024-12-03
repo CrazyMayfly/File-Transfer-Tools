@@ -64,15 +64,12 @@ class FTS:
             return
         file_size_and_name_both_equal = self.__main_conn.recv_with_decompress()
         # 得到文件相对路径名: hash值字典
-        file_md5 = FileHash()
-        results = {filename: file_md5.fast_digest(PurePath(folder, filename)) for filename in
-                   file_size_and_name_both_equal}
+        results = FileHash.parallel_calc_hash(folder, file_size_and_name_both_equal, True)
         self.__main_conn.send_with_compress(results)
         files_hash_equal = self.__main_conn.recv_with_decompress()
         if not files_hash_equal:
             return
-        results = {filename: file_md5.full_digest(PurePath(folder, filename)) for filename in
-                   files_hash_equal}
+        results = FileHash.parallel_calc_hash(folder, file_size_and_name_both_equal, False)
         self.__main_conn.send_with_compress(results)
 
     def __force_sync_folder(self, folder):
@@ -86,9 +83,7 @@ class FTS:
         self.__main_conn.send_with_compress(get_files_info_relative_to_basedir(folder))
         # 得到文件相对路径名: hash值字典
         file_info_equal = self.__main_conn.recv_with_decompress()
-        file_md5 = FileHash()
-        results = {filename: file_md5.fast_digest(PurePath(folder, filename)) for filename in file_info_equal}
-        self.__main_conn.send_with_compress(results)
+        self.__main_conn.send_with_compress(FileHash.parallel_calc_hash(folder, file_info_equal, True))
         if self.__main_conn.recv_size() != CONTROL.CONTINUE:
             self.logger.info("Peer canceled the sync.")
             return

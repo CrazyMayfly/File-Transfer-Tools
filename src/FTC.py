@@ -133,13 +133,10 @@ class FTC:
         conn.send_size(CONTROL.CONTINUE)
         # 发送相同的文件名称
         conn.send_with_compress(files_info_equal)
-        file_md5 = FileHash()
-        results = {filename: file_md5.fast_digest(PurePath(local_folder, filename)) for filename in
-                   tqdm(files_info_equal, desc='fast pass', unit='files', mininterval=0.2, leave=False)}
+        results = FileHash.parallel_calc_hash(local_folder, files_info_equal, True)
         peer_files_info = conn.recv_with_decompress()
         hash_not_matching = [filename for filename in files_info_equal if
                              results[filename] != peer_files_info[filename]]
-        # conn.send_size(CONTROL.CONTINUE) if hash_not_matching else conn.send_size(CONTROL.FAST)
         msg = ["hash not matching: "] + [('\t' + file_name) for file_name in hash_not_matching]
         print('\n'.join(msg))
         files_hash_equal = [filename for filename in files_info_equal if os.path.getsize(
@@ -147,8 +144,7 @@ class FTC:
         conn.send_with_compress(files_hash_equal)
         if not files_hash_equal:
             return
-        results = {filename: file_md5.full_digest(PurePath(local_folder, filename)) for filename in
-                   tqdm(files_hash_equal, desc='slow pass', unit='files', mininterval=0.2, leave=False)}
+        results = FileHash.parallel_calc_hash(local_folder, files_info_equal, False)
         peer_files_info = conn.recv_with_decompress()
         for filename in files_hash_equal:
             if results[filename] != peer_files_info[filename]:
@@ -172,10 +168,8 @@ class FTC:
             local_files_info, peer_files_info)
         # 传回文件名称、大小都相等的文件信息，用于后续的文件hash比较
         conn.send_with_compress(files_info_equal)
-        file_md5 = FileHash()
         # 进行快速hash比较
-        results = {filename: file_md5.fast_digest(PurePath(local_folder, filename)) for filename in
-                   tqdm(files_info_equal, desc='fast hash compare', unit='files', mininterval=0.2, leave=False)}
+        results = FileHash.parallel_calc_hash(local_folder, files_info_equal, True)
         peer_files_info = conn.recv_with_decompress()
         hash_not_matching = [filename for filename in files_info_equal if
                              results[filename] != peer_files_info[filename]]

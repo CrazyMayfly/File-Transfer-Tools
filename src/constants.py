@@ -13,7 +13,7 @@ cur_platform: Final[str] = system()
 windows = cur_platform == WINDOWS
 
 username = psutil.users()[0].name
-cpu_count = psutil.cpu_count(logical=False)
+cpu_count = psutil.cpu_count(logical=False) or 2
 
 LARGE_FILE_SIZE_THRESHOLD = 20  # 1024 * 1024
 SMALL_FILE_CHUNK_SIZE = 21  # 1024 * 1024 * 2
