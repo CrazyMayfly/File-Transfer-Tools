@@ -56,6 +56,24 @@ def split_by_threshold(info):
     return result
 
 
+def alternate_first_last(input_list):
+    """
+    Place the first and last elements of input list alternatively
+    """
+    result = []
+    left, right = 0, len(input_list) - 1
+
+    while left <= right:
+        if left == right:  # Handle the middle element when the list has odd length
+            result.append(input_list[left])
+        else:
+            result.append(input_list[left])
+            result.append(input_list[right])
+        left += 1
+        right -= 1
+    return result
+
+
 class FTC:
     def __init__(self, ftt):
         self.__ftt = ftt
@@ -264,7 +282,7 @@ class FTC:
         self.logger.silent_write(msgs)
         self.__main_conn.send_size(total_size)
         random.shuffle(small_files_info)
-        self.__large_files_info = deque(sorted(large_files_info, key=lambda item: item[1]))
+        self.__large_files_info = deque(alternate_first_last(sorted(large_files_info, key=lambda item: item[1])))
         self.__small_files_info = deque(split_by_threshold(small_files_info))
         self.logger.info(f'Send files under {folder}, number: {len(files)}')
         # 初始化总进度条
