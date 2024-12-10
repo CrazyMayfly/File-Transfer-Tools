@@ -1,3 +1,4 @@
+import argparse
 import os.path
 import tempfile
 import ipaddress
@@ -15,7 +16,29 @@ def get_args() -> Namespace:
     """
     获取命令行参数解析器
     """
-    parser = ArgumentParser(description='File Transfer Tool, used to transfer files and execute commands.')
+    epilog = """
+commands:
+  > file/folder:        Send single file or entire folder to peer.
+    example:            D:\\test.txt
+  > [command]:          Execute command on peer.
+    example:            ipconfig
+  > speedtest [size]:   Test the network speed between two sides, size is optional in MB, default is 500MB. 
+    example:            speedtest 1000
+  > sysinfo:            Get system information in both side.
+  > history:            Get the command history.
+  > say [message]:      Send a message to peer.
+    example:            say hello
+  > setbase [folder]:   Set the base folder to receive files.
+    example:            setbase "D:\\test"
+  > send clipboard:     Send the clipboard content to peer.
+  > get clipboard:      Get the clipboard content from peer.
+  > compare "local folder" "peer folder": Compare the files in the folder with the peer.
+    example:            compare "D:\\local\\test" "D:\\peer\\test"
+  > fsync   "local folder" "peer folder": Force synchronize folder, it makes the peer folder same as local folder.
+    example:            fsync "D:\\local\\test" "D:\\peer\\test"
+    """
+    parser = ArgumentParser(description="File Transfer Tool, used to transfer files or execute commands.", prog="ftt",
+                            epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-t', metavar='thread', type=int,
                         help=f'Threads (default: {cpu_count})', default=cpu_count)
     parser.add_argument('-host', metavar='host',
