@@ -18,6 +18,7 @@ cpu_count = psutil.cpu_count(logical=False) or 2
 LARGE_FILE_SIZE_THRESHOLD = 20  # 1024 * 1024
 SMALL_FILE_CHUNK_SIZE = 21  # 1024 * 1024 * 2
 KB = 1024
+MB = 1024 * KB
 FILE_TAIL_SIZE = 512 * KB
 package = getattr(sys, 'frozen', False)
 

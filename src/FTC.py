@@ -1,5 +1,4 @@
 import ssl
-import random
 import os.path
 import readline
 from Utils import *
@@ -378,7 +377,6 @@ class FTC:
             self.logger.success(f"{file} sent successfully") if success else self.logger.error(f"{file} failed to send")
 
     def __send_large_files(self, conn: ESocket, position: int):
-        view = memoryview(buf := bytearray(buf_size))
         while len(self.__large_files_info):
             filename, file_size, time_info = self.__large_files_info.pop()
             real_path = PurePath(self.__base_dir, filename)
@@ -397,11 +395,11 @@ class FTC:
             pbar_width = get_terminal_size().columns / 4
             with tqdm(total=rest_size, desc=shorten_path(filename, pbar_width), unit='bytes', unit_scale=True,
                       mininterval=1, position=position, leave=False, disable=position == 0, unit_divisor=1024) as pbar:
-                while data_size := fp.readinto(buf):
-                    conn.sendall(view[:min(data_size, rest_size)])
-                    pbar.update(data_size)
-                    rest_size -= data_size
-                    self.__update_global_pbar(data_size)
+                while rest_size > 0:
+                    sent_size = conn.sendfile(fp, offset=fp.tell(), count=5 * MB)
+                    rest_size -= sent_size
+                    pbar.update(sent_size)
+                    self.__update_global_pbar(sent_size)
             fp.close()
             # 发送文件的创建、访问、修改时间戳
             conn.sendall(times_struct.pack(*time_info))
@@ -420,7 +418,7 @@ class FTC:
                     for idx, (filename, file_size, _) in enumerate(files_info):
                         real_path = Path(self.__base_dir, filename)
                         with real_path.open('rb') as fp:
-                            conn.sendall(fp.read(file_size))
+                            conn.sendfile(fp)
                         pbar.update(file_size)
                 self.__update_global_pbar(total_size)
             except FileNotFoundError:

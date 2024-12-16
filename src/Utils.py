@@ -89,6 +89,9 @@ class ESocket:
     def sendall(self, data):
         self.__conn.sendall(data)
 
+    def sendfile(self, file, offset=0, count=None):
+        return self.__conn.sendfile(file, offset, count)
+
     def send_size(self, size: int):
         self.__conn.sendall(size_struct.pack(size))
 
@@ -228,6 +231,8 @@ def get_files_info_relative_to_basedir(base_dir):
 
 
 def format_time(time_interval):
+    if time_interval < 60:
+        return f"{time_interval:.2f}".rstrip("0").rstrip(".") + 's'
     units = [(86400, 'd'), (3600, 'h'), (60, 'm'), (1, 's')]
     formatted_time = ''
     for unit_time, unit_label in units:
