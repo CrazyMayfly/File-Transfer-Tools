@@ -168,24 +168,31 @@ class FTC:
         # 传回文件名称、大小都相等的文件信息，用于后续的文件hash比较
         conn.send_with_compress(files_info_equal)
         # 进行快速hash比较
-        results = FileHash.parallel_calc_hash(local_folder, files_info_equal, True)
+        results = get_files_modified_time(local_folder, files_info_equal)
         peer_files_info = conn.recv_with_decompress()
-        hash_not_matching = [filename for filename in files_info_equal if
+        mtime_not_matching = [filename for filename in files_info_equal if
                              results[filename] != peer_files_info[filename]]
         msgs = ['\n[INFO   ] ' + get_log_msg(
             f'Force sync files: local folder {local_folder} -> peer folder {peer_folder}\n')]
         for arg in [("files exist in peer but not in local: ", file_not_exists_in_local),
                     ("files in local smaller than peer: ", files_smaller_than_peer),
-                    ("files in peer smaller than local: ", files_smaller_than_local),
-                    ("files hash not matching: ", hash_not_matching)]:
+                    ("files in peer smaller than local: ", files_smaller_than_local)]:
             msgs.append(print_filename_if_exists(*arg, print_if_empty=False))
+        msg = ["files modified time not matching: "]
+        if mtime_not_matching:
+            msg.extend([f'\t{filename}: {format_timestamp(results[filename])} <-> {format_timestamp(peer_files_info[filename])}' for filename in mtime_not_matching])
+        else:
+            msg.append('\tNone')
+        if mtime_not_matching:
+            print('\n'.join(msg))
+        msg.append('')
         self.logger.silent_write(msgs)
 
-        files_to_remove_in_peer = files_smaller_than_peer + files_smaller_than_local + file_not_exists_in_local + hash_not_matching
+        files_to_remove_in_peer = files_smaller_than_peer + files_smaller_than_local + file_not_exists_in_local + mtime_not_matching
         if len(files_to_remove_in_peer) != 0:
             command = input(
                 f"Continue to force sync files in local folder({local_folder})\n"
-                f"    with above files deleted in peer folder?(y/n): ").lower()
+                f"    with above files removed in peer folder?(y/n): ").lower()
             if command not in ('y', 'yes'):
                 conn.send_size(CONTROL.CANCEL)
                 return

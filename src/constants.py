@@ -20,6 +20,7 @@ SMALL_FILE_CHUNK_SIZE = 21  # 1024 * 1024 * 2
 KB = 1024
 MB = 1024 * KB
 FILE_TAIL_SIZE = 512 * KB
+TIME_FORMAT: Final[str] = '%Y-%m-%d %H:%M:%S'
 package = getattr(sys, 'frozen', False)
 
 

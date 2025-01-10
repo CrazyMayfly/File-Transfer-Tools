@@ -225,7 +225,7 @@ def get_size(size, factor=1024, suffix="B"):
         size /= factor
 
 
-def get_files_info_relative_to_basedir(base_dir):
+def get_files_info_relative_to_basedir(base_dir) -> dict[str, int]:
     return {(abspath := PurePath(path, file)).relative_to(base_dir).as_posix(): os.path.getsize(abspath)
             for path, _, file_list in os.walk(base_dir) for file in file_list}
 
@@ -251,6 +251,19 @@ def pause_before_exit(exit_code=0):
     if package:
         os.system('pause')
     sys.exit(exit_code)
+
+
+def get_files_modified_time(base_folder, file_rel_paths: list[str]) -> dict[str, float]:
+    results = {}
+    for file_rel_path in tqdm(file_rel_paths, unit='files', mininterval=0.2, desc='Get files modified time',
+                              leave=False):
+        file_path = PurePath(base_folder, file_rel_path)
+        results[file_rel_path] = os.path.getmtime(file_path)
+    return results
+
+
+def format_timestamp(timestamp: float):
+    return time.strftime(TIME_FORMAT, time.localtime(timestamp))
 
 
 class FileHash:

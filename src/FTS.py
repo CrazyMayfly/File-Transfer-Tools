@@ -83,7 +83,7 @@ class FTS:
         self.__main_conn.send_with_compress(get_files_info_relative_to_basedir(folder))
         # 得到文件相对路径名: hash值字典
         file_info_equal = self.__main_conn.recv_with_decompress()
-        self.__main_conn.send_with_compress(FileHash.parallel_calc_hash(folder, file_info_equal, True))
+        self.__main_conn.send_with_compress(get_files_modified_time(folder, file_info_equal))
         if self.__main_conn.recv_size() != CONTROL.CONTINUE:
             self.logger.info("Peer canceled the sync.")
             return
