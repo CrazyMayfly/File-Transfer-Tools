@@ -1,3 +1,4 @@
+import math
 import ssl
 import os.path
 import readline
@@ -171,7 +172,7 @@ class FTC:
         results = get_files_modified_time(local_folder, files_info_equal)
         peer_files_info = conn.recv_with_decompress()
         mtime_not_matching = [filename for filename in files_info_equal if
-                             results[filename] != peer_files_info[filename]]
+                             int(results[filename]) != int(peer_files_info[filename])]
         msgs = ['\n[INFO   ] ' + get_log_msg(
             f'Force sync files: local folder {local_folder} -> peer folder {peer_folder}\n')]
         for arg in [("files exist in peer but not in local: ", file_not_exists_in_local),
