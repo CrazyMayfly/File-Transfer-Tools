@@ -174,7 +174,13 @@ class ThreadWithResult(threading.Thread):
 
 def send_clipboard(conn: ESocket, logger: Logger, ftc=True):
     # 读取并编码剪切板的内容
-    content = pyperclip.paste()
+    try:
+        content = pyperclip.paste()
+    except pyperclip.PyperclipException as e:
+        logger.error(f'Get clipboard error: {e}')
+        if not ftc:
+            conn.send_head('', COMMAND.NULL, 0)
+        return
     content_length = len(content.encode(utf8))
     if content_length == 0 or content_length > 65535:
         if content_length == 0:
@@ -194,12 +200,16 @@ def get_clipboard(conn: ESocket, logger: Logger, content=None, command=None, len
         conn.send_head('', COMMAND.PULL_CLIPBOARD, 0)
         content, command, length = conn.recv_head()
     if command != COMMAND.PUSH_CLIPBOARD:
-        logger.warning(f"Clipboard is empty or too large({get_size(length)}) to get.")
+        logger.warning(f"Can not get content in clipboard for some reason.")
         return
 
     logger.log(f"Get clipboard, size: {get_size(length)}\n{content}")
     # 拷贝到剪切板
-    pyperclip.copy(content)
+    try:
+        pyperclip.copy(content)
+    except pyperclip.PyperclipException as e:
+        logger.error(f'Copy content into clipboard error: {e}')
+        print(f"Content: \n{content}")
 
 
 def print_color(msg, level: LEVEL = LEVEL.LOG, highlight=0):
