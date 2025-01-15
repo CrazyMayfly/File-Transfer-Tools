@@ -134,7 +134,7 @@ def get_ip() -> str:
 def broadcast_to_all_interfaces(sk: socket.socket, content: bytes):
     interface_stats = psutil.net_if_stats()
     for interface, addresses in psutil.net_if_addrs().items():
-        if not interface_stats[interface].isup:
+        if interface not in interface_stats or not interface_stats[interface].isup:
             continue
         for addr in addresses:
             if addr.family == socket.AF_INET and addr.netmask:
