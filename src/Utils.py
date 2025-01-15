@@ -11,13 +11,12 @@ from pathlib import PurePath
 from datetime import datetime
 from typing import TextIO
 from tqdm import tqdm
-
+import pyperclip
 from constants import *
 
 # 解决win10的cmd中直接使用转义序列失效问题
 if windows:
     os.system("")
-    import pyperclip
 
 
 # 日志类，简化日志打印

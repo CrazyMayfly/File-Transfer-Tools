@@ -52,11 +52,15 @@ commands:
 
 
 @cache
-def get_matches(line):
+def get_matches(line: str):
     matches = [command + ' ' for command in commands if command.startswith(line)]
     if not line:
         return matches
     path, remainder = os.path.split(line)
+    for command in commands:
+        if line.startswith(f"{command} "):
+            path, remainder = os.path.split(line[len(command) + 1:])
+            break
     if remainder == '..':
         matches += [remainder + os.sep]
     else:

@@ -32,13 +32,16 @@ class FTT:
         self.__history_file.write(command + '\n')
         self.__history_file.flush()
 
-    def __change_base_dir(self, new_base_dir):
+    def __change_base_dir(self, new_base_dir:str):
         """
         切换FTS的文件保存目录
         """
         if not new_base_dir or new_base_dir.isspace():
             return
         new_base_dir = Path(new_base_dir).expanduser().absolute()
+        if new_base_dir.is_file():
+            self.logger.error(f'{new_base_dir} is a file, please input a directory')
+            return
         if self.create_folder_if_not_exist(new_base_dir):
             self.base_dir = new_base_dir
             self.logger.success(f'File save location changed to: {new_base_dir}')

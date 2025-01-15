@@ -1,4 +1,3 @@
-import math
 import ssl
 import os.path
 import readline
