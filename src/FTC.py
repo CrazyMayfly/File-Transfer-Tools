@@ -16,17 +16,46 @@ def print_history(nums=10):
         print(readline.get_history_item(i))
 
 
-def get_dir_file_name(filepath):
+def get_dir_file_name(filepath, desc_suffix='files', position=0):
     """
-    获取某文件路径下的所有文件夹和文件的相对路径
+    获取某文件路径下的所有文件夹和文件的相对路径，并显示进度条。
+    :param desc_suffix: 描述后缀
+    :param position: 进度条位置
     :param filepath: 文件路径
-    :return :返回该文件路径下的所有文件夹、文件的相对路径
+    :return: 返回该文件路径下的所有文件夹、文件的相对路径
     """
     folders, files = {}, []
-    for path, _, file_list in os.walk(filepath):
-        rel_path = os.path.relpath(path, filepath)
-        folders[rel_path] = os.path.getatime(path), os.path.getmtime(path)
-        files += [PurePath(rel_path, file).as_posix() for file in file_list]
+    root_abs_path = os.path.abspath(filepath)
+    queue = deque([(root_abs_path, '.')])
+    processed_paths = set()
+
+    # 初始化进度显示
+    pbar = tqdm(desc=f"Scanning {desc_suffix}", unit=" files", position=position, dynamic_ncols=True)
+
+    while queue:
+        current_abs_path, current_rel_path = queue.popleft()
+        if current_abs_path in processed_paths:
+            continue
+        processed_paths.add(current_abs_path)
+
+        stat = os.stat(current_abs_path)
+        folders[current_rel_path] = (stat.st_atime, stat.st_mtime)
+
+        try:
+            with os.scandir(current_abs_path) as it:
+                for entry in it:
+                    entry_rel_path = f"{current_rel_path}/{entry.name}" if current_rel_path != '.' else entry.name
+                    if entry.is_dir(follow_symlinks=False):
+                        queue.append((entry.path, entry_rel_path))
+                    elif entry.is_file(follow_symlinks=False):
+                        files.append(entry_rel_path)
+                        pbar.update(1)
+        except PermissionError:
+            continue
+
+    # 更新进度条描述
+    pbar.set_postfix(folders=len(folders))
+    pbar.close()
     return folders, files
 
 
@@ -313,7 +342,7 @@ class FTC:
         if not files:
             self.__main_conn.send_size(0)
             self.logger.info('No files to send', highlight=1)
-            return
+            return None
         # 将待发送的文件打印到日志，计算待发送的文件总大小
         msgs = [f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n']
         # 统计待发送的文件信息
