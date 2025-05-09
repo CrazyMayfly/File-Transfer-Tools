@@ -1,7 +1,7 @@
 import ssl
 import os.path
 import readline
-from Utils import *
+from utils import *
 from tqdm import tqdm
 from sys_info import *
 from pathlib import Path

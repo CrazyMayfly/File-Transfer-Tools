@@ -4,7 +4,7 @@ import concurrent.futures
 
 import send2trash
 
-from Utils import *
+from utils import *
 from sys_info import *
 from pathlib import Path
 

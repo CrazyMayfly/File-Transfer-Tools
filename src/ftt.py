@@ -4,7 +4,7 @@ import tarfile
 import re
 import select
 
-from FTT_lib import *
+from ftt_lib import *
 from send2trash import send2trash
 
 
@@ -32,7 +32,7 @@ class FTT:
         self.__history_file.write(command + '\n')
         self.__history_file.flush()
 
-    def __change_base_dir(self, new_base_dir:str):
+    def __change_base_dir(self, new_base_dir: str):
         """
         切换FTS的文件保存目录
         """
@@ -132,6 +132,8 @@ class FTT:
             pause_before_exit(-1)
         # self.logger.info(f'服务器所在平台: {msg}\n')
         self.peer_platform, *peer_username = msg.split('_')
+        if self.threads != threads:
+            self.logger.info(f"Thread count mismatch, use a lower value: {min(self.threads, threads)}")
         self.threads = min(self.threads, threads)
         self.peer_username = '_'.join(peer_username)
         self.main_conn = client_socket
@@ -179,6 +181,8 @@ class FTT:
 
         self.peer_platform = peer_platform
         self.peer_username = '_'.join(peer_username)
+        if self.threads != threads:
+            self.logger.info(f"Thread count mismatch, use a lower value: {min(self.threads, threads)}")
         self.threads = min(self.threads, threads)
         return self.__password.encode() + conn.recv_data(64)
 

@@ -3,8 +3,8 @@ import os.path
 import tempfile
 import ipaddress
 
-from FTC import *
-from FTS import *
+from ftc import *
+from fts import *
 from OpenSSL import crypto
 from dataclasses import dataclass
 from functools import cache
