@@ -1,13 +1,16 @@
 import lzma
+import re
 import os
 import pickle
 import random
 import socket
 import threading
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from hashlib import md5
-from pathlib import PurePath
+from os import PathLike
+from pathlib import PurePath, Path
 from datetime import datetime
 from typing import TextIO
 from tqdm import tqdm
@@ -234,9 +237,43 @@ def get_size(size, factor=1024, suffix="B"):
         size /= factor
 
 
-def get_files_info_relative_to_basedir(base_dir) -> dict[str, int]:
-    return {(abspath := PurePath(path, file)).relative_to(base_dir).as_posix(): os.path.getsize(abspath)
-            for path, _, file_list in os.walk(base_dir) for file in file_list}
+def get_files_info_relative_to_basedir(base_dir: str, desc_suffix='files', position=0) -> dict[str, int]:
+    """
+    获取某个目录下所有文件的相对路径和文件大小，并显示进度条
+    """
+    result = {}
+    root_abs_path = os.path.abspath(base_dir)
+    queue = deque([(root_abs_path, '.')])
+    processed_paths = set()
+    folders = 0
+    total_size = 0
+
+    # 初始化进度显示
+    pbar = tqdm(desc=f"Collecting {desc_suffix}", unit=" files", position=position, dynamic_ncols=True)
+    while queue:
+        current_abs_path, current_rel_path = queue.popleft()
+        if current_abs_path in processed_paths:
+            continue
+        processed_paths.add(current_abs_path)
+        folders += 1
+        try:
+            with os.scandir(current_abs_path) as it:
+                for entry in it:
+                    entry_rel_path = f"{current_rel_path}/{entry.name}" if current_rel_path != '.' else entry.name
+                    if entry.is_dir(follow_symlinks=False):
+                        queue.append((entry.path, entry_rel_path))
+                    elif entry.is_file(follow_symlinks=False):
+                        size = entry.stat().st_size
+                        result[entry_rel_path] = size
+                        total_size += size
+                        pbar.update(1)
+        except PermissionError:
+            continue
+
+    # 更新进度条描述
+    pbar.set_postfix(folders=folders, size=get_size(total_size))
+    pbar.close()
+    return result
 
 
 def format_time(time_interval):
@@ -251,9 +288,106 @@ def format_time(time_interval):
     return formatted_time if formatted_time else '0s'
 
 
+def parse_command(command: str) -> tuple[None, None, None] | tuple[str, str, str]:
+    """
+    解析形如 'command "source" "target"' 或 'command source target' 的命令字符串。
+    """
+    pattern = r'''
+        ^\s*(\w+)\s+                          # 命令
+        (?:
+            "([^"]+)"                         # source - 带双引号
+            |
+            ([^\s"]+)                         # source - 不带引号，不能包含空格或引号
+        )\s+
+        (?:
+            "([^"]+)"                         # target - 带双引号
+            |
+            ([^\s"]+)                         # target - 不带引号
+        )\s*$
+    '''
+    match = re.match(pattern, command, re.VERBOSE)
+    if not match:
+        return None, None, None
+
+    cmd = match.group(1)
+    source = match.group(2) if match.group(2) is not None else match.group(3)
+    target = match.group(4) if match.group(4) is not None else match.group(5)
+    return cmd, source, target
+
+
+def compare_files_info(source_files_info, target_files_info):
+    """
+    获取两个文件信息字典的差异
+    """
+    files_smaller_than_target, files_smaller_than_source, files_info_equal, files_not_exist_in_target = [], [], [], []
+    for filename in source_files_info.keys():
+        target_size = target_files_info.pop(filename, -1)
+        if target_size == -1:
+            files_not_exist_in_target.append(filename)
+            continue
+        size_diff = source_files_info[filename] - target_size
+        if size_diff < 0:
+            files_smaller_than_target.append(filename)
+        elif size_diff == 0:
+            files_info_equal.append(filename)
+        else:
+            files_smaller_than_source.append(filename)
+    file_not_exists_in_source = list(target_files_info.keys())
+    return files_smaller_than_target, files_smaller_than_source, files_info_equal, files_not_exist_in_target, file_not_exists_in_source
+
+
+def print_compare_result(source: str, target: str, compare_result: tuple):
+    files_smaller_than_target, files_smaller_than_source, files_info_equal, files_not_exist_in_target, file_not_exists_in_source = compare_result
+    simplified_info = files_info_equal[:10] + ['(more hidden...)'] if len(
+        files_info_equal) > 10 else files_info_equal
+    msgs = ['\n[INFO   ] ' + get_log_msg(
+        f'Compare the differences between source folder {source} and target folder {target}\n')]
+    for arg in [("files exist in target but not in source: ", file_not_exists_in_source),
+                ("files exist in source but not in target: ", files_not_exist_in_target),
+                ("files in source smaller than target: ", files_smaller_than_target),
+                ("files in target smaller than source: ", files_smaller_than_source),
+                ("files name and size both equal in two sides: ", simplified_info)]:
+        msgs.append(print_filename_if_exists(*arg))
+    return msgs
+
+
 def show_bandwidth(msg, data_size, interval, logger: Logger, level=LEVEL.SUCCESS):
     avg_bandwidth = get_size((data_size * 8 / interval) if interval != 0 else 0, factor=1000, suffix='bps')
     logger.log(f"{msg}, average bandwidth {avg_bandwidth}, takes {format_time(interval)}", level)
+
+
+if windows:
+    from win_set_time import set_times
+
+
+def modify_file_time(logger: Logger, file_path: str, create_timestamp: float, modify_timestamp: float,
+                     access_timestamp: float):
+    """
+    用来修改文件的相关时间属性
+    :param logger: 日志对象
+    :param file_path: 文件路径名
+    :param create_timestamp: 创建时间戳
+    :param modify_timestamp: 修改时间戳
+    :param access_timestamp: 访问时间戳
+    """
+    try:
+        if windows:
+            set_times(file_path, create_timestamp, modify_timestamp, access_timestamp)
+        else:
+            os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
+    except Exception as error:
+        logger.warning(f'{file_path} file time modification failed, {error}')
+
+
+def makedirs(logger: Logger, dir_names, base_dir: str | PathLike):
+    for dir_name in tqdm(dir_names, unit='folders', mininterval=0.1, delay=0.1, desc='Creating folders', leave=False):
+        cur_dir = Path(base_dir, dir_name)
+        if cur_dir.exists():
+            continue
+        try:
+            cur_dir.mkdir(parents=True)
+        except FileNotFoundError:
+            logger.error(f'Failed to create folder {cur_dir}', highlight=1)
 
 
 def pause_before_exit(exit_code=0):
@@ -262,9 +396,9 @@ def pause_before_exit(exit_code=0):
     sys.exit(exit_code)
 
 
-def get_files_modified_time(base_folder, file_rel_paths: list[str]) -> dict[str, float]:
+def get_files_modified_time(base_folder, file_rel_paths: list[str], desc: str = 'files') -> dict[str, float]:
     results = {}
-    for file_rel_path in tqdm(file_rel_paths, unit='files', mininterval=0.2, desc='Get files modified time',
+    for file_rel_path in tqdm(file_rel_paths, unit='files', mininterval=0.2, desc=f'Get {desc} modified time',
                               leave=False):
         file_path = PurePath(base_folder, file_rel_path)
         results[file_rel_path] = os.path.getmtime(file_path)

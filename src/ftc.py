@@ -1,6 +1,8 @@
 import ssl
 import os.path
 import readline
+
+from pbar_manager import PbarManager
 from utils import *
 from tqdm import tqdm
 from sys_info import *
@@ -91,10 +93,35 @@ def alternate_first_last(input_list):
     return result
 
 
+def collect_files_info(logger: Logger, files: set[str], root: str):
+    # 将待发送的文件打印到日志，计算待发送的文件总大小
+    msgs = [f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n']
+    # 统计待发送的文件信息
+    total_size = 0
+    large_files_info, small_files_info = [], []
+    for file in tqdm(files, delay=0.1, desc='collect files info', unit='files', mininterval=0.2, leave=False):
+        real_path = Path(root, file)
+        file_size = (file_stat := real_path.stat()).st_size
+        info = file, file_size, (file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
+        # 记录每个文件大小
+        large_files_info.append(info) if file_size >> LARGE_FILE_SIZE_THRESHOLD else small_files_info.append(info)
+        total_size += file_size
+        msgs.append(f"{real_path}, {file_size}B\n")
+    logger.silent_write(msgs)
+    random.shuffle(small_files_info)
+    large_files_info = deque(alternate_first_last(sorted(large_files_info, key=lambda item: item[1])))
+    small_files_info = deque(split_by_threshold(small_files_info))
+    logger.info(f'Send files under {root}, number: {len(files)}')
+    # 初始化总进度条
+    pbar = tqdm(total=total_size, desc='total', unit='bytes', unit_scale=True,
+                mininterval=1, position=0, colour='#01579B', unit_divisor=1024)
+    return large_files_info, small_files_info, total_size, pbar
+
+
 class FTC:
     def __init__(self, ftt):
         self.__ftt = ftt
-        self.__pbar: tqdm = ...
+        self.__pbar: PbarManager = ...
         self.__base_dir: Path = ...
         self.__main_conn: ESocket = ftt.main_conn
         self.__connections: list[ESocket] = ftt.connections
@@ -138,19 +165,10 @@ class FTC:
         # 将字符串转化为dict
         peer_files_info: dict = conn.recv_with_decompress()
         # 求各种集合
-        files_smaller_than_peer, files_smaller_than_local, files_info_equal, files_not_exist_in_peer, file_not_exists_in_local = self.__get_files_differences(
-            local_files_info, peer_files_info)
-        simplified_info = files_info_equal[:10] + ['(more hidden...)'] if len(
-            files_info_equal) > 10 else files_info_equal
-        msgs = ['\n[INFO   ] ' + get_log_msg(
-            f'Compare the differences between local folder {local_folder} and peer folder {peer_folder}\n')]
-        for arg in [("files exist in peer but not in local: ", file_not_exists_in_local),
-                    ("files exist in local but not in peer: ", files_not_exist_in_peer),
-                    ("files in local smaller than peer: ", files_smaller_than_peer),
-                    ("files in peer smaller than local: ", files_smaller_than_local),
-                    ("files name and size both equal in two sides: ", simplified_info)]:
-            msgs.append(print_filename_if_exists(*arg))
+        compare_result = compare_files_info(local_files_info, peer_files_info)
+        msgs = print_compare_result(local_folder, peer_folder, compare_result)
         self.logger.silent_write(msgs)
+        files_info_equal = compare_result[2]
         if not files_info_equal:
             conn.send_size(CONTROL.CANCEL)
             return
@@ -192,7 +210,7 @@ class FTC:
         local_files_info = get_files_info_relative_to_basedir(local_folder)
         # 将字符串转化为dict
         peer_files_info: dict = conn.recv_with_decompress()
-        files_smaller_than_peer, files_smaller_than_local, files_info_equal, _, file_not_exists_in_local = self.__get_files_differences(
+        files_smaller_than_peer, files_smaller_than_local, files_info_equal, _, file_not_exists_in_local = compare_files_info(
             local_files_info, peer_files_info)
         # 传回文件名称、大小都相等的文件信息，用于后续的文件hash比较
         conn.send_with_compress(files_info_equal)
@@ -200,7 +218,7 @@ class FTC:
         results = get_files_modified_time(local_folder, files_info_equal)
         peer_files_info = conn.recv_with_decompress()
         mtime_not_matching = [filename for filename in files_info_equal if
-                             int(results[filename]) != int(peer_files_info[filename])]
+                              int(results[filename]) != int(peer_files_info[filename])]
         msgs = ['\n[INFO   ] ' + get_log_msg(
             f'Force sync files: local folder {local_folder} -> peer folder {peer_folder}\n')]
         for arg in [("files exist in peer but not in local: ", file_not_exists_in_local),
@@ -209,7 +227,9 @@ class FTC:
             msgs.append(print_filename_if_exists(*arg, print_if_empty=False))
         msg = ["files modified time not matching: "]
         if mtime_not_matching:
-            msg.extend([f'\t{filename}: {format_timestamp(results[filename])} <-> {format_timestamp(peer_files_info[filename])}' for filename in mtime_not_matching])
+            msg.extend([
+                f'\t{filename}: {format_timestamp(results[filename])} <-> {format_timestamp(peer_files_info[filename])}'
+                for filename in mtime_not_matching])
         else:
             msg.append('\tNone')
         if mtime_not_matching:
@@ -228,38 +248,6 @@ class FTC:
         conn.send_size(CONTROL.CONTINUE)
         conn.send_with_compress(files_to_remove_in_peer)
         self.__send_files_in_folder(local_folder, True)
-
-    @staticmethod
-    def __get_files_differences(local_files_info, peer_files_info):
-        """
-        获取两个文件信息字典的差异
-        """
-        files_smaller_than_peer, files_smaller_than_local, files_info_equal, files_not_exist_in_peer = [], [], [], []
-        for filename in local_files_info.keys():
-            peer_size = peer_files_info.pop(filename, -1)
-            if peer_size == -1:
-                files_not_exist_in_peer.append(filename)
-                continue
-            size_diff = local_files_info[filename] - peer_size
-            if size_diff < 0:
-                files_smaller_than_peer.append(filename)
-            elif size_diff == 0:
-                files_info_equal.append(filename)
-            else:
-                files_smaller_than_local.append(filename)
-        file_not_exists_in_local = list(peer_files_info.keys())
-        return files_smaller_than_peer, files_smaller_than_local, files_info_equal, files_not_exist_in_peer, file_not_exists_in_local
-
-    def __update_global_pbar(self, size, decrease=False):
-        with self.__pbar.get_lock():
-            if not decrease:
-                self.__pbar.update(size)
-            else:
-                self.__pbar.total -= size
-
-    def __set_pbar_status(self, fail):
-        self.__pbar.colour = '#F44336' if fail else '#98c379'
-        self.__pbar.close()
 
     def __execute_command(self, command):
         if len(command) == 0:
@@ -343,28 +331,11 @@ class FTC:
             self.__main_conn.send_size(0)
             self.logger.info('No files to send', highlight=1)
             return None
-        # 将待发送的文件打印到日志，计算待发送的文件总大小
-        msgs = [f'\n[INFO   ] {get_log_msg("Files to be sent: ")}\n']
-        # 统计待发送的文件信息
-        total_size = 0
-        large_files_info, small_files_info = [], []
-        for file in tqdm(files, delay=0.1, desc='collect files info', unit='files', mininterval=0.2, leave=False):
-            real_path = Path(folder, file)
-            file_size = (file_stat := real_path.stat()).st_size
-            info = file, file_size, (file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime)
-            # 记录每个文件大小
-            large_files_info.append(info) if file_size >> LARGE_FILE_SIZE_THRESHOLD else small_files_info.append(info)
-            total_size += file_size
-            msgs.append(f"{real_path}, {file_size}B\n")
-        self.logger.silent_write(msgs)
+        large_files_info, small_files_info, total_size, pbar = collect_files_info(self.logger, files, folder)
         self.__main_conn.send_size(total_size)
-        random.shuffle(small_files_info)
-        self.__large_files_info = deque(alternate_first_last(sorted(large_files_info, key=lambda item: item[1])))
-        self.__small_files_info = deque(split_by_threshold(small_files_info))
-        self.logger.info(f'Send files under {folder}, number: {len(files)}')
-        # 初始化总进度条
-        self.__pbar = tqdm(total=total_size, desc='total', unit='bytes', unit_scale=True,
-                           mininterval=1, position=0, colour='#01579B', unit_divisor=1024)
+        self.__large_files_info = large_files_info
+        self.__small_files_info = small_files_info
+        self.__pbar = PbarManager(pbar)
         return files
 
     def __send_files_in_folder(self, folder, is_sync=False):
@@ -384,7 +355,7 @@ class FTC:
             fails = files - set(self.__finished_files)
             self.__finished_files.clear()
             # 比对发送失败的文件
-            self.__set_pbar_status(len(fails))
+            self.__pbar.set_status(len(fails) > 0)
             if fails:
                 self.logger.error("Failed to sent: ", highlight=1)
                 for fail in fails:
@@ -401,16 +372,16 @@ class FTC:
         time_info = file_stat.st_ctime, file_stat.st_mtime, file_stat.st_atime
         self.__large_files_info.append((file.name, file_size, time_info))
         pbar_width = get_terminal_size().columns / 4
-        self.__pbar = tqdm(total=file_size, desc=shorten_path(file.name, pbar_width), unit='bytes',
-                           unit_scale=True, mininterval=1, position=0, colour='#01579B', unit_divisor=1024)
+        self.__pbar = PbarManager(tqdm(total=file_size, desc=shorten_path(file.name, pbar_width), unit='bytes',
+                           unit_scale=True, mininterval=1, position=0, colour='#01579B', unit_divisor=1024))
         try:
             self.__send_large_files(self.__main_conn, 0)
         except (ssl.SSLError, ConnectionError) as error:
             self.logger.error(error)
         finally:
-            success = len(self.__finished_files) and self.__finished_files.pop() == file.name
-            self.__set_pbar_status(fail=not success)
-            self.logger.success(f"{file} sent successfully") if success else self.logger.error(f"{file} failed to send")
+            is_success = len(self.__finished_files) and self.__finished_files.pop() == file.name
+            self.__pbar.set_status(not is_success)
+            self.logger.success(f"{file} sent successfully") if is_success else self.logger.error(f"{file} failed to send")
 
     def __send_large_files(self, conn: ESocket, position: int):
         while len(self.__large_files_info):
@@ -435,11 +406,11 @@ class FTC:
                     sent_size = conn.sendfile(fp, offset=fp.tell(), count=5 * MB)
                     rest_size -= sent_size
                     pbar.update(sent_size)
-                    self.__update_global_pbar(sent_size)
+                    self.__pbar.update(sent_size)
             fp.close()
             # 发送文件的创建、访问、修改时间戳
             conn.sendall(times_struct.pack(*time_info))
-            self.__update_global_pbar(peer_exist_size, decrease=True)
+            self.__pbar.update(peer_exist_size, decrease=True)
             self.__finished_files.append(filename)
 
     def __send_small_files(self, conn: ESocket, position: int):
@@ -456,7 +427,7 @@ class FTC:
                         with real_path.open('rb') as fp:
                             conn.sendfile(fp)
                         pbar.update(file_size)
-                self.__update_global_pbar(total_size)
+                self.__pbar.update(total_size)
             except FileNotFoundError:
                 self.logger.error(f'Failed to open: {real_path}')
             finally:

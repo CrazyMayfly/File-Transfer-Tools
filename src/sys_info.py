@@ -1,7 +1,7 @@
 import platform
 import time
 import psutil
-from Utils import get_size, ThreadWithResult
+from utils import get_size, ThreadWithResult
 from constants import cpu_count, username
 
 

@@ -77,10 +77,12 @@ force_sync: Final[str] = "fsync"
 speedtest: Final[str] = 'speedtest'
 setbase: Final[str] = 'setbase'
 history: Final[str] = 'history'
+cp: Final[str] = "cp"
 say: Final[str] = 'say'
 clipboard_send: Final[str] = 'send clipboard'
 clipboard_get: Final[str] = 'get clipboard'
-commands: Final[list] = [sysinfo, compare, speedtest, setbase, say, history, clipboard_send, clipboard_get, force_sync]
+commands = [sysinfo, compare, speedtest, setbase, say, history, clipboard_send, clipboard_get, force_sync]
+sn_commands = [sysinfo, compare, history, force_sync, cp]
 
 # Struct 对象
 # B为 1字节 unsigned char，0~127

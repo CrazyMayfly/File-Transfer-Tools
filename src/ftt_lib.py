@@ -32,10 +32,11 @@ commands:
     example:            setbase "D:\\test"
   > send clipboard:     Send the clipboard content to peer.
   > get clipboard:      Get the clipboard content from peer.
-  > compare "local folder" "peer folder": Compare the files in the folder with the peer.
-    example:            compare "D:\\local\\test" "D:\\peer\\test"
-  > fsync   "local folder" "peer folder": Force synchronize folder, it makes the peer folder same as local folder.
-    example:            fsync "D:\\local\\test" "D:\\peer\\test"
+  > compare "source folder" "target folder": Compare the files in the folder with the target.
+    example:            compare "D:\\source\\test" "D:\\target\\test"
+  > fsync   "source folder" "target folder": Force synchronize folder, it makes the target folder same as source folder.
+    example:            fsync "D:\\source\\test" "D:\\target\\test"
+  > cp "source folder" "target folder": Only work in single mode, copy the source folder to target folder.
     """
     parser = ArgumentParser(description="File Transfer Tool, used to transfer files or execute commands.", prog="ftt",
                             epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -45,19 +46,21 @@ commands:
                         help='Destination hostname or ip address', default='')
     parser.add_argument('-p', '--password', metavar='password', type=str,
                         help='Set a password for the host or Use a password to connect host.', default='')
+    parser.add_argument('-s', '--single', action='store_true', dest='single',
+                        help='Use the single node mode. In this mode, params like -p, -d, -host will not work.')
     parser.add_argument('-d', '--dest', metavar='base_dir', type=Path,
                         help='File save location (default: {})'.format(config.default_path),
                         default=config.default_path)
     return parser.parse_args()
 
-
+complete_commands = []
 @cache
 def get_matches(line: str):
-    matches = [command + ' ' for command in commands if command.startswith(line)]
+    matches = [command + ' ' for command in complete_commands if command.startswith(line)]
     if not line:
         return matches
     path, remainder = os.path.split(line)
-    for command in commands:
+    for command in complete_commands:
         if line.startswith(f"{command} "):
             path, remainder = os.path.split(line[len(command) + 1:])
             break
@@ -81,10 +84,12 @@ def completer(_, state):
     return matches[state] if state < len(matches) else None
 
 
-def read_line_setup() -> Path:
+def read_line_setup(single_mode: bool) -> Path:
     """
     设置readline的补全和历史记录功能
     """
+    global complete_commands
+    complete_commands = sn_commands if single_mode else commands
     readline.set_completer(completer)
     readline.set_history_length(1000)
     readline.parse_and_bind('tab: complete')

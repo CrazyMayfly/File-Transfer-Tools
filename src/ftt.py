@@ -1,19 +1,17 @@
 import signal
 import struct
-import tarfile
-import re
 import select
 
 from ftt_lib import *
-from send2trash import send2trash
+from ftt_base import FTTBase
+from ftt_sn import FTTSn
 
 
-class FTT:
+class FTT(FTTBase):
     def __init__(self, password, host, base_dir, threads):
+        super().__init__(threads, False)
         self.peer_username: str = ...
         self.peer_platform: str = ...
-        self.threads: int = threads
-        self.executor: concurrent.futures.ThreadPoolExecutor = ...
         self.base_dir: Path = base_dir.expanduser().absolute()
         self.main_conn_recv: ESocket = ...
         self.main_conn: ESocket = ...
@@ -24,13 +22,6 @@ class FTT:
         self.__host: str = host
         self.__alive: bool = True
         self.__password: str = password
-        self.__history_file: TextIO = open(read_line_setup(), 'a', encoding=utf8)
-        self.logger: Logger = Logger(PurePath(config.log_dir, f'{datetime.now():%Y_%m_%d}_ftt.log'))
-
-    def __add_history(self, command: str):
-        readline.add_history(command)
-        self.__history_file.write(command + '\n')
-        self.__history_file.flush()
 
     def __change_base_dir(self, new_base_dir: str):
         """
@@ -45,59 +36,6 @@ class FTT:
         if self.create_folder_if_not_exist(new_base_dir):
             self.base_dir = new_base_dir
             self.logger.success(f'File save location changed to: {new_base_dir}')
-
-    def create_folder_if_not_exist(self, folder: Path) -> bool:
-        """
-        创建文件夹
-        @param folder: 文件夹路径
-        @return: 是否创建成功
-        """
-        if folder.exists():
-            return True
-        try:
-            folder.mkdir(parents=True)
-        except OSError as error:
-            self.logger.error(f'Failed to create {folder}, {error}', highlight=1)
-            return False
-        self.logger.info(f'Created {folder}')
-        return True
-
-    def __compress_log_files(self):
-        """
-        压缩日志文件
-        @return:
-        """
-        base_dir = config.log_dir
-        if not os.path.exists(base_dir):
-            return
-        # 获取非今天的日志文件名
-        today = datetime.now().strftime('%Y_%m_%d')
-        pattern = r'^\d{4}_\d{2}_\d{2}_ftt.log'
-        files = [entry for entry in os.scandir(base_dir) if entry.is_file() and re.match(pattern, entry.name)
-                 and not entry.name.startswith(today)]
-        total_size = sum([file.stat().st_size for file in files])
-        if len(files) < config.log_file_archive_count and total_size < config.log_file_archive_size:
-            return
-        dates = [datetime.strptime(file.name[0:10], '%Y_%m_%d') for file in files]
-        max_date, min_date = max(dates), min(dates)
-        # 压缩后的输出文件名
-        output_file = PurePath(base_dir, f'{min_date:%Y%m%d}_{max_date:%Y%m%d}.ftt.tar.gz')
-        # 创建一个 tar 归档文件对象
-        with tarfile.open(output_file, 'w:gz') as tar:
-            # 逐个添加文件到归档文件中
-            for file in files:
-                tar.add(file.path, arcname=file.name)
-        # 若压缩文件完整则将日志文件移入回收站
-        if tarfile.is_tarfile(output_file):
-            for file in files:
-                try:
-                    send2trash(PurePath(file.path))
-                except Exception as error:
-                    self.logger.warning(f'{error}: {file.name} failed to be sent to the recycle bin, delete it.')
-                    os.remove(file.path)
-
-        self.logger.success(f'Logs archiving completed: {min_date:%Y/%m/%d} to {max_date:%Y/%m/%d}, '
-                            f'{get_size(total_size)} -> {get_size(os.path.getsize(output_file))}')
 
     def __connect(self):
         try:
@@ -139,7 +77,7 @@ class FTT:
         self.main_conn = client_socket
         return connect_id
 
-    def __shutdown(self, send_info=True):
+    def _shutdown(self, send_info=True):
         try:
             if send_info:
                 self.main_conn.send_head('', COMMAND.CLOSE, 0)
@@ -150,7 +88,7 @@ class FTT:
             pass
         finally:
             self.logger.close()
-            self.__history_file.close()
+            self._history_file.close()
             if package:
                 os.system('pause')
             os.kill(os.getpid(), signal.SIGINT)
@@ -210,7 +148,7 @@ class FTT:
                     self.__host = peer_ip
                     break
             except KeyboardInterrupt:
-                self.__shutdown(send_info=False)
+                self._shutdown(send_info=False)
         while len(self.connections) < self.threads + 1:
             try:
                 if not select.select([server_socket], [], [], 0.1)[0]:
@@ -225,7 +163,7 @@ class FTT:
             except TimeoutError:
                 self.logger.warning(f'Connection timeout')
             except KeyboardInterrupt:
-                self.__shutdown(send_info=False)
+                self._shutdown(send_info=False)
         server_socket.close()
         self.main_conn = self.connections.pop()
 
@@ -263,11 +201,11 @@ class FTT:
             pause_before_exit(-1)
         except KeyboardInterrupt:
             self.logger.close()
-            self.__history_file.close()
+            self._history_file.close()
             pause_before_exit()
 
-    def __boot(self):
-        threading.Thread(name='ArchThread', target=self.__compress_log_files, daemon=True).start()
+    def _boot(self):
+        threading.Thread(name='ArchThread', target=self._compress_log_files, daemon=True).start()
         if self.__host:
             # 处理ip和端口
             if len(splits := self.__host.split(":")) == 2:
@@ -305,18 +243,18 @@ class FTT:
             self.logger.error(f'Peer data flow abnormality, connection disconnected')
         finally:
             if not self.busy_lock.locked():
-                self.__shutdown(send_info=False)
+                self._shutdown(send_info=False)
             else:
                 self.__alive = False
 
     def start(self):
-        self.__boot()
+        self._boot()
         try:
             while self.__alive:
                 command = input('> ').strip()
                 if not command:
                     continue
-                self.__add_history(command)
+                self._add_history(command)
                 if command in ['q', 'quit', 'exit']:
                     self.__alive = False
                     break
@@ -327,10 +265,11 @@ class FTT:
         except (ssl.SSLError, ConnectionError) as e:
             self.logger.error(e.strerror if e.strerror else e, highlight=1)
         finally:
-            self.__shutdown()
+            self._shutdown()
 
 
 if __name__ == '__main__':
     args = get_args()
-    ftt = FTT(password=args.password, host=args.host, base_dir=args.dest, threads=args.t)
+    ftt: FTTBase = FTT(password=args.password, host=args.host, base_dir=args.dest,
+                       threads=args.t) if not args.single else FTTSn(threads=args.t)
     ftt.start()

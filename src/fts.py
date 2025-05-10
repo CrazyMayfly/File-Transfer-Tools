@@ -8,9 +8,6 @@ from utils import *
 from sys_info import *
 from pathlib import Path
 
-if windows:
-    from win_set_time import set_times
-
 
 def avoid_filename_duplication(filename: str):
     """
@@ -33,23 +30,6 @@ class FTS:
         self.__ftt = ftt
         self.__main_conn: ESocket = ftt.main_conn_recv
         self.logger: Logger = ftt.logger
-
-    def __modify_file_time(self, file_path: str, create_timestamp: float, modify_timestamp: float,
-                           access_timestamp: float):
-        """
-        用来修改文件的相关时间属性
-        :param file_path: 文件路径名
-        :param create_timestamp: 创建时间戳
-        :param modify_timestamp: 修改时间戳
-        :param access_timestamp: 访问时间戳
-        """
-        try:
-            if windows:
-                set_times(file_path, create_timestamp, modify_timestamp, access_timestamp)
-            else:
-                os.utime(path=file_path, times=(access_timestamp, modify_timestamp))
-        except Exception as error:
-            self.logger.warning(f'{file_path} file time modification failed, {error}')
 
     def __compare_folder(self, folder):
         # self.logger.info(f"Client request to compare folder: {folder}")
@@ -119,16 +99,6 @@ class FTS:
             self.__main_conn.sendall(os.urandom(data_unit))
         show_bandwidth('Upload speed test completed', data_size, time.time() - download_over, self.logger)
 
-    def __makedirs(self, dir_names, base_dir):
-        for dir_name in dir_names:
-            cur_dir = Path(base_dir, dir_name)
-            if cur_dir.exists():
-                continue
-            try:
-                cur_dir.mkdir()
-            except FileNotFoundError:
-                self.logger.error(f'Failed to create folder {cur_dir}', highlight=1)
-
     def __recv_files_in_folder(self, cur_dir: Path):
         with self.__ftt.busy_lock:
             files = []
@@ -136,7 +106,7 @@ class FTS:
                 for path, _, file_list in os.walk(cur_dir):
                     files += [PurePath(PurePath(path).relative_to(cur_dir), file).as_posix() for file in file_list]
             dirs_info: dict = self.__main_conn.recv_with_decompress()
-            self.__makedirs(dirs_info.keys(), cur_dir)
+            makedirs(self.logger, list(dirs_info.keys()), cur_dir)
             # 发送已存在的文件名
             self.__main_conn.send_with_compress(files)
             start, total_size = time.time(), self.__main_conn.recv_size()
@@ -161,7 +131,7 @@ class FTS:
             for filename, file_size, time_info in files_info:
                 real_path = Path(cur_dir, filename)
                 real_path.write_bytes(conn.recv_data(file_size))
-                self.__modify_file_time(str(real_path), *time_info)
+                modify_file_time(self.logger, str(real_path), *time_info)
                 msgs.append(f'[SUCCESS] {get_log_msg("Received")}: {real_path}\n')
             self.logger.success(f'Received: {len(files_info)} small files')
             self.logger.silent_write(msgs)
@@ -185,7 +155,7 @@ class FTS:
             os.rename(cur_download_file, original_file)
             self.logger.success(f'Received: {original_file}')
             timestamps = times_struct.unpack(conn.recv_data(times_struct.size))
-            self.__modify_file_time(original_file, *timestamps)
+            modify_file_time(self.logger, original_file, *timestamps)
         except ConnectionDisappearedError:
             self.logger.warning(f'Connection was terminated unexpectedly and reception failed: {original_file}')
         except PermissionError as err:
